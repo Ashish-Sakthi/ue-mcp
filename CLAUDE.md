@@ -138,6 +138,8 @@ CI **gates the publish job** on a single pre-staged input: the draft GitHub rele
    ```
    `--engines 5.7,5.8` narrows the build; `UE_MCP_BINARY_ENGINES="5.4=D:/UE_5.4;5.5=..."` names engines outside the launcher's location. An engine without a build here is an engine whose binary install fails with a plain "no prebuilt bridge for UE x.y" until one is uploaded.
 
+   **CI enforces this.** The publish job fails before npm when the draft does not carry `UE_MCP_Bridge-<version>-UE5.7-Win64.zip`, `-UE5.8-Win64.zip` and `UE_MCP_Bridge-<version>-manifest.json` (`scripts/release-binaries.mjs`). 1.4.0-beta.2 shipped without them and broke every binary install's update.
+
 4. **Push the version bump.** That's it - CI takes over.
 
 5. **CI validates → publishes → promotes.** If the headline frontmatter is missing or malformed, the publish job fails with a pointer to the offending item *before* npm publish runs. On success, the published release page shows the body with frontmatter stripped, and the `landing/headline` commit status is posted automatically.

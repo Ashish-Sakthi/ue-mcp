@@ -268,6 +268,13 @@ jobs:
           # $GITHUB_OUTPUT in the standard key=value form.
           printf '%s' "$DRAFT_BODY" | node scripts/release-headline.mjs >> "$GITHUB_OUTPUT"
 
+          # The draft must carry the prebuilt bridge for every promised engine
+          # and its SHA-256 manifest; without them every binary install's update
+          # fails. Rules and message in scripts/release-binaries.mjs, under unit
+          # test in tests/unit/release-binaries.test.ts.
+          gh release view "v$VERSION" --json assets --jq '.assets[].name' \
+            | node scripts/release-binaries.mjs --version "$VERSION"
+
       - name: Install & Build
         if: steps.version.outputs.should_publish == 'true'
         # See note on the build job's Install step re: the rollup
