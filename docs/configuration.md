@@ -265,6 +265,8 @@ ue-mcp:
 
 A call that still cannot reach the editor says why it last went away. The daemon's event stream (`GET /v1/events`) carries `call.started` and `call.finished` for every MCP call from every client, named by the client, with the category, action, duration and outcome.
 
+The daemon also manages the project's plugins over HTTP, for clients such as an in-editor panel. `GET /v1/plugins` lists the plugins `ue-mcp.yml` declares with their version, status and categories, and `GET /v1/plugins/catalog` lists the registry's published plugins. `POST /v1/plugins/install` (`{ name, version? }`), `POST /v1/plugins/update` (`{ name? }`) and `POST /v1/plugins/uninstall` (`{ name }`) run the same `ue-mcp plugin` commands, one at a time, and publish `plugins.changed` on the event stream. A change takes effect when the server restarts.
+
 ### Updates through the daemon
 
 A minute after it starts, and every six hours, the daemon looks for a newer release on the install's channel and publishes `update.available` on its event stream. `GET /v1/update` reports the target version and, for a binary install, whether that release ships binaries for the project's engine and platform. `POST /v1/update/apply` (optional body `{ "version": "x.y.z" }`) installs it:
