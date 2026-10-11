@@ -50,6 +50,7 @@ import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
 import { applyUpdate, checkForUpdate, readPendingUpdate, repinClientConfigs, settlePendingUpdate } from "../editor/bridge-update.js";
 import { subscribeFlowEvents } from "../flow/events.js";
+import { pluginRoutes } from "./plugin-routes.js";
 
 const DEFAULT_IDLE_MS = 30 * 60_000;
 const DEFAULT_WAIT_FOR_EDITOR_SECONDS = 60;
@@ -390,6 +391,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     req.on("error", reject);
   });
 
+  // The project's ue-mcp plugins: list, registry catalog, install, update, uninstall.
+  const plugins = pluginRoutes({ projectDir, onChanged: () => events.publish("plugins.changed", {}) });
+
   const json = (res: http.ServerResponse, status: number, body: unknown): void => {
     res.writeHead(status, { "content-type": "application/json" }).end(JSON.stringify(body));
   };
@@ -512,6 +516,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           const n = normalizeResponse(out ?? undefined);
           res.writeHead(n.status, n.headers).end(n.body);
         }, (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
+      return;
+    }
+    if (url.pathname === "/v1/plugins" || url.pathname.startsWith("/v1/plugins/")) {
+      readBody(req)
+        .then((body) => plugins(req.method ?? "GET", url.pathname.slice("/v1/plugins".length).replace(/\/+$/, ""), body))
+        .then((r) => (r ? json(res, r.status, r.body) : void res.writeHead(404).end()), (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
       return;
     }
     if (url.pathname === "/v1/flows" || url.pathname.startsWith("/v1/flows/")) {
