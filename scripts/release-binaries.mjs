@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * The publish gate for prebuilt bridge binaries: a release must carry a bridge
  * zip for every engine it promises and the SHA-256 manifest the installer
