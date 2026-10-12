@@ -153,6 +153,8 @@ A client known to render the whole message skips that round trip. Every other cl
 
 The form outlives the call that raised it. A blocked call waits a minute for your answer and then refuses, so one open form does not hold every other call behind it, but the form stays up and the button you pick is still pressed whenever you get to it. The screen is re-read first, so an answer that arrives after the dialog was closed at the editor's own window, or after a different prompt replaced it, presses nothing.
 
+A daemon extension that runs actions in process, such as UE-MCP Studio, answers the dialogs its own calls meet: `callAction` takes a `dialogPrompt` with the same form an MCP client is shown, so `interactive` works there too. Its answer may also be `delegate`, which hands that one dialog to the agent with the press calls, as `auto` would. An answer sooner than `UE_MCP_ELICIT_MIN_HUMAN_MS` is not taken as a person's. Every dialog is also published on the daemon's event stream as `dialog.opened`, `dialog.answered`, `dialog.delegated` and `dialog.closed`, whoever met it and under every mode. Nothing changes for an MCP client or the CLI.
+
 
 ### User-machine state (`~/.ue-mcp/`)
 

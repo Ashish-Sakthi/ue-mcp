@@ -71,6 +71,54 @@ export interface ElicitResult {
   content?: Record<string, string | number | boolean | string[]>;
 }
 
+/**
+ * A blocking dialog put to a daemon extension, for a call that extension made.
+ *
+ * The same form an MCP client is elicited with (`message`, `requestedSchema`,
+ * answered with `content.button` and, for a dialog with rows, `content.items`),
+ * plus the dialog itself so the extension can draw it rather than parse it.
+ */
+export interface DialogPromptRequest extends ElicitParams {
+  dialog: {
+    /** The editor showing it. */
+    editor: string;
+    title: string;
+    message: string;
+    /** In the order the dialog lays them out. */
+    buttons: string[];
+    /** The rows a person can tick, for a dialog that asks per item. */
+    items?: Array<{ index: number; label: string; cells: string[]; checked: boolean }>;
+    /** The `category.action` whose call met the dialog. */
+    subject: string;
+    /** An answer sooner than this many milliseconds is not taken as a person's. */
+    minHumanMs: number;
+  };
+}
+
+/**
+ * The form's three answers, or `delegate`: the person handed this one dialog
+ * to the agent, which may then answer it as it would in auto mode.
+ */
+export type DialogPromptResult = ElicitResult | { action: "delegate" };
+
+export type DialogPromptFn = (request: DialogPromptRequest) => Promise<DialogPromptResult>;
+
+/** Options for one action run in process, by a daemon extension. */
+export interface InProcessCallOptions {
+  /**
+   * Who a blocking dialog this call meets is put to, in place of an MCP
+   * elicitation form. Without it nobody is asked, and a mode that wants a
+   * person (interactive) applies as defer.
+   */
+  dialogPrompt?: DialogPromptFn;
+  /**
+   * How long this call waits on an open prompt before it returns the dialog
+   * refusal, in milliseconds. The prompt stays up either way, and whatever it
+   * answers later is still pressed. Default 60000.
+   */
+  dialogWaitMs?: number;
+}
+
 export interface ToolContext {
   bridge: IBridge;
   project: ProjectContext;

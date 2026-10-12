@@ -44,6 +44,10 @@ import { handleFlowRoute, hostIsAllowed } from "../flow/http-server.js";
 import { userDir } from "../core/user-dir.js";
 import { readRegistryAuth } from "../extensions/registry-auth.js";
 import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type EditorStatus } from "./extension-api.js";
+import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
+
+/** What this daemon's extension API offers beyond its version number. */
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "events.dialog"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
@@ -91,6 +95,25 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   const rt = await createRuntime(opts.projects);
   const projectDir = rt.project.projectDir ?? process.cwd();
   const events = new EventLog();
+  // Every guard's dialogs on the event stream, so a UI can show a dialog it
+  // was never asked about. One raised before this subscribed is replayed.
+  const unsubscribeDialogs = onDialogEvent(({ type, ...data }) => {
+    events.publish(`dialog.${type}`, data as unknown as Record<string, unknown>);
+  });
+  for (const s of rt.sessions.list()) {
+    const guard = existingGuard(s);
+    const open = guard?.current;
+    if (guard && open) {
+      events.publish("dialog.opened", {
+        editor: guard.label,
+        title: open.title,
+        message: open.message,
+        buttons: open.buttons,
+        ...(open.items ? { items: open.items } : {}),
+        mode: guard.mode,
+      });
+    }
+  }
   const expected = new ExpectedDisconnect();
   const token = newToken();
   const startedAt = new Date().toISOString();
@@ -354,10 +377,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     route: (method, routePath, handler) => {
       routes.push({ method, path: routePath, handler });
     },
-    callAction: async (category, action, args) => {
-      const r = await rt.callAction(category, action, args);
+    callAction: async (category, action, args, callOpts) => {
+      const r = await rt.callAction(category, action, args, {
+        ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
+        ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
+      });
       return { isError: !!r.isError, content: r.content };
     },
+    features: EXTENSION_FEATURES,
     editors: () => editors(),
     editorOperation: (op) => editorOp(op),
     setBusy,
@@ -580,6 +607,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       clearInterval(idleTimer);
       for (const t of updateTimers) clearTimeout(t);
       unsubscribeFlows();
+      unsubscribeDialogs();
       for (const x of extensions) await Promise.resolve(x.dispose?.()).catch((e) => warn("extension", `${x.name} dispose failed`, e));
       for (const w of watchers) w.close();
       if (opts.publish !== false) removeDiscovery(projectDir);

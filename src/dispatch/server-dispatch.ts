@@ -165,6 +165,15 @@ export interface DispatchDeps {
   client: () => { name: string; version?: string } | undefined;
 }
 
+/** The button a respond_to_dialog call names: its label, its index into the dialog's buttons, or the dismissal. */
+function pressedLabel(params: Record<string, unknown>, dialog: { buttons: string[] } | null): string {
+  if (typeof params.buttonLabel === "string" && params.buttonLabel !== "") return params.buttonLabel;
+  if (typeof params.buttonIndex === "number" && dialog?.buttons[params.buttonIndex] !== undefined) {
+    return dialog.buttons[params.buttonIndex];
+  }
+  return typeof params.dialogAction === "string" ? params.dialogAction : "";
+}
+
 /** The serving editor, appended to a response only beyond one editor (5.3). */
 export function attribution(sessions: SessionRegistry, session: EditorSession): TextBlock[] {
   const line = editorAttribution(
@@ -229,6 +238,8 @@ export async function dispatchCategoryCall(
   // boundary cannot refuse them. Same guard, same decision.
   const preflight = await guard.check(effectiveTask, "action");
   if (!preflight.allow) return refusalResult(preflight.refusal);
+  // The dialog a press is aimed at, for the answered event.
+  const facing = guard.current;
 
   const taskParams = stripAction(params);
   const flowCtx: FlowContext = {
@@ -310,23 +321,32 @@ export async function dispatchCategoryCall(
       // respond_to_dialog may have just cleared it. refresh, not check: check
       // applies the mode and could press a button on the next prompt unasked.
       if (effectiveTask === "editor.respond_to_dialog" && result.success) {
+        guard.notePress(pressedLabel(subject.params, facing), facing);
         await guard.refresh();
       }
       const seen = guard.current;
-      if (result.success) stampBlockedEditor(result.data, seen, guard.mode);
+      if (result.success) stampBlockedEditor(result.data, seen, guard.modeFor(seen));
     }
 
     // Whatever the route, the caller gets ONE refusal shape, built here.
     // Actions allowed through a modal are exempt.
+    let answeredWhileWaiting: string | null = null;
     if (!DialogGuard.actionAllowed(effectiveTask)) {
       const fromPlugin = isDialogRefusal(result.data)
         ? (result.data as Record<string, unknown>)
         : null;
       if (fromPlugin) guard.observe("__refused__", fromPlugin);
       const blocking = guard.current;
-      if (blocking) {
-        const decision = postRunDecision
-          ?? (await guard.check(effectiveTask, "action"));
+      const decision = blocking ? postRunDecision ?? (await guard.check(effectiveTask, "action")) : null;
+      // The check can answer the dialog itself: the person was asked and pressed a
+      // button while this call waited. Then nothing is blocking any more, and the
+      // call's own result is the answer, not a refusal naming a dialog that is gone.
+      if (blocking && decision?.allow === true && !fromPlugin) {
+        const pressed = guard.lastPressed;
+        answeredWhileWaiting = `The dialog "${blocking.title}" that appeared during this call was answered`
+          + (pressed ? ` (${pressed.button} was pressed)` : "") + ". The call's own result follows.";
+      }
+      if (blocking && decision && !(decision.allow === true && !fromPlugin)) {
         const refusalForReturn = decision.allow === false
           ? decision.refusal
           : guard.refusal(effectiveTask, blocking);
@@ -353,12 +373,14 @@ export async function dispatchCategoryCall(
 
     const stringify = (v: unknown) =>
       typeof v === "string" ? v : JSON.stringify(v, null, 2);
+    const answeredNote: TextBlock[] = answeredWhileWaiting ? [{ type: "text" as const, text: answeredWhileWaiting }] : [];
 
     // Directive responses (execute_python workaround tracking) emit the prose
     // directive, a MACHINE_DIRECTIVE block for clients that strip prose, and
     // the actual tool result.
     if (isDirectiveResponse(result.data)) {
       const blocks: TextBlock[] = [
+        ...answeredNote,
         { type: "text" as const, text: result.data.directive },
       ];
       if (result.data.machine) {
@@ -373,6 +395,7 @@ export async function dispatchCategoryCall(
 
     return {
       content: withUpgradeNotice([
+        ...answeredNote,
         { type: "text" as const, text: stringify(result.data) },
         ...served,
       ]),
