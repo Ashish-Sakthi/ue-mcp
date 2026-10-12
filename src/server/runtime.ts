@@ -18,7 +18,7 @@ import {
   injectMigrateTarget,
   removeMigrateTarget,
 } from "../surface/target-params.js";
-import type { ToolContext, ToolDef } from "../core/types.js";
+import type { InProcessCallOptions, ToolContext, ToolDef } from "../core/types.js";
 import { dispatchCategoryCall, type DispatchDeps, type ToolResult } from "../dispatch/server-dispatch.js";
 import { DialogGuard, guardFor, sessionGuardDeps } from "../editor/dialog-guard.js";
 import { info, warn, error } from "../core/log.js";
@@ -64,9 +64,15 @@ export interface Runtime {
   logSummary(): void;
   /**
    * Run one category action in process, through the same dispatch as an MCP
-   * call: routing, guards, locking. There is no person on it, so it never elicits.
+   * call: routing, guards, locking. It never elicits: a blocking dialog is put
+   * to the caller's own `dialogPrompt` when it passes one, and nobody otherwise.
    */
-  callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ToolResult>;
+  callAction(
+    category: string,
+    action: string,
+    args?: Record<string, unknown>,
+    opts?: InProcessCallOptions,
+  ): Promise<ToolResult>;
 }
 
 /**
@@ -292,15 +298,26 @@ export async function createRuntime(projectArgs: string[]): Promise<Runtime> {
         session.bridge.startReconnecting();
       }
     },
-    callAction(category, action, args = {}) {
+    callAction(category, action, args = {}, opts = {}) {
       // The full graph, not the advertised one: in micro mode only the gateway is advertised.
       const tool = primaryLoad.surface.tools.find((t) => t.name === category);
       if (!tool) return Promise.reject(new Error(`unknown category '${category}'`));
+      const prompt = opts.dialogPrompt;
       const deps: DispatchDeps = {
         sessions,
         loads,
         lockingCfg,
-        dialogGuardFor,
+        // The caller's own prompt is who a dialog this call meets is put to.
+        dialogGuardFor: prompt
+          ? (forSession) => {
+              const guard = guardFor(
+                forSession,
+                sessionGuardDeps(forSession, true, undefined, { prompt, askWaitMs: opts.dialogWaitMs }),
+              );
+              guard.startWatching();
+              return guard;
+            }
+          : dialogGuardFor,
         elicit: () => undefined,
         client: () => undefined,
       };

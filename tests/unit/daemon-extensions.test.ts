@@ -68,6 +68,15 @@ beforeAll(async () => {
         const a = await api.registryAccount();
         return { body: a ? { login: a.login, hasToken: a.token.length > 0 } : null };
       });
+      api.route("GET", "/features", () => ({ body: { features: api.features ?? null } }));
+      api.route("POST", "/status-prompted", async () => {
+        let asked = false;
+        const r = await api.callAction("project", "get_status", {}, {
+          dialogPrompt: async () => { asked = true; return { action: "cancel" }; },
+          dialogWaitMs: 10,
+        });
+        return { body: { isError: r.isError, asked } };
+      });
       api.route("POST", "/status", async () => {
         const r = await api.callAction("project", "get_status");
         api.events.publish("checked", { isError: r.isError });
@@ -126,6 +135,30 @@ describe("extensions", () => {
     expect(res.isError).toBe(false);
     expect(daemon.events.since(before).events.map((e) => e.type)).toContain("sample.checked");
   }, 60_000);
+});
+
+describe("dialogs, for an extension", () => {
+  it("advertises the dialog prompt and the dialog events", async () => {
+    const res = await (await fetch(`${base}/v1/ext/sample/features`, { headers: auth })).json();
+    expect(res.features).toEqual(expect.arrayContaining(["callAction.dialogPrompt", "events.dialog"]));
+  });
+
+  it("takes a dialog prompt on callAction and asks it nothing while no dialog is up", async () => {
+    const res = await (await fetch(`${base}/v1/ext/sample/status-prompted`, { method: "POST", headers: auth })).json();
+    expect(res).toEqual({ isError: false, asked: false });
+  }, 60_000);
+
+  it("puts a guard's dialog on the event stream", async () => {
+    const { existingGuard } = await import("../../src/editor/dialog-guard.js");
+    const before = daemon.events.lastId;
+    const session = daemon.runtime.sessions.list()[0];
+    const guard = existingGuard(session)!;
+    guard.note({ title: "Save Content", message: "Save these?", buttons: ["Save", "Cancel"], choices: [] });
+    guard.clear();
+    const seen = daemon.events.since(before).events;
+    expect(seen.map((e) => e.type)).toEqual(["dialog.opened", "dialog.closed"]);
+    expect(seen[0].data).toMatchObject({ title: "Save Content", buttons: ["Save", "Cancel"] });
+  });
 });
 
 describe("updates", () => {

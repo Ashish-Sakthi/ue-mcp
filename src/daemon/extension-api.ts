@@ -3,6 +3,7 @@
  * built against one EXTENSION_API_VERSION keeps working until that number
  * changes, so anything here changes additively or bumps it.
  */
+import type { DialogPromptFn } from "../core/types.js";
 import type { DisconnectCause } from "./disconnect.js";
 import type { DaemonEvent } from "./events.js";
 import type { UiManifest } from "./ui-bundles.js";
@@ -37,6 +38,36 @@ export interface ExtensionResponse {
 
 export type ExtensionHandler = (req: ExtensionRequest) => ExtensionResponse | undefined | Promise<ExtensionResponse | undefined>;
 
+/** Options for one callAction. */
+export interface CallActionOptions {
+  /**
+   * Answers a blocking dialog this call meets, in place of an MCP elicitation
+   * form, with the same contract: the form (message, requestedSchema) plus the
+   * dialog itself, answered accept with content.button, decline or cancel, or
+   * delegate to hand that one dialog to the agent as auto mode would. An answer
+   * sooner than dialog.minHumanMs is not taken as a person's.
+   */
+  dialogPrompt?: DialogPromptFn;
+  /** How long the call waits on an open prompt before returning the dialog refusal, in ms. Default 60000. */
+  dialogWaitMs?: number;
+}
+
+/**
+ * The data of a dialog.* event. `type` names the event: dialog.opened,
+ * dialog.answered (button, and via: prompt or action), dialog.delegated,
+ * dialog.closed.
+ */
+export interface DialogEventData {
+  editor: string;
+  title: string;
+  message: string;
+  buttons: string[];
+  items?: Array<{ index: number; label: string; cells: string[]; checked: boolean }>;
+  mode?: "auto" | "interactive" | "defer";
+  button?: string;
+  via?: "prompt" | "action";
+}
+
 /** The text and error flag of an action's result. */
 export interface ActionResult {
   isError: boolean;
@@ -61,8 +92,22 @@ export interface DaemonExtensionApi {
   /** Serve `method path` under /v1/ext/<name>. `:param` segments are captured. */
   route(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, handler: ExtensionHandler): void;
 
-  /** Run one category action through the same dispatch as an MCP call. Never elicits. */
-  callAction(category: string, action: string, args?: Record<string, unknown>): Promise<ActionResult>;
+  /**
+   * Run one category action through the same dispatch as an MCP call. Never
+   * elicits. A blocking dialog the call meets is put to `opts.dialogPrompt`
+   * when given (feature "callAction.dialogPrompt"), the way an MCP client is
+   * shown a form; without one, nobody is asked.
+   */
+  callAction(category: string, action: string, args?: Record<string, unknown>, opts?: CallActionOptions): Promise<ActionResult>;
+
+  /**
+   * What this daemon offers beyond EXTENSION_API_VERSION, for feature detection:
+   *   "callAction.dialogPrompt"  callAction takes `opts.dialogPrompt` and `opts.dialogWaitMs`
+   *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
+   *                              dialog.closed on the event stream (see DialogEventData)
+   * Absent on a daemon older than the field.
+   */
+  features?: readonly string[];
 
   editors(): EditorStatus[];
   /** Start, stop, restart or rebuild the editor, with the cause announced first. */
