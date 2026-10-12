@@ -26,8 +26,9 @@
  */
 import type { EditorSession } from "../sessions/session.js";
 import type { IBridge } from "../bridge/bridge.js";
-import type { ElicitFn, ElicitPrimitiveSchema } from "../core/types.js";
+import type { DialogPromptFn, ElicitFn, ElicitPrimitiveSchema, ElicitResult } from "../core/types.js";
 import type { DialogMode } from "../config/user-state.js";
+import { readEnv } from "../core/env.js";
 import { elicitationNeedsRelay } from "../dispatch/client-quirks.js";
 import { resolveDialogMode } from "./dialog-mode.js";
 import { readEngineSnapshot } from "./engine-observer.js";
@@ -241,6 +242,68 @@ function asDialog(v: unknown): BlockingDialog | null {
 interface AskOutcome {
   shown: boolean;
   press: DialogPress | null;
+  /** The person handed this dialog to the agent. */
+  delegated?: boolean;
+}
+
+/**
+ * What happened to a blocking dialog, for whoever watches (the daemon puts
+ * these on its event stream). Observation only: nothing here decides anything.
+ *
+ *   opened     a dialog is blocking the editor
+ *   answered   a button was pressed: by the person through a prompt, or by an
+ *              action call (respond_to_dialog)
+ *   delegated  the person handed this dialog to the agent
+ *   closed     the editor is no longer blocked by it
+ */
+export interface DialogEvent {
+  type: "opened" | "answered" | "delegated" | "closed";
+  editor: string;
+  title: string;
+  message: string;
+  buttons: string[];
+  items?: DialogItem[];
+  /** opened: the mode that applies to it. */
+  mode?: DialogMode;
+  /** answered: the button pressed, and the route it came by. */
+  button?: string;
+  via?: "prompt" | "action";
+}
+
+const dialogListeners = new Set<(e: DialogEvent) => void>();
+
+/** Watch every guard's dialogs. Returns the unsubscribe. */
+export function onDialogEvent(listener: (e: DialogEvent) => void): () => void {
+  dialogListeners.add(listener);
+  return () => dialogListeners.delete(listener);
+}
+
+function emitDialogEvent(e: DialogEvent): void {
+  for (const l of dialogListeners) {
+    try {
+      l(e);
+    } catch {
+      // A broken watcher must not break the guard.
+    }
+  }
+}
+
+/**
+ * Which on-screen dialog an event is about. Title and buttons, not the message:
+ * the status file and list_dialogs flatten the same text differently, and a
+ * message mismatch would report one dialog as opened again and again.
+ */
+function eventIdentity(dialog: BlockingDialog): string {
+  return `${dialog.title} :: ${dialog.buttons.join(" | ")}`;
+}
+
+/**
+ * The fastest a person answers a dialog prompt, in milliseconds: the same
+ * setting and default as the feedback approval form.
+ */
+export function minHumanAnswerMs(): number {
+  const configured = Number(readEnv("elicitMinHumanMs"));
+  return Number.isFinite(configured) && configured >= 0 ? configured : 1000;
 }
 
 /** A button press, and whether the editor confirmed it landed. */
@@ -283,6 +346,12 @@ export interface GuardDeps {
   ) => Promise<unknown>;
   /** Present only when the connected client advertised elicitation. */
   elicit?: () => ElicitFn | undefined;
+  /**
+   * A daemon extension's own prompt, for a call that extension made in
+   * process. Preferred over `elicit`, because it belongs to the caller of
+   * this call.
+   */
+  prompt?: () => DialogPromptFn | undefined;
   /**
    * The editor's published status snapshot, polled so a modal raised while
    * nothing is running is still noticed.
@@ -345,6 +414,10 @@ export class DialogGuard {
   /** Which dialog that in-flight ask is about. */
   private askingFor: string | null = null;
   private poll: NodeJS.Timeout | null = null;
+  /** Dialogs the person handed to the agent. Reset with the other per-dialog records. */
+  private delegated = new Set<string>();
+  /** The editor this guard watches, named in its events. */
+  label = "";
 
   constructor(private deps: GuardDeps) {}
 
@@ -370,12 +443,42 @@ export class DialogGuard {
 
   /** Whether there is anybody to put an elicitation form in front of. */
   get canElicit(): boolean {
-    return this.deps.elicit?.() !== undefined;
+    return this.deps.elicit?.() !== undefined || this.deps.prompt?.() !== undefined;
+  }
+
+  /** Whether the person handed this dialog to the agent. */
+  isDelegated(dialog: BlockingDialog | null): boolean {
+    return dialog !== null && this.delegated.has(dialogIdentity(dialog));
+  }
+
+  /** The mode that applies to this dialog: auto once the person delegated it. */
+  modeFor(dialog: BlockingDialog | null): DialogMode {
+    return this.isDelegated(dialog) ? "auto" : this.deps.mode();
+  }
+
+  private emit(type: DialogEvent["type"], dialog: BlockingDialog, extra: Partial<DialogEvent> = {}): void {
+    emitDialogEvent({
+      type,
+      editor: this.label,
+      title: dialog.title,
+      message: dialog.message,
+      buttons: dialog.buttons,
+      ...(dialog.items ? { items: dialog.items } : {}),
+      ...extra,
+    });
+  }
+
+  /** Record a button an action call pressed, for whoever watches. */
+  notePress(button: string, dialog: BlockingDialog | null): void {
+    if (dialog) this.emit("answered", dialog, { button, via: "action" });
   }
 
   /** Record a dialog. Called by the watcher, a probe, or a plugin refusal. */
   note(dialog: BlockingDialog): void {
+    const fresh = !this.blocking || eventIdentity(this.blocking) !== eventIdentity(dialog);
+    if (fresh && this.blocking) this.emit("closed", this.blocking);
     this.blocking = dialog;
+    if (fresh) this.emit("opened", dialog, { mode: DialogGuard.effectiveMode(this.deps.mode(), this.canElicit) });
   }
 
   /**
@@ -387,6 +490,7 @@ export class DialogGuard {
    * guard while the dialog is still on screen.
    */
   clear(): void {
+    if (this.blocking) this.emit("closed", this.blocking);
     this.blocking = null;
   }
 
@@ -403,6 +507,7 @@ export class DialogGuard {
   private forgetDialogRecords(): void {
     this.lastAsked = null;
     this.told.clear();
+    this.delegated.clear();
   }
 
   /**
@@ -487,7 +592,7 @@ export class DialogGuard {
         dialog
         && kind === "action"
         && PRESS_ACTIONS.has(subject)
-        && !DialogGuard.handsOverPressCalls(this.deps.mode(), this.canAsk(opts))
+        && !DialogGuard.handsOverPressCalls(this.modeFor(dialog), this.canAsk(opts))
       ) {
         return { allow: false, refusal: this.refusal(subject, dialog, opts) };
       }
@@ -505,7 +610,7 @@ export class DialogGuard {
    * so the gate and the refusal cannot answer it differently.
    */
   private canAsk(opts: { canElicit?: boolean }): boolean {
-    return opts.canElicit !== false && this.deps.elicit?.() !== undefined;
+    return opts.canElicit !== false && this.canElicit;
   }
 
   /**
@@ -554,6 +659,11 @@ export class DialogGuard {
     // save prompt is two real answers for one action. If the same dialog is
     // still there after a press, pressing again will not help: report it.
     const identity = dialogIdentity(dialog);
+    // Handed to the agent by the person: auto's refusal from here, with the
+    // press calls, for this dialog only.
+    if (this.delegated.has(identity)) {
+      return { allow: false, refusal: this.refusal(subject, dialog, opts) };
+    }
     // canElicit: false means this route has nobody to ask. An HTTP request
     // has no person on it, and eliciting would raise a form in whichever
     // MCP client last touched this guard and press a real button on its
@@ -591,7 +701,8 @@ export class DialogGuard {
     // modes are not equal.
     const interactive =
       DialogGuard.effectiveMode(this.deps.mode(), this.canAsk(opts)) === "interactive";
-    if (interactive && this.needsRelay(dialog) && !this.told.has(identity)) {
+    // An extension's prompt draws the dialog itself, so it has no form to outgrow.
+    if (interactive && !this.deps.prompt?.() && this.needsRelay(dialog) && !this.told.has(identity)) {
       this.told.add(identity);
       return { allow: false, refusal: this.refusal(subject, dialog, opts, "relay") };
     }
@@ -608,8 +719,12 @@ export class DialogGuard {
         // The outcome is recorded by the ask itself, not by whichever call is
         // waiting on it. A person can answer long after every call has stopped
         // waiting, and that answer is still theirs to have pressed (#1076).
-        this.asking = this.askUser(dialog)
+        this.asking = this.askUser(dialog, subject)
           .then((outcome) => {
+            if (outcome.delegated) {
+              this.delegated.add(identity);
+              this.emit("delegated", dialog);
+            }
             // Recorded only once a form was actually SHOWN. Setting it before
             // the ask meant an elicitation that threw or was declined consumed
             // the one chance, and the person was never asked about that dialog
@@ -731,11 +846,31 @@ export class DialogGuard {
   }
 
   /** Put it to the person; return the button they chose, or null. */
-  private async askUser(dialog: BlockingDialog): Promise<AskOutcome> {
-    const elicit = this.deps.elicit?.();
+  private async askUser(dialog: BlockingDialog, subject: string): Promise<AskOutcome> {
+    // The extension's own prompt for its own call, else the MCP client's form.
+    const prompt = this.deps.prompt?.();
+    const minHumanMs = prompt ? minHumanAnswerMs() : 0;
+    const elicit: ((params: Parameters<ElicitFn>[0]) => Promise<ElicitResult | { action: "delegate" }>) | undefined = prompt
+      ? (params) => prompt({
+          ...params,
+          dialog: {
+            editor: this.label,
+            title: dialog.title,
+            message: dialog.message,
+            buttons: dialog.buttons,
+            ...(dialog.items ? { items: dialog.items } : {}),
+            subject,
+            minHumanMs,
+          },
+        })
+      : this.deps.elicit?.();
     if (!elicit || dialog.buttons.length === 0) return { shown: false, press: null };
+    const startedAt = Date.now();
+    // No person answers that fast, so it was not a person's answer: the prompt
+    // counts as not shown and the dialog is asked about again.
+    const tooFast = () => minHumanMs > 0 && Date.now() - startedAt < minHumanMs;
     const LEAVE_OPEN = "Leave the dialog open";
-    let answer;
+    let answer: ElicitResult | { action: "delegate" };
     // Which line comes FIRST is the only lever there is over how this reads.
     //
     // A client renders the elicitation message itself, and at least one shows
@@ -820,10 +955,15 @@ export class DialogGuard {
         return { shown: false, press: null };
       }
     }
+    if (answer.action === "delegate") {
+      return tooFast() ? { shown: false, press: null } : { shown: true, press: null, delegated: true };
+    }
     if (answer.action !== "accept") return { shown: true, press: null };
-    const chosen = answer.content?.button;
+    const content = answer.content;
+    const chosen = content?.button;
     if (typeof chosen !== "string" || chosen === LEAVE_OPEN) return { shown: true, press: null };
     if (!dialog.buttons.includes(chosen)) return { shown: true, press: null };
+    if (tooFast()) return { shown: false, press: null };
     // The answer can arrive long after the form went up, and the editor may be
     // showing something else by then: the dialog answered at its own window, or
     // a new one with the same buttons. A press is only for the dialog the
@@ -846,11 +986,11 @@ export class DialogGuard {
       // A grouped answer with no list at all leaves every row as the dialog
       // had it. A client that drops a field it cannot draw would otherwise
       // untick everything, and "Save Selected" would save nothing.
-      const picked = answer.content?.[ITEMS_KEY];
+      const picked = content?.[ITEMS_KEY];
       const selections = tickable.map((item) => ({
         index: item.index,
         checked: asked === "perRow"
-          ? answer.content?.[itemKey(item.index)] === true
+          ? content?.[itemKey(item.index)] === true
           : Array.isArray(picked) ? picked.includes(itemKey(item.index)) : item.checked,
       }));
       // Called with ONE argument when there is nothing to tick, so a dialog
@@ -865,7 +1005,10 @@ export class DialogGuard {
       const confirmed = r.answered === true
         ? !r.methodError && !r.refused && r.success !== false
         : r.success === true;
-      if (confirmed) return { shown: true, press: { button: chosen, confirmed: true } };
+      if (confirmed) {
+        this.emit("answered", dialog, { button: chosen, via: "prompt" });
+        return { shown: true, press: { button: chosen, confirmed: true } };
+      }
       // It answered and said it did not press: nothing happened, report silence.
       if (r.answered === true) return { shown: true, press: null };
       // It never answered. The frame was already on the wire, so whether the
@@ -897,9 +1040,10 @@ export class DialogGuard {
     return DialogGuard.describeRefusal(
       subject,
       dialog,
-      this.deps.mode(),
+      this.modeFor(dialog),
       this.canAsk(opts),
       phase,
+      this.isDelegated(dialog),
     );
   }
 
@@ -919,6 +1063,7 @@ export class DialogGuard {
     resolvedMode: DialogMode,
     canElicit = true,
     phase: DialogPhase = "asking",
+    delegated = false,
   ): Record<string, unknown> {
     const mode = DialogGuard.effectiveMode(resolvedMode, canElicit);
     // Only interactive has two phases. auto and defer say everything they have
@@ -985,6 +1130,18 @@ export class DialogGuard {
           + "Dialog mode is defer, so this names the dialog but not the calls that press its "
           + "buttons, and a press sent from here is refused: a person answers it in the Unreal "
           + "Editor window. Every other action returns this same refusal until then.",
+      };
+    }
+    if (delegated) {
+      return {
+        ...common,
+        dialogDelegated: true,
+        choices: dialog.choices,
+        error:
+          preamble
+          + "The person was asked and handed this dialog to you, so the decision is yours for "
+          + "this dialog only. Read it in dialogMessage, choose a button, and press it with the "
+          + "call beside it in choices. Every other action returns this same refusal until then.",
       };
     }
     return {
@@ -1201,8 +1358,11 @@ export function sessionGuardDeps(
   session: EditorSession,
   canElicit: boolean,
   elicit?: () => ElicitFn | undefined,
+  extension?: { prompt: DialogPromptFn; askWaitMs?: number },
 ): GuardDeps {
   return {
+    ...(extension ? { prompt: () => extension.prompt } : {}),
+    ...(extension?.askWaitMs !== undefined ? { askWaitMs: extension.askWaitMs } : {}),
     mode: () => resolveDialogMode({ projectDir: session.projectDir, canElicit }).mode,
     probe: () => session.guarded.call("list_dialogs", {}),
     press: (buttonLabel: string, items?: Array<{ index: number; checked: boolean }>) =>
@@ -1232,6 +1392,7 @@ export function guardFor(session: EditorSession, deps: GuardDeps): DialogGuard {
     return existing;
   }
   const created = new DialogGuard(deps);
+  created.label = session.name;
   guards.set(session, created);
   return created;
 }
