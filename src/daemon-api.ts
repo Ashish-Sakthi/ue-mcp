@@ -22,6 +22,8 @@ export { DAEMON_API_VERSION, readDiscovery, readLiveDiscovery, discoveryPath, ty
 export {
   EXTENSION_API_VERSION,
   type ActionResult,
+  type CallActionOptions,
+  type DialogEventData,
   type DaemonExtension,
   type DaemonExtensionApi,
   type DaemonHealth,
@@ -31,6 +33,7 @@ export {
   type ExtensionResponse,
 } from "./daemon/extension-api.js";
 export type { DaemonEvent } from "./daemon/events.js";
+export type { DialogPromptFn, DialogPromptRequest, DialogPromptResult } from "./core/types.js";
 export type { DisconnectCause } from "./daemon/disconnect.js";
 export { signBundle, verifyBundle, type UiManifest } from "./daemon/ui-bundles.js";
 export type { StatusReport, ClientStatus } from "./cli/status.js";

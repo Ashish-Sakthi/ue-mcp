@@ -165,6 +165,15 @@ export interface DispatchDeps {
   client: () => { name: string; version?: string } | undefined;
 }
 
+/** The button a respond_to_dialog call names: its label, its index into the dialog's buttons, or the dismissal. */
+function pressedLabel(params: Record<string, unknown>, dialog: { buttons: string[] } | null): string {
+  if (typeof params.buttonLabel === "string" && params.buttonLabel !== "") return params.buttonLabel;
+  if (typeof params.buttonIndex === "number" && dialog?.buttons[params.buttonIndex] !== undefined) {
+    return dialog.buttons[params.buttonIndex];
+  }
+  return typeof params.dialogAction === "string" ? params.dialogAction : "";
+}
+
 /** The serving editor, appended to a response only beyond one editor (5.3). */
 export function attribution(sessions: SessionRegistry, session: EditorSession): TextBlock[] {
   const line = editorAttribution(
@@ -229,6 +238,8 @@ export async function dispatchCategoryCall(
   // boundary cannot refuse them. Same guard, same decision.
   const preflight = await guard.check(effectiveTask, "action");
   if (!preflight.allow) return refusalResult(preflight.refusal);
+  // The dialog a press is aimed at, for the answered event.
+  const facing = guard.current;
 
   const taskParams = stripAction(params);
   const flowCtx: FlowContext = {
@@ -310,10 +321,11 @@ export async function dispatchCategoryCall(
       // respond_to_dialog may have just cleared it. refresh, not check: check
       // applies the mode and could press a button on the next prompt unasked.
       if (effectiveTask === "editor.respond_to_dialog" && result.success) {
+        guard.notePress(pressedLabel(subject.params, facing), facing);
         await guard.refresh();
       }
       const seen = guard.current;
-      if (result.success) stampBlockedEditor(result.data, seen, guard.mode);
+      if (result.success) stampBlockedEditor(result.data, seen, guard.modeFor(seen));
     }
 
     // Whatever the route, the caller gets ONE refusal shape, built here.
