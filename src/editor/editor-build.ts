@@ -187,6 +187,36 @@ export interface BuildOptions {
 }
 
 /**
+ * UnrealBuildTool's arguments for one editor-target build.
+ *
+ * -NoHotReloadFromIDE: without it, any running editor of the same engine with
+ * Live Coding on makes UnrealBuildTool refuse the build, whatever project that
+ * editor has open. The build is out of process and links its own project, so
+ * it has no reason to wait on another editor's session.
+ */
+export function buildToolArgs(o: {
+  target: string;
+  platform: string;
+  configuration: string;
+  projectPath: string;
+  clean?: boolean;
+  windows: boolean;
+}): string[] {
+  // Only when it is below what UnrealBuildTool would have picked, so a machine
+  // with headroom builds exactly as it did before and nobody has to know this
+  // exists.
+  const parallel = safeParallelActions();
+  const parallelArgs = parallel < os.cpus().length ? [`-MaxParallelActions=${parallel}`] : [];
+  // The quotes around the project path are shell syntax for the Windows `cmd /c`
+  // line (#740); off Windows the path goes straight into argv.
+  const project = o.windows ? `-Project="${o.projectPath}"` : `-Project=${o.projectPath}`;
+  return [
+    o.target, o.platform, o.configuration, project,
+    "-WaitMutex", "-FromMsBuild", "-NoHotReloadFromIDE", ...parallelArgs, ...(o.clean ? ["-Clean"] : []),
+  ];
+}
+
+/**
  * Compile a project's C++ out of process, with UnrealBuildTool.
  *
  * Out of process is the point: UnrealBuildTool refuses to link while an editor
@@ -238,15 +268,8 @@ export async function buildProject(
   // characters and reported "Unable to find project file" for a file that was
   // plainly there - while the same command pasted into a terminal worked,
   // because the shell removed them first.
-  const commonArgs = [target, platform, configuration];
-  // Only when it is below what UnrealBuildTool would have picked, so a machine
-  // with headroom builds exactly as it did before and nobody has to know this
-  // exists.
-  const parallel = safeParallelActions();
-  const parallelArgs = parallel < os.cpus().length ? [`-MaxParallelActions=${parallel}`] : [];
-  const tailArgs = ["-WaitMutex", "-FromMsBuild", ...parallelArgs, ...(opts.clean ? ["-Clean"] : [])];
-  const windowsArgs = [...commonArgs, `-Project="${resolvedPath}"`, ...tailArgs];
-  const posixArgs = [...commonArgs, `-Project=${resolvedPath}`, ...tailArgs];
+  const windowsArgs = buildToolArgs({ target, platform, configuration, projectPath: resolvedPath, clean: opts.clean, windows: true });
+  const posixArgs = buildToolArgs({ target, platform, configuration, projectPath: resolvedPath, clean: opts.clean, windows: false });
 
   return new Promise((resolve) => {
     let proc;
@@ -287,7 +310,7 @@ export async function buildProject(
         success: false,
         exitCode: code,
         message: ranOutOfMemory(transcript)
-          ? describeMemoryFailure(parallel)
+          ? describeMemoryFailure(safeParallelActions())
           : locked.length > 0
             ? describeLockedOutputs(code, locked)
             : `Build failed with exit code ${code}`,
