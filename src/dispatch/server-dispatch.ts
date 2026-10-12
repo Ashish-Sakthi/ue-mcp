@@ -330,15 +330,23 @@ export async function dispatchCategoryCall(
 
     // Whatever the route, the caller gets ONE refusal shape, built here.
     // Actions allowed through a modal are exempt.
+    let answeredWhileWaiting: string | null = null;
     if (!DialogGuard.actionAllowed(effectiveTask)) {
       const fromPlugin = isDialogRefusal(result.data)
         ? (result.data as Record<string, unknown>)
         : null;
       if (fromPlugin) guard.observe("__refused__", fromPlugin);
       const blocking = guard.current;
-      if (blocking) {
-        const decision = postRunDecision
-          ?? (await guard.check(effectiveTask, "action"));
+      const decision = blocking ? postRunDecision ?? (await guard.check(effectiveTask, "action")) : null;
+      // The check can answer the dialog itself: the person was asked and pressed a
+      // button while this call waited. Then nothing is blocking any more, and the
+      // call's own result is the answer, not a refusal naming a dialog that is gone.
+      if (blocking && decision?.allow === true && !fromPlugin) {
+        const pressed = guard.lastPressed;
+        answeredWhileWaiting = `The dialog "${blocking.title}" that appeared during this call was answered`
+          + (pressed ? ` (${pressed.button} was pressed)` : "") + ". The call's own result follows.";
+      }
+      if (blocking && decision && !(decision.allow === true && !fromPlugin)) {
         const refusalForReturn = decision.allow === false
           ? decision.refusal
           : guard.refusal(effectiveTask, blocking);
@@ -365,12 +373,14 @@ export async function dispatchCategoryCall(
 
     const stringify = (v: unknown) =>
       typeof v === "string" ? v : JSON.stringify(v, null, 2);
+    const answeredNote: TextBlock[] = answeredWhileWaiting ? [{ type: "text" as const, text: answeredWhileWaiting }] : [];
 
     // Directive responses (execute_python workaround tracking) emit the prose
     // directive, a MACHINE_DIRECTIVE block for clients that strip prose, and
     // the actual tool result.
     if (isDirectiveResponse(result.data)) {
       const blocks: TextBlock[] = [
+        ...answeredNote,
         { type: "text" as const, text: result.data.directive },
       ];
       if (result.data.machine) {
@@ -385,6 +395,7 @@ export async function dispatchCategoryCall(
 
     return {
       content: withUpgradeNotice([
+        ...answeredNote,
         { type: "text" as const, text: stringify(result.data) },
         ...served,
       ]),
