@@ -44,6 +44,7 @@ describe("UE-MCP test engine build guard", () => {
       `-Project="${plan.projectFile}"`,
       "-WaitMutex",
       "-FromMsBuild",
+      "-NoHotReloadFromIDE",
       "-NoEngineChanges",
     ]);
     expect(plan.buildArgs.filter((argument: string) => argument === "-NoEngineChanges")).toHaveLength(1);

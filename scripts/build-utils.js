@@ -302,6 +302,8 @@ function createTestBuildPlan(env = process.env, platform = process.platform) {
     `-Project="${projectFile}"`,
     '-WaitMutex',
     '-FromMsBuild',
+    // Another editor of this engine with Live Coding on would otherwise refuse the build.
+    '-NoHotReloadFromIDE',
   ];
 
   if (!engine.allowEngineChanges) {
