@@ -47,7 +47,7 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "events.dialog"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "events.dialog"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
@@ -381,6 +381,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       const r = await rt.callAction(category, action, args, {
         ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
         ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
+        ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
       });
       return { isError: !!r.isError, content: r.content };
     },

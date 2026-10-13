@@ -3,7 +3,7 @@
  * built against one EXTENSION_API_VERSION keeps working until that number
  * changes, so anything here changes additively or bumps it.
  */
-import type { DialogPromptFn } from "../core/types.js";
+import type { DialogPromptFn, ElicitParams, ElicitResult } from "../core/types.js";
 import type { DisconnectCause } from "./disconnect.js";
 import type { DaemonEvent } from "./events.js";
 import type { UiManifest } from "./ui-bundles.js";
@@ -50,6 +50,12 @@ export interface CallActionOptions {
   dialogPrompt?: DialogPromptFn;
   /** How long the call waits on an open prompt before returning the dialog refusal, in ms. Default 60000. */
   dialogWaitMs?: number;
+  /**
+   * Answers any other form this call raises, such as feedback approval, in
+   * place of an MCP elicitation form and with its contract: accept with
+   * content, decline or cancel.
+   */
+  elicit?: (params: ElicitParams) => Promise<ElicitResult>;
 }
 
 /**
@@ -93,16 +99,18 @@ export interface DaemonExtensionApi {
   route(method: "GET" | "POST" | "PUT" | "PATCH" | "DELETE", path: string, handler: ExtensionHandler): void;
 
   /**
-   * Run one category action through the same dispatch as an MCP call. Never
-   * elicits. A blocking dialog the call meets is put to `opts.dialogPrompt`
-   * when given (feature "callAction.dialogPrompt"), the way an MCP client is
-   * shown a form; without one, nobody is asked.
+   * Run one category action through the same dispatch as an MCP call. A
+   * blocking dialog the call meets is put to `opts.dialogPrompt` (feature
+   * "callAction.dialogPrompt"), and any other form to `opts.elicit` (feature
+   * "callAction.elicit"), the way an MCP client is shown a form; without
+   * them, nobody is asked.
    */
   callAction(category: string, action: string, args?: Record<string, unknown>, opts?: CallActionOptions): Promise<ActionResult>;
 
   /**
    * What this daemon offers beyond EXTENSION_API_VERSION, for feature detection:
    *   "callAction.dialogPrompt"  callAction takes `opts.dialogPrompt` and `opts.dialogWaitMs`
+   *   "callAction.elicit"        callAction takes `opts.elicit` for every other form
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
    * Absent on a daemon older than the field.

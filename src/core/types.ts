@@ -117,6 +117,12 @@ export interface InProcessCallOptions {
    * answers later is still pressed. Default 60000.
    */
   dialogWaitMs?: number;
+  /**
+   * Who a form this call raises is put to, such as feedback approval, in place
+   * of an MCP client's elicitation. Without it nothing is elicited, and a mode
+   * that wants a person applies as it does for a client without elicitation.
+   */
+  elicit?: ElicitFn;
 }
 
 export interface ToolContext {

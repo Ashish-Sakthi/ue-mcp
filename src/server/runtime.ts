@@ -64,8 +64,9 @@ export interface Runtime {
   logSummary(): void;
   /**
    * Run one category action in process, through the same dispatch as an MCP
-   * call: routing, guards, locking. It never elicits: a blocking dialog is put
-   * to the caller's own `dialogPrompt` when it passes one, and nobody otherwise.
+   * call: routing, guards, locking. A blocking dialog is put to the caller's
+   * own `dialogPrompt`, and any other form to its `elicit`, when it passes
+   * them, and to nobody otherwise.
    */
   callAction(
     category: string,
@@ -318,7 +319,7 @@ export async function createRuntime(projectArgs: string[]): Promise<Runtime> {
               return guard;
             }
           : dialogGuardFor,
-        elicit: () => undefined,
+        elicit: () => opts.elicit,
         client: () => undefined,
       };
       return dispatchCategoryCall(deps, tool, false, { ...args, action }, {});
