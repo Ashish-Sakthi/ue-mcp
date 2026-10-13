@@ -297,16 +297,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     if (origin === undefined) return true;
     return origin === `http://127.0.0.1:${port}` || origin === `http://localhost:${port}`;
   };
-  const cookieToken = (req: http.IncomingMessage): string | null => {
-    const m = /(?:^|;\s*)ue_mcp_token=([0-9a-f]+)/.exec(req.headers.cookie ?? "");
-    return m ? m[1] : null;
-  };
+  // Cookies are scoped to the host, not the port, so each daemon names its own:
+  // with one shared name a second project's page overwrote the first one's login.
+  const cookieName = (): string => `ue_mcp_token_${port}`;
+  const cookieTokens = (req: http.IncomingMessage): string[] =>
+    [...(req.headers.cookie ?? "").matchAll(/(?:^|;\s*)ue_mcp_token(?:_\d+)?=([0-9a-f]+)/g)].map((m) => m[1]);
   const authorized = (req: http.IncomingMessage): boolean => {
     if (!hostIsAllowed(req) || !originAllowed(req)) return false;
     const header = req.headers.authorization;
     if (header === `Bearer ${token}`) return true;
     // The served page authenticates by cookie, set once from ?token= on /ui.
-    if (cookieToken(req) === token) return true;
+    if (cookieTokens(req).includes(token)) return true;
     // EventSource cannot set headers; the stream alone also takes the token as a query.
     const url = new URL(req.url ?? "/", "http://127.0.0.1");
     return url.pathname === "/v1/events" && url.searchParams.get("token") === token;
@@ -446,7 +447,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     if (req.method === "GET" && (first.pathname === "/ui" || first.pathname === "/ui/") && first.searchParams.get("token") === token
       && hostIsAllowed(req)) {
       res.writeHead(302, {
-        "set-cookie": `ue_mcp_token=${token}; HttpOnly; SameSite=Strict; Path=/`,
+        "set-cookie": `${cookieName()}=${token}; HttpOnly; SameSite=Strict; Path=/`,
         location: "/ui/",
       }).end();
       return;
