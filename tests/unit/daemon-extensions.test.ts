@@ -77,6 +77,20 @@ beforeAll(async () => {
         });
         return { body: { isError: r.isError, asked } };
       });
+      api.route("POST", "/feedback-asked", async () => {
+        let asked = null;
+        const r = await api.callAction("feedback", "submit", {
+          title: "pcg has no wait for a generation to finish",
+          summary: "Polling get_component_details is the only way to know a generation finished, which costs a call per poll.",
+          author: "bot",
+        }, { elicit: async (form) => { asked = form.message; return { action: "decline" }; } });
+        return { body: { isError: r.isError, asked, content: r.content } };
+      });
+      api.route("POST", "/modes", (req) => {
+        if (req.body?.feedback !== undefined) api.modes.setFeedback(req.body.feedback ?? undefined);
+        if (req.body?.dialog !== undefined) api.modes.setDialog(req.body.dialog ?? undefined);
+        return { body: api.modes.get() };
+      });
       api.route("POST", "/status", async () => {
         const r = await api.callAction("project", "get_status");
         api.events.publish("checked", { isError: r.isError });
@@ -137,11 +151,34 @@ describe("extensions", () => {
   }, 60_000);
 });
 
+describe("modes, for an extension", () => {
+  const modes = async (body: unknown) =>
+    (await fetch(`${base}/v1/ext/sample/modes`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+
+  it("sets this project's feedback and dialog modes and reads them back, then clears them", async () => {
+    expect(await modes({ feedback: "defer", dialog: "auto" })).toEqual({ feedback: { mode: "defer", project: true }, dialog: { mode: "auto", project: true } });
+    expect(await modes({ feedback: null, dialog: null })).toMatchObject({ feedback: { project: false }, dialog: { project: false } });
+  });
+});
+
 describe("dialogs, for an extension", () => {
   it("advertises the dialog prompt and the dialog events", async () => {
     const res = await (await fetch(`${base}/v1/ext/sample/features`, { headers: auth })).json();
-    expect(res.features).toEqual(expect.arrayContaining(["callAction.dialogPrompt", "events.dialog"]));
+    expect(res.features).toEqual(expect.arrayContaining(["callAction.dialogPrompt", "callAction.elicit", "events.dialog"]));
   });
+
+  it("puts any other form a call raises to the extension, such as feedback approval", async () => {
+    const saved = process.env.UE_MCP_FEEDBACK_MODE;
+    process.env.UE_MCP_FEEDBACK_MODE = "interactive";
+    try {
+      const res = await (await fetch(`${base}/v1/ext/sample/feedback-asked`, { method: "POST", headers: auth })).json();
+      expect(typeof res.asked, JSON.stringify(res)).toBe("string");
+      expect(res.asked).toMatch(/pcg has no wait/);
+    } finally {
+      if (saved === undefined) delete process.env.UE_MCP_FEEDBACK_MODE;
+      else process.env.UE_MCP_FEEDBACK_MODE = saved;
+    }
+  }, 60_000);
 
   it("takes a dialog prompt on callAction and asks it nothing while no dialog is up", async () => {
     const res = await (await fetch(`${base}/v1/ext/sample/status-prompted`, { method: "POST", headers: auth })).json();
