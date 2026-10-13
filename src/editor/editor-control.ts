@@ -574,6 +574,7 @@ export async function startEditor(
     // publishes from one an earlier session left behind.
     const launchedAtMs = Date.now();
     const editorProcess = spawn(editorExe, [project.projectPath], {
+      windowsHide: true,
       stdio: "ignore",
       detached: true,
       env: buildEditorLaunchEnv(opts.dialogPolicy, opts.paramEcho),

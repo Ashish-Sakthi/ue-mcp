@@ -115,9 +115,9 @@ function extractZip(zip: string, into: string): void {
     ? path.join(process.env.SystemRoot ?? process.env.SYSTEMROOT ?? "C:\\Windows", "System32", "tar.exe")
     : "tar";
   try {
-    execFileSync(tar, ["-xf", zip, "-C", into], { stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync(tar, ["-xf", zip, "-C", into], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   } catch {
-    execFileSync("unzip", ["-q", "-o", zip, "-d", into], { stdio: ["ignore", "ignore", "pipe"] });
+    execFileSync("unzip", ["-q", "-o", zip, "-d", into], { windowsHide: true, stdio: ["ignore", "ignore", "pipe"] });
   }
 }
 

@@ -5,5 +5,5 @@ export function openUrl(url: string): void {
   const [cmd, args] = process.platform === "win32"
     ? ["cmd", ["/c", "start", "", url]]
     : process.platform === "darwin" ? ["open", [url]] : ["xdg-open", [url]];
-  spawn(cmd, args as string[], { detached: true, stdio: "ignore" }).unref();
+  spawn(cmd, args as string[], { windowsHide: true, detached: true, stdio: "ignore" }).unref();
 }

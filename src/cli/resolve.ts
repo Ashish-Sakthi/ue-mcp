@@ -22,7 +22,7 @@ const fail = (msg: string) => {
 
 function hasCommand(cmd: string): boolean {
   try {
-    execSync(`${cmd} --version`, { stdio: "ignore" });
+    execSync(`${cmd} --version`, { windowsHide: true, stdio: "ignore" });
     return true;
   } catch {
     return false;
@@ -30,7 +30,7 @@ function hasCommand(cmd: string): boolean {
 }
 
 function sh(cmd: string): string {
-  return execSync(cmd, { encoding: "utf-8" }).trim();
+  return execSync(cmd, { windowsHide: true, encoding: "utf-8" }).trim();
 }
 
 /* ── Main ────────────────────────────────────────────────────────── */
@@ -119,12 +119,12 @@ async function resolve(argv: string[]) {
 
   try {
     // Make sure we branch from latest main
-    execSync("git fetch origin main", { stdio: "ignore" });
-    execSync(`git checkout -b ${branch} origin/main`, { stdio: "pipe" });
+    execSync("git fetch origin main", { windowsHide: true, stdio: "ignore" });
+    execSync(`git checkout -b ${branch} origin/main`, { windowsHide: true, stdio: "pipe" });
   } catch {
     // Branch might already exist
     try {
-      execSync(`git checkout ${branch}`, { stdio: "pipe" });
+      execSync(`git checkout ${branch}`, { windowsHide: true, stdio: "pipe" });
     } catch {
       fail(`Could not create or switch to branch ${branch}`);
     }
@@ -169,6 +169,7 @@ async function resolve(argv: string[]) {
 
   const exitCode = await new Promise<number | null>((resolve) => {
     const child = spawn("claude", claudeArgs, {
+      windowsHide: true,
       stdio: ["pipe", "inherit", "inherit"],
       shell: true,
     });
@@ -208,7 +209,7 @@ async function resolve(argv: string[]) {
 
   // Push and create PR
   try {
-    execSync(`git push -u origin ${branch}`, { stdio: "pipe" });
+    execSync(`git push -u origin ${branch}`, { windowsHide: true, stdio: "pipe" });
     ok("Pushed to origin");
   } catch (e) {
     fail(`Push failed: ${e instanceof Error ? e.message : e}`);

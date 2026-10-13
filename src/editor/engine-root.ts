@@ -620,7 +620,7 @@ function findEngineByGuid(guid: string): string | null {
   try {
     const output = execSync(
       `reg query "HKCU\\SOFTWARE\\Epic Games\\Unreal Engine\\Builds" /v "${guid}"`,
-      { stdio: "pipe", encoding: "utf-8" },
+      { windowsHide: true, stdio: "pipe", encoding: "utf-8" },
     );
     const match = output.match(/REG_SZ\s+(.+)/);
     if (match) {
