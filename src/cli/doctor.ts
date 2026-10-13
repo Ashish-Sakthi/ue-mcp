@@ -84,7 +84,7 @@ export function removeDeadClientEntries(projectDir: string, dead: DeadClientEntr
 
 function safeExec(cmd: string): string | null {
   try {
-    return execSync(cmd, { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    return execSync(cmd, { windowsHide: true, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
   } catch {
     return null;
   }

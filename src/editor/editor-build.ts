@@ -276,9 +276,9 @@ export async function buildProject(
     if (IS_WINDOWS) {
       const quotedCommand = `"${buildTool}"`;
       const fullCommand = `cmd /c "${quotedCommand} ${windowsArgs.join(" ")}"`;
-      proc = spawn(fullCommand, [], { shell: true, stdio: "pipe" });
+      proc = spawn(fullCommand, [], { windowsHide: true, shell: true, stdio: "pipe" });
     } else {
-      proc = spawn(buildTool, posixArgs, { stdio: "pipe" });
+      proc = spawn(buildTool, posixArgs, { windowsHide: true, stdio: "pipe" });
     }
 
     // Kept so a failure can be read afterwards. The compiler reports running

@@ -129,6 +129,7 @@ function runNpm(args: string[], cwd: string): void {
   // `shell: true` routes through cmd.exe which resolves the .cmd correctly.
   // On POSIX `shell: true` is also safe; `npm` is a plain binary.
   const r = spawnSync("npm", args, {
+    windowsHide: true,
     cwd,
     stdio: "inherit",
     shell: true,
@@ -197,7 +198,7 @@ function resolveFromRegistry(name: string): string | null {
     `fetch(${JSON.stringify(url)}).then(async r=>{if(!r.ok)process.exit(3);` +
     `const j=await r.json();process.stdout.write(String(j.package||""));})` +
     `.catch(()=>process.exit(4));`;
-  const res = spawnSync(process.execPath, ["-e", script], { encoding: "utf8", timeout: 8000 });
+  const res = spawnSync(process.execPath, ["-e", script], { windowsHide: true, encoding: "utf8", timeout: 8000 });
   const pkg = (res.stdout || "").trim();
   return res.status === 0 && pkg ? pkg : null;
 }

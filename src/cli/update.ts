@@ -17,7 +17,7 @@ import { RESET, BOLD, RED, DIM, CYAN, YELLOW, ok, fail, info as step } from "./u
 /** The version behind the `latest` dist-tag, which is the stable line. */
 function getLatestVersion(): string | null {
   try {
-    return execSync("npm view ue-mcp version", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    return execSync("npm view ue-mcp version", { windowsHide: true, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
   } catch {
     return null;
   }
@@ -25,7 +25,7 @@ function getLatestVersion(): string | null {
 
 function isGlobalInstall(): boolean {
   try {
-    const globalRoot = execSync("npm root -g", { encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
+    const globalRoot = execSync("npm root -g", { windowsHide: true, encoding: "utf-8", stdio: ["pipe", "pipe", "pipe"] }).trim();
     const norm = (p: string) => path.resolve(p).toLowerCase();
     return norm(packageRoot()).startsWith(norm(globalRoot));
   } catch {
@@ -53,7 +53,7 @@ function runSelfCommand(command: string, projectArg: string | undefined): boolea
   const entry = packageModulePath("index.js");
   const argSuffix = projectArg ? ` "${projectArg}"` : "";
   try {
-    execSync(`"${process.execPath}" "${entry}" ${command}${argSuffix}`, { stdio: "inherit" });
+    execSync(`"${process.execPath}" "${entry}" ${command}${argSuffix}`, { windowsHide: true, stdio: "inherit" });
     return true;
   } catch {
     return false;
@@ -136,7 +136,7 @@ async function update(argv: string[]) {
     console.log("");
     const cmd = isGlobalInstall() ? `npm install -g ue-mcp@${wanted}` : `npm install ue-mcp@${wanted}`;
     try {
-      execSync(cmd, { stdio: "inherit" });
+      execSync(cmd, { windowsHide: true, stdio: "inherit" });
       console.log("");
       ok(`Updated to ${wanted}`);
     } catch {
@@ -156,7 +156,7 @@ async function update(argv: string[]) {
     console.log(`  ${YELLOW}Local shadow detected: node_modules/ue-mcp@${preDoctor.localShadow.version} (npx runs this, not the global).${RESET}`);
     step(`Aligning the local copy to ${aligned} in ${shadowProjectRoot}...`);
     try {
-      execSync(`npm install ue-mcp@${aligned}`, { stdio: "inherit", cwd: shadowProjectRoot });
+      execSync(`npm install ue-mcp@${aligned}`, { windowsHide: true, stdio: "inherit", cwd: shadowProjectRoot });
       ok(`Local copy aligned to ${aligned}`);
       console.log(`  ${DIM}Cleaner long-term: drop ue-mcp from this project's package.json and pin .mcp.json to \`${UE_MCP_LAUNCH}\`.${RESET}`);
     } catch {

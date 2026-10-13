@@ -60,6 +60,7 @@ export const DEFAULT_PROBE_HOOKS: ProbeHooks = {
   run: (command, args) => {
     try {
       return execFileSync(command, args, {
+        windowsHide: true,
         encoding: "utf-8",
         stdio: ["ignore", "pipe", "ignore"],
         timeout: 10_000,
