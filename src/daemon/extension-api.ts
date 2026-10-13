@@ -111,6 +111,7 @@ export interface DaemonExtensionApi {
    * What this daemon offers beyond EXTENSION_API_VERSION, for feature detection:
    *   "callAction.dialogPrompt"  callAction takes `opts.dialogPrompt` and `opts.dialogWaitMs`
    *   "callAction.elicit"        callAction takes `opts.elicit` for every other form
+   *   "modes"                    `modes` reads and sets this project's feedback and dialog modes
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
    * Absent on a daemon older than the field.
@@ -138,6 +139,18 @@ export interface DaemonExtensionApi {
    * The token authenticates the user to ue-mcp services; never log or display it.
    */
   registryAccount(): Promise<{ login: string; token: string; registry: string } | null>;
+
+  /**
+   * How feedback and editor dialogs are handled for this project, the way
+   * `ue-mcp feedback mode` and `ue-mcp dialog mode` set them with --editor
+   * (feature "modes"). `get` gives the effective mode and whether this project
+   * sets it; `set` with undefined goes back to the per-user preference.
+   */
+  modes?: {
+    get(): { feedback: { mode: "interactive" | "auto-approve" | "defer"; project: boolean }; dialog: { mode: "interactive" | "auto" | "defer" | null; project: boolean } };
+    setFeedback(mode: "interactive" | "auto-approve" | "defer" | undefined): void;
+    setDialog(mode: "interactive" | "auto" | "defer" | undefined): void;
+  };
 
   log: {
     info(message: string): void;

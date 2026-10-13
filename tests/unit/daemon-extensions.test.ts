@@ -86,6 +86,11 @@ beforeAll(async () => {
         }, { elicit: async (form) => { asked = form.message; return { action: "decline" }; } });
         return { body: { isError: r.isError, asked, content: r.content } };
       });
+      api.route("POST", "/modes", (req) => {
+        if (req.body?.feedback !== undefined) api.modes.setFeedback(req.body.feedback ?? undefined);
+        if (req.body?.dialog !== undefined) api.modes.setDialog(req.body.dialog ?? undefined);
+        return { body: api.modes.get() };
+      });
       api.route("POST", "/status", async () => {
         const r = await api.callAction("project", "get_status");
         api.events.publish("checked", { isError: r.isError });
@@ -144,6 +149,16 @@ describe("extensions", () => {
     expect(res.isError).toBe(false);
     expect(daemon.events.since(before).events.map((e) => e.type)).toContain("sample.checked");
   }, 60_000);
+});
+
+describe("modes, for an extension", () => {
+  const modes = async (body: unknown) =>
+    (await fetch(`${base}/v1/ext/sample/modes`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+
+  it("sets this project's feedback and dialog modes and reads them back, then clears them", async () => {
+    expect(await modes({ feedback: "defer", dialog: "auto" })).toEqual({ feedback: { mode: "defer", project: true }, dialog: { mode: "auto", project: true } });
+    expect(await modes({ feedback: null, dialog: null })).toMatchObject({ feedback: { project: false }, dialog: { project: false } });
+  });
 });
 
 describe("dialogs, for an extension", () => {

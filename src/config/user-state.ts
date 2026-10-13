@@ -410,6 +410,15 @@ export function getFeedbackMode(projectRoot?: string | null): FeedbackMode | und
   return asFeedbackMode(state.preferences?.feedback?.mode);
 }
 
+/** The feedback mode this project sets and the per-user one, each unset when absent. */
+export function getFeedbackModeScopes(projectRoot?: string | null): { project?: FeedbackMode; user?: FeedbackMode } {
+  const state = readState();
+  return {
+    project: projectRoot ? asFeedbackMode(state.projects?.[projectKey(projectRoot)]?.feedback?.mode) : undefined,
+    user: asFeedbackMode(state.preferences?.feedback?.mode),
+  };
+}
+
 /** Set or clear the feedback mode preference. Pass undefined to clear. */
 export function setFeedbackMode(mode: FeedbackMode | undefined, projectRoot?: string | null): void {
   withStateLock(() => {
