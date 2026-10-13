@@ -253,6 +253,16 @@ describe("UI bundles", () => {
     expect((await fetch(`${base}/v1/health`, { headers: { cookie } })).status).toBe(200);
   });
 
+  it("names its cookie by port, so another project's daemon on the same host cannot overwrite it", async () => {
+    const login = await fetch(`${base}/ui/?token=${daemon.token}`, { redirect: "manual" });
+    const cookie = login.headers.get("set-cookie")!.split(";")[0];
+    expect(cookie).toBe(`ue_mcp_token_${new URL(base).port}=${daemon.token}`);
+    // The browser also holds another daemon's login, and a cookie from before the rename.
+    const jar = `ue_mcp_token=${"a".repeat(64)}; ue_mcp_token_1=${"b".repeat(64)}; ${cookie}`;
+    expect((await fetch(`${base}/v1/health`, { headers: { cookie: jar } })).status).toBe(200);
+    expect((await fetch(`${base}/v1/health`, { headers: { cookie: `ue_mcp_token_1=${"b".repeat(64)}` } })).status).toBe(401);
+  });
+
   it("stops serving an installed bundle that is altered on disk", async () => {
     const served = daemon.ui.active()!;
     fs.appendFileSync(path.join(served.dir, "index.html"), "<script>evil()</script>");
