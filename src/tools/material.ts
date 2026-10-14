@@ -36,7 +36,7 @@ export const materialTool: ToolDef = categoryTool(
     set_domain:        specBp("mutate", "Set material domain. Required for post-process / decal / UI authoring (#299/#356).", "set_material_domain"),
     set_base_color:    specBp("mutate", "Set base color.", "set_material_base_color"),
     connect_texture:   specBp("mutate", "Connect texture to property.", "connect_texture_to_material"),
-    add_expression:    specBp("mutate", "Add expression node (#318).", "add_material_expression"),
+    add_expression:    specBp("mutate", "Add expression node (#318). Returns expressionIndex, the node's position as set_expression_value and set_custom_expression take it, and expressionName, its unique engine name.", "add_material_expression"),
     connect_expressions: specBp("mutate", "Wire two expressions.", "connect_material_expressions"),
     connect_to_property: specBp("mutate", "Wire expression to material output.", "connect_to_material_property"),
     list_expressions:  specBp("read", "List expression nodes, in the material's own stored order, which is what nodeId indexes into. Set includeInputs to include each node's input wiring (default false). Paged with cursor/limit.", "list_material_expressions"),
