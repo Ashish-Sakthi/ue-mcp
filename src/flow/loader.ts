@@ -178,7 +178,7 @@ function defaultFlows(): Record<string, unknown> {
     actorLabel: "Sun", color: { r: 255, g: 160, b: 80 },
   });
   step("level.move_actor", {
-    actorLabel: "Sun", rotation: { pitch: -25, yaw: -135 },
+    actorLabel: "Sun", rotation: { pitch: -25, yaw: -135, roll: 0 },
   });
 
   // Colored point light at each pillar
@@ -208,7 +208,7 @@ function defaultFlows(): Record<string, unknown> {
     location: { x: 0, y: 0, z: 700 }, intensity: 300000,
   });
   step("level.move_actor", {
-    actorLabel: "OrbSpot", rotation: { pitch: -90, yaw: 0 },
+    actorLabel: "OrbSpot", rotation: { pitch: -90, yaw: 0, roll: 0 },
   });
 
   // Warm fill light from below
@@ -232,7 +232,7 @@ function defaultFlows(): Record<string, unknown> {
   // ── 5. Camera ─────────────────────────────────────────────────────
   step("editor.set_viewport", {
     location: { x: -900, y: -500, z: 400 },
-    rotation: { pitch: -15, yaw: 30 },
+    rotation: { pitch: -15, yaw: 30, roll: 0 },
   });
 
   // Neon Shrine - wraps the C++ demo handlers (demo.step / demo.cleanup /
