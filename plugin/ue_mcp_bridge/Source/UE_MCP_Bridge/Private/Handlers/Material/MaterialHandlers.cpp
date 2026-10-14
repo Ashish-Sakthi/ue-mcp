@@ -3785,10 +3785,12 @@ UMaterialExpression* FMaterialHandlers::FindExpressionInList(TConstArrayView<TOb
 {
 	if (ExpressionName.IsEmpty()) return nullptr;
 
-	// Try matching by description first (most specific)
+	// Try matching by description or by Desc first (most specific). Desc is the
+	// name add_expression stores and list_expressions reports as `name`; a
+	// Constant's GetDescription is its value ("Constant (1)"), never that name.
 	for (UMaterialExpression* Expression : Expressions)
 	{
-		if (Expression && Expression->GetDescription() == ExpressionName)
+		if (Expression && (Expression->GetDescription() == ExpressionName || Expression->Desc == ExpressionName))
 		{
 			return Expression;
 		}
