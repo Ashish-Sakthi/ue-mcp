@@ -2067,13 +2067,15 @@ TSharedPtr<FJsonValue> FMaterialHandlers::AddMaterialExpression(const TSharedPtr
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Material, SaveError);
 
-	// Return the index as nodeId for use with connect_expressions and other operations
-	int32 NodeIndex = Material->GetExpressions().Num() - 1;
+	// The node's position, as expressionIndex: the key and type set_expression_value,
+	// set_custom_expression and read_graph take it under. nodeId is the same index as text.
+	const int32 NodeIndex = Material->GetExpressions().IndexOfByKey(NewExpression);
 
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("expressionType"), ExpressionType);
 	Result->SetStringField(TEXT("expressionClass"), NewExpression->GetClass()->GetName());
+	Result->SetNumberField(TEXT("expressionIndex"), NodeIndex);
 	Result->SetStringField(TEXT("nodeId"), FString::FromInt(NodeIndex));
 	Result->SetStringField(TEXT("description"), NewExpression->GetDescription());
 	Result->SetStringField(TEXT("materialPath"), Material->GetPathName());
@@ -3393,7 +3395,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::SetExpressionValue(const TSharedPtr<FJ
 		// Name the call that produces the index rather than only the key that is
 		// missing: this action has no name-based address, so a caller who does
 		// not already hold an index has nowhere to go from "missing parameter".
-		return MCPError(TEXT("Missing required parameter 'expressionIndex'. This action addresses nodes by POSITION in the material's expression list and has no name form; material(list_expressions) reports that list in the same order (list_function_expressions for a MaterialFunction), and add_expression returns the new node's index as nodeId."));
+		return MCPError(TEXT("Missing required parameter 'expressionIndex'. This action addresses nodes by POSITION in the material's expression list and has no name form; material(list_expressions) reports that list in the same order (list_function_expressions for a MaterialFunction), and add_expression returns the new node's index as expressionIndex."));
 	}
 
 	// #1138: a MaterialFunction graph (functionPath) is edited the same way.
