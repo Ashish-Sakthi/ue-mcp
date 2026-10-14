@@ -57,9 +57,14 @@ const M_PEDESTAL = `${PKG}/M_Pedestal`;
 function defaultFlows(): Record<string, unknown> {
   let s = 0;
   const steps: Record<string, unknown> = {};
-  const step = (task: string, options: Record<string, unknown>) => {
+  const step = (task: string, options: Record<string, unknown>): number => {
     steps[String(++s)] = { task, options };
+    return s;
   };
+  // set_expression_value addresses a node by its position in the material's
+  // expression list, and set_base_color adds a node of its own, so a literal
+  // index lands on the wrong one. Address the node add_expression created.
+  const createdIndex = (addStep: number) => `\${steps.${addStep}.expressionIndex}`;
 
   // ── 1. Create level & atmosphere ──────────────────────────────────
   step("level.create", { levelPath: `${PKG}/BeaconLevel` });
@@ -77,20 +82,20 @@ function defaultFlows(): Record<string, unknown> {
   // M_Pillar - brushed metallic blue-grey
   step("material.create", { name: "M_Pillar", packagePath: PKG });
   step("material.set_base_color", { assetPath: M_PILLAR, color: { r: 60, g: 65, b: 80 } });
-  step("material.add_expression", {
+  const pillarMetallic = step("material.add_expression", {
     materialPath: M_PILLAR, expressionType: "Constant", name: "Metallic",
   });
   step("material.set_expression_value", {
-    materialPath: M_PILLAR, expressionIndex: 0, value: 1.0,
+    materialPath: M_PILLAR, expressionIndex: createdIndex(pillarMetallic), value: 1.0,
   });
   step("material.connect_to_property", {
     materialPath: M_PILLAR, expressionName: "Metallic", property: "Metallic",
   });
-  step("material.add_expression", {
+  const pillarRoughness = step("material.add_expression", {
     materialPath: M_PILLAR, expressionType: "Constant", name: "Roughness",
   });
   step("material.set_expression_value", {
-    materialPath: M_PILLAR, expressionIndex: 1, value: 0.3,
+    materialPath: M_PILLAR, expressionIndex: createdIndex(pillarRoughness), value: 0.3,
   });
   step("material.connect_to_property", {
     materialPath: M_PILLAR, expressionName: "Roughness", property: "Roughness",
@@ -108,11 +113,11 @@ function defaultFlows(): Record<string, unknown> {
     materialPath: M_GLOW, expressionType: "VectorParameter",
     name: "GlowColor", parameterName: "GlowColor",
   });
-  step("material.add_expression", {
+  const glowStrength = step("material.add_expression", {
     materialPath: M_GLOW, expressionType: "Constant", name: "GlowStrength",
   });
   step("material.set_expression_value", {
-    materialPath: M_GLOW, expressionIndex: 1, value: 50,
+    materialPath: M_GLOW, expressionIndex: createdIndex(glowStrength), value: 50,
   });
   step("material.add_expression", {
     materialPath: M_GLOW, expressionType: "Multiply", name: "Multiply",
@@ -178,7 +183,7 @@ function defaultFlows(): Record<string, unknown> {
     actorLabel: "Sun", color: { r: 255, g: 160, b: 80 },
   });
   step("level.move_actor", {
-    actorLabel: "Sun", rotation: { pitch: -25, yaw: -135 },
+    actorLabel: "Sun", rotation: { pitch: -25, yaw: -135, roll: 0 },
   });
 
   // Colored point light at each pillar
@@ -208,7 +213,7 @@ function defaultFlows(): Record<string, unknown> {
     location: { x: 0, y: 0, z: 700 }, intensity: 300000,
   });
   step("level.move_actor", {
-    actorLabel: "OrbSpot", rotation: { pitch: -90, yaw: 0 },
+    actorLabel: "OrbSpot", rotation: { pitch: -90, yaw: 0, roll: 0 },
   });
 
   // Warm fill light from below
@@ -232,7 +237,7 @@ function defaultFlows(): Record<string, unknown> {
   // ── 5. Camera ─────────────────────────────────────────────────────
   step("editor.set_viewport", {
     location: { x: -900, y: -500, z: 400 },
-    rotation: { pitch: -15, yaw: 30 },
+    rotation: { pitch: -15, yaw: 30, roll: 0 },
   });
 
   // Neon Shrine - wraps the C++ demo handlers (demo.step / demo.cleanup /
