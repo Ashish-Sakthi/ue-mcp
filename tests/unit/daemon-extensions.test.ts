@@ -4,7 +4,7 @@
  * daemon serves a UI bundle only when it is signed by a key an extension
  * trusted, intact, and compatible with the daemon's API.
  */
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as os from "node:os";
@@ -269,4 +269,19 @@ describe("UI bundles", () => {
     daemon.ui.trustKey(publicPem);
     expect(daemon.ui.active()?.manifest.version).toBe("1.0.0");
   });
+});
+
+describe("a held event loop", () => {
+  it("is reported with how long nothing was answered", async () => {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, "error").mockImplementation((line: unknown) => void lines.push(String(line)));
+    try {
+      const until = Date.now() + 5000;
+      while (Date.now() < until) { /* hold the loop, as a synchronous call would */ }
+      await new Promise((r) => setTimeout(r, 1500));
+      expect(lines.some((l) => /warn daemon: answered nothing for \d+\.\ds: something held the event loop/.test(l))).toBe(true);
+    } finally {
+      spy.mockRestore();
+    }
+  }, 15_000);
 });
