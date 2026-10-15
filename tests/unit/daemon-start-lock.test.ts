@@ -11,8 +11,10 @@ import { fileURLToPath } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { normalizeProjectRoot } from "../../src/bridge/port.js";
 import { isPidAlive } from "../../src/bridge/editor-target.js";
-import { readLiveDiscovery, writeDiscovery, type DaemonDiscovery } from "../../src/daemon/discovery.js";
+import { daemonDir, projectKey, readLiveDiscovery, writeDiscovery, type DaemonDiscovery } from "../../src/daemon/discovery.js";
 import { isOlder } from "../../src/daemon/daemon.js";
+import { ensureDaemon } from "../../src/daemon/shim.js";
+import { packageVersion } from "../../src/core/package-root.js";
 import {
   liveStartLock, releaseStartLock, startLockPath, tryTakeStartLock, waitForStartTurn, START_LOCK_STALE_MS,
 } from "../../src/daemon/start-lock.js";
@@ -135,6 +137,19 @@ describe("waitForStartTurn", () => {
     writeDiscovery(project, record(41, "1.4.6"));
     releaseStartLock(project, 41);
     expect(await waiting).toMatchObject({ action: "defer", live: { pid: 41 } });
+  });
+});
+
+describe("ensureDaemon", () => {
+  it("spawns nothing while a live starter holds the lock, and returns what it publishes", async () => {
+    expect(tryTakeStartLock(project)).toBe(true);
+    const ready = ensureDaemon(path.join(project, "LockedProject.uproject"));
+    await new Promise((r) => setTimeout(r, 600));
+    writeDiscovery(project, record(process.pid, packageVersion()));
+    releaseStartLock(project);
+    expect((await ready).pid).toBe(process.pid);
+    // The spawn path is the only thing that opens the daemon log.
+    expect(fs.existsSync(path.join(daemonDir(), `${projectKey(project)}.log`))).toBe(false);
   });
 });
 

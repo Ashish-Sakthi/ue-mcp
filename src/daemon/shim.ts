@@ -19,22 +19,42 @@ import { info, warn, error } from "../core/log.js";
 import { packageVersion } from "../core/package-root.js";
 import { DAEMON_API_VERSION, daemonDir, projectKey, readLiveDiscovery, type DaemonDiscovery } from "./discovery.js";
 import { isOlder } from "./daemon.js";
+import { liveStartLock } from "./start-lock.js";
 
 const START_TIMEOUT_MS = 120_000;
 /** JSON-RPC error code for "the daemon went away while this request was out". */
 const DAEMON_LOST = -32001;
 
-/** Start a detached daemon for the project and wait for it to publish itself. */
+/**
+ * Start a detached daemon for the project and wait for it to publish itself.
+ * No process is spawned while another starter holds the start lock.
+ */
 export async function ensureDaemon(uproject: string, wantVersion = packageVersion()): Promise<DaemonDiscovery> {
   const projectDir = path.dirname(path.resolve(uproject));
-  const live = readLiveDiscovery(projectDir);
-  if (live && live.apiVersion === DAEMON_API_VERSION && !isOlder(live.version, wantVersion)) return live;
+  const logDir = daemonDir();
+  const logFile = path.join(logDir, `${projectKey(projectDir)}.log`);
+  const usable = (d: DaemonDiscovery | null): d is DaemonDiscovery =>
+    !!d && d.apiVersion === DAEMON_API_VERSION && !isOlder(d.version, wantVersion);
 
+  let spawned = false;
+  const deadline = Date.now() + START_TIMEOUT_MS;
+  while (Date.now() < deadline) {
+    const d = readLiveDiscovery(projectDir);
+    if (usable(d)) return d;
+    if (!spawned && !liveStartLock(projectDir)) {
+      spawnDaemon(uproject, projectDir, logDir, logFile);
+      spawned = true;
+    }
+    await new Promise((r) => setTimeout(r, 250));
+  }
+  throw new Error(`daemon for ${projectDir} did not start within ${START_TIMEOUT_MS / 1000}s; see ${logFile}`);
+}
+
+function spawnDaemon(uproject: string, projectDir: string, logDir: string, logFile: string): void {
   // The daemon runs the same entry this process was started with, so a dev
   // checkout under tsx starts a dev daemon and a published package its own.
-  const logDir = daemonDir();
   fs.mkdirSync(logDir, { recursive: true });
-  const log = fs.openSync(path.join(logDir, `${projectKey(projectDir)}.log`), "a");
+  const log = fs.openSync(logFile, "a");
   const child = spawn(process.execPath, [...process.execArgv, process.argv[1], "daemon", "run", path.resolve(uproject)], {
     detached: true,
     stdio: ["ignore", log, log],
@@ -44,14 +64,6 @@ export async function ensureDaemon(uproject: string, wantVersion = packageVersio
   child.unref();
   fs.closeSync(log);
   info("shim", `started daemon (pid ${child.pid}) for ${path.basename(projectDir)}`);
-
-  const deadline = Date.now() + START_TIMEOUT_MS;
-  while (Date.now() < deadline) {
-    const d = readLiveDiscovery(projectDir);
-    if (d && d.apiVersion === DAEMON_API_VERSION && !isOlder(d.version, wantVersion)) return d;
-    await new Promise((r) => setTimeout(r, 250));
-  }
-  throw new Error(`daemon for ${projectDir} did not start within ${START_TIMEOUT_MS / 1000}s; see ${path.join(logDir, `${projectKey(projectDir)}.log`)}`);
 }
 
 export async function runShim(uproject: string): Promise<void> {
