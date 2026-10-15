@@ -888,6 +888,8 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("reimport_asset"), &ReimportAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Imported asset to rebuild from its source file")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("New source file to record and reimport from")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("preserveSettings"), EType::Boolean, TEXT("Texture: put back any compression, LOD group, sRGB, streaming, size, mip, filter or address setting the reimport changed (default true)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the reimported asset's package (default false: it is left dirty)")),
 	});
 	Registry.RegisterHandler(TEXT("export_asset"), &ExportAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to export")).Alias(TEXT("path")),
