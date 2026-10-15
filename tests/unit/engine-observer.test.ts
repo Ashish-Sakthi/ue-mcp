@@ -182,6 +182,8 @@ describe("withBridgeSnapshot", () => {
         secondsSinceWrite: null,
         phase: "ready",
         blocking: false,
+        missingModules: [],
+        exiting: false,
         lastLine: null,
         tail: [],
         errors: [],
