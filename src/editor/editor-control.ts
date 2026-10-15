@@ -415,7 +415,7 @@ export function blockedStartupReason(logState: LogState, state?: Pick<EngineStat
   return (
     `the editor${pid} is stopped at the engine's "modules are missing or built with a different engine version, `
     + `rebuild them now?" prompt before the bridge loads. Not built: ${modules}. Build the project with `
-    + "project(build) and fix what it reports, then answer or close that prompt in the editor window, or stop the editor."
+    + "project(build) and fix what it reports, then answer or close that prompt in the editor window, or stop the editor"
   );
 }
 
