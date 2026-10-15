@@ -435,7 +435,16 @@ interface Marker {
    * registry" forever.
    */
   sticky?: boolean;
+  /**
+   * Blocking only once the log has been quiet this long. The engine writes the
+   * line just before it raises a prompt, and goes on writing at once when it
+   * does not raise one, so a line followed by silence is the prompt.
+   */
+  quietSeconds?: number;
 }
+
+/** Phase of the engine's own "modules are missing or out of date, rebuild them now?" prompt. */
+export const MISSING_MODULE_PROMPT = "stopped at the engine's rebuild prompt (incompatible or missing modules)";
 
 /**
  * Ordered newest-line-wins. Deliberately small: the goal is a useful label plus
@@ -444,6 +453,8 @@ interface Marker {
 const MARKERS: Marker[] = [
   { re: /=== Critical error|LogWindows: Error:|Fatal error/i, phase: "crashed", blocking: true, sticky: true },
   { re: /following modules are missing or built with a different engine version/i, phase: "waiting on rebuild prompt (modules out of date)", blocking: true, sticky: true },
+  // Unreal 5.8 logs only this before the native prompt, and logs the sentence above once it is answered (#1384).
+  { re: /LogInit: Warning: Incompatible or missing module/i, phase: MISSING_MODULE_PROMPT, blocking: true, quietSeconds: 5 },
   { re: /Log file closed/i, phase: "editor exited", sticky: true },
   { re: /\[UE-MCP\] Editor ready/i, phase: "ready", sticky: true },
   { re: /\[UE-MCP\] Bridge server starting/i, phase: "bridge starting" },
@@ -463,6 +474,10 @@ export interface LogState {
   secondsSinceWrite: number | null;
   phase: string;
   blocking: boolean;
+  /** Modules the engine named as incompatible or missing in this log, for the prompt it raises about them. */
+  missingModules: string[];
+  /** Whether the log records the editor exiting: an exit was requested, or the log closed. */
+  exiting: boolean;
   lastLine: string | null;
   tail: string[];
   errors: string[];
@@ -553,6 +568,8 @@ export function readLogState(projectPath: string | null | undefined, tailLines =
     secondsSinceWrite: null,
     phase: "unknown",
     blocking: false,
+    missingModules: [],
+    exiting: false,
     lastLine: null,
     tail: [],
     errors: [],
@@ -581,6 +598,8 @@ export function readLogState(projectPath: string | null | undefined, tailLines =
 
   let phase = "unknown";
   let blocking = false;
+  const secondsSinceWrite = Math.max(0, (Date.now() - stat.mtimeMs) / 1000);
+  const quietFor = (m: Marker) => m.quietSeconds === undefined || secondsSinceWrite >= m.quietSeconds;
 
   // Sticky markers win wherever they appear, in declaration order: a crash or a
   // prompt waiting on a human does not stop being true because a background
@@ -594,7 +613,7 @@ export function readLogState(projectPath: string | null | undefined, tailLines =
       for (const marker of MARKERS) {
         if (marker.re.test(lines[i])) {
           phase = marker.phase;
-          blocking = marker.blocking === true;
+          blocking = marker.blocking === true && quietFor(marker);
           break outer;
         }
       }
@@ -603,12 +622,18 @@ export function readLogState(projectPath: string | null | undefined, tailLines =
 
   const errors = lines.filter((l) => /: Error: |=== Critical error/i.test(l)).slice(-10);
   const warnings = lines.filter((l) => /: Warning: /i.test(l)).slice(-10);
+  const missingModules = [...new Set(lines
+    .map((l) => /Incompatible or missing module:\s*(\S+)/i.exec(l)?.[1])
+    .filter((m): m is string => !!m))];
+  const exiting = lines.some((l) => /Engine exit requested|LogExit: |Log file closed/i.test(l));
 
   return {
     logPath,
-    secondsSinceWrite: Math.max(0, (Date.now() - stat.mtimeMs) / 1000),
+    secondsSinceWrite,
     phase,
     blocking,
+    missingModules,
+    exiting,
     lastLine: lines.length > 0 ? lines[lines.length - 1] : null,
     tail: lines.slice(-tailLines),
     errors,
