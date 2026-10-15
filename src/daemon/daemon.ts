@@ -19,6 +19,7 @@ import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer } from "ws";
 import { info, warn, error } from "../core/log.js";
+import { editorStepFailure } from "./editor-step.js";
 import { readEnv } from "../core/env.js";
 import { packageVersion } from "../core/package-root.js";
 import { normalizeProjectRoot } from "../bridge/port.js";
@@ -337,10 +338,21 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   const editorOp = async (op: string): Promise<Record<string, unknown>> => {
     const text = (r: { content?: Array<{ text?: string }> }) => r.content?.map((c) => c.text ?? "").join("\n") ?? "";
     const step = async (category: string, action: string) => {
-      events.publish("editor.operation", { op, step: `${category}.${action}`, phase: "started" });
+      const name = `${category}.${action}`;
+      events.publish("editor.operation", { op, step: name, phase: "started" });
       const result = await rt.callAction(category, action);
-      events.publish("editor.operation", { op, step: `${category}.${action}`, phase: result.isError ? "failed" : "done" });
-      return { step: `${category}.${action}`, ok: !result.isError, result: text(result) };
+      const body = text(result);
+      // A handler reports failure by RETURNING success: false, which the dispatch
+      // passes on as a result, not an error. Reading isError alone took a failed
+      // build for a good one and launched the editor on it (#1384).
+      const failure = editorStepFailure(result.isError === true, body);
+      if (failure === null) {
+        events.publish("editor.operation", { op, step: name, phase: "done" });
+      } else {
+        warn("daemon", `${op}: ${name} failed: ${failure}`);
+        events.publish("editor.operation", { op, step: name, phase: "failed", reason: failure });
+      }
+      return { step: name, ok: failure === null, result: body };
     };
     if (op === "start") return { op, steps: [await step("editor", "start_editor")] };
     if (op === "stop") return { op, steps: [await step("editor", "stop_editor")] };
@@ -350,9 +362,14 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     }
     expected.expect("rebuild");
     const steps = [await step("editor", "stop_editor")];
+    // An editor still up holds the module DLLs, so the build would fail on them, or link over a running one.
+    if (!steps[0].ok) {
+      expected.clear();
+      return { op, steps };
+    }
     const built = await step("project", "build");
     steps.push(built);
-    // A failed build leaves the editor down rather than relaunching the old binary.
+    // A failed build leaves the editor down rather than launching it on modules that were never built.
     if (built.ok) steps.push(await step("editor", "start_editor"));
     else expected.clear();
     return { op, steps };
