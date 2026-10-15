@@ -345,7 +345,7 @@ describe("a lifecycle no-op fails, and says why it did", () => {
     vi.mocked(observer.readEngineState).mockResolvedValueOnce({
       running: true,
       processes: [],
-      log: { logPath: null, secondsSinceWrite: 1, phase: "editor exited", blocking: false, lastLine: null, tail: [], errors: [], warnings: [] },
+      log: { logPath: null, secondsSinceWrite: 1, phase: "editor exited", blocking: false, missingModules: [], exiting: true, lastLine: null, tail: [], errors: [], warnings: [] },
       snapshot: null,
       dialogs: [],
       processProbeFailed: false,

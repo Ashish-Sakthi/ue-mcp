@@ -38,6 +38,7 @@ function make(over: Omit<Partial<GuardDeps>, "mode"> & { mode?: DialogMode } = {
     elicit: over.elicit,
     readSnapshot: over.readSnapshot,
     isConnected: over.isConnected,
+    exiting: over.exiting,
     askWaitMs: over.askWaitMs,
   };
   return new DialogGuard(deps);
@@ -1200,5 +1201,57 @@ describe("an answer that arrives after the call stopped waiting (#1076)", () => 
     await new Promise((r) => setTimeout(r, 20));
 
     expect(press).not.toHaveBeenCalled();
+  });
+});
+
+describe("an editor that is exiting (#1384)", () => {
+  // The Save Content prompt was answered, the editor began to exit, and the next
+  // rebuild was refused naming that prompt: the probe could no longer be answered
+  // and the latch was kept, three seconds before the editor logged its exit.
+  it("does not refuse on a dialog latched before it began to exit, socket up or down", async () => {
+    for (const connected of [true, false]) {
+      const guard = make({
+        isConnected: () => connected,
+        readSnapshot: () => ({ modal: null, ageSeconds: 1 }),
+        exiting: () => true,
+        probe: async () => {
+          throw new Error("closed");
+        },
+      });
+      guard.note(DIALOG);
+      expect((await guard.check("editor.stop_editor", "action")).allow, `connected=${connected}`).toBe(true);
+      expect(guard.current).toBeNull();
+    }
+  });
+
+  it("still refuses for an editor that is parked and not exiting", async () => {
+    const guard = make({ isConnected: () => true, exiting: () => false, probe: async () => { throw new Error("ETIMEDOUT"); } });
+    guard.note(DIALOG);
+    expect((await guard.check("editor.stop_editor", "action")).allow).toBe(false);
+  });
+});
+
+describe("the status file of an editor that is exiting (#1384)", () => {
+  it("is not read as a live modal: the editor stopped rewriting it when it began to exit", async () => {
+    let exiting = false;
+    const guard = make({
+      isConnected: () => true,
+      readSnapshot: () => ({ modal: { title: "Save Content", message: "m", buttons: DIALOG.buttons, blocksGameThread: true }, ageSeconds: 2 }),
+      exiting: () => exiting,
+      probe: async () => {
+        throw new Error("closed");
+      },
+    });
+    guard.startWatching(10);
+    try {
+      await new Promise((r) => setTimeout(r, 40));
+      expect(guard.current?.title).toBe("Save Content");
+      exiting = true;
+      await new Promise((r) => setTimeout(r, 40));
+      expect(guard.current).toBeNull();
+      expect((await guard.check("editor.stop_editor", "action")).allow).toBe(true);
+    } finally {
+      guard.stopWatching();
+    }
   });
 });

@@ -14,7 +14,9 @@ import {
   readEngineSnapshot,
   readLogState,
   modalBlocksGameThread,
+  MISSING_MODULE_PROMPT,
   type EngineState,
+  type LogState,
 } from "./engine-observer.js";
 import { findLiveInstanceRecord, isPidAlive, lockfileIsFromThisLaunch, readBridgeInstanceRecords, resolveBridgeTarget } from "../bridge/editor-target.js";
 import { oneLine } from "./dialog-guard.js";
@@ -308,7 +310,11 @@ export async function waitForEditorReady(
       });
     }
     if (logIsCurrent && logState.blocking) {
-      return finish({ ready: false, elapsedSeconds: elapsed(), timeline, reason: logState.phase, state: await readEngineState(projectPath ?? null, { probeWindows: true }) });
+      const state = await readEngineState(projectPath ?? null, { probeWindows: true });
+      return finish({ ready: false, elapsedSeconds: elapsed(), timeline, reason: blockedStartupReason(logState, state), state });
+    }
+    if (logIsCurrent && logState.phase === "editor exited") {
+      return finish({ ready: false, elapsedSeconds: elapsed(), timeline, reason: "the editor exited during startup", state: await readEngineState(projectPath ?? null) });
     }
 
     // A prompt raised before the bridge module loads - the "modules are missing
@@ -394,6 +400,23 @@ export async function waitForEditorReady(
     reason: `still not ready after ${maxWaitSeconds}s`,
     state: await readEngineState(projectPath ?? null, { probeWindows: true }),
   });
+}
+
+/**
+ * Why a launch stopped, from a log that ended on a prompt. The engine's rebuild
+ * prompt comes before the bridge loads, so nothing can answer it but the person
+ * at the editor window; the reason names the modules and the process (#1384).
+ */
+export function blockedStartupReason(logState: LogState, state?: Pick<EngineState, "processes"> | null): string {
+  if (logState.phase !== MISSING_MODULE_PROMPT) return logState.phase;
+  const modules = logState.missingModules.length > 0 ? logState.missingModules.join(", ") : "a project module";
+  const pids = (state?.processes ?? []).map((p) => p.pid);
+  const pid = pids.length > 0 ? ` (PID ${pids.join(", ")})` : "";
+  return (
+    `the editor${pid} is stopped at the engine's "modules are missing or built with a different engine version, `
+    + `rebuild them now?" prompt before the bridge loads. Not built: ${modules}. Build the project with `
+    + "project(build) and fix what it reports, then answer or close that prompt in the editor window, or stop the editor"
+  );
 }
 
 /**
@@ -1166,6 +1189,22 @@ export async function stopEditor(
       projectDir,
       opts.crashReporters,
     );
+  }
+  if (!bridgeUp && readLogState(projectPath).exiting) {
+    // Already on its way out (a quit asked earlier, a Save Content prompt just
+    // answered): its bridge is gone, but the process is shutting down by itself.
+    // Waiting for it is the stop; calling it unreachable sent the caller to
+    // close a window that was already closing (#1384).
+    for (let i = 0; i < 30; i++) {
+      if ((await findProjectEditors(projectPath)).length === 0) {
+        return withCrashReporterCleanup(
+          { success: true, message: "The editor was already exiting, and has exited." },
+          projectDir,
+          opts.crashReporters,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, confirmPollMs));
+    }
   }
   if (!bridgeUp) {
     // "Unreachable" is where the user is left guessing, so say what the engine

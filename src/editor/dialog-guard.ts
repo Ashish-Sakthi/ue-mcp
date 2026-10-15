@@ -31,7 +31,7 @@ import type { DialogMode } from "../config/user-state.js";
 import { readEnv } from "../core/env.js";
 import { elicitationNeedsRelay } from "../dispatch/client-quirks.js";
 import { resolveDialogMode } from "./dialog-mode.js";
-import { readEngineSnapshot } from "./engine-observer.js";
+import { readEngineSnapshot, readLogState } from "./engine-observer.js";
 
 /** One tickable row of a dialog that asks a question per item. */
 export interface DialogItem {
@@ -362,6 +362,13 @@ export interface GuardDeps {
    * take turns writing, and which reports how old the snapshot is.
    */
   readSnapshot?: () => { modal?: unknown; ageSeconds?: number } | null;
+  /**
+   * Whether the editor's own log records it exiting. A dialog latched before
+   * the exit began is not one to refuse on: the editor that showed it is
+   * shutting down and cannot be asked, and a refusal naming it sends the
+   * caller to answer a window that no longer exists.
+   */
+  exiting?: () => boolean;
   /** Whether the bridge socket is currently up. */
   isConnected?: () => boolean;
   /**
@@ -789,7 +796,7 @@ export class DialogGuard {
       // blocked. Returning the latch unconditionally here is what made a dead
       // editor refuse every action forever, including the two the refusal
       // names, with no way back but restarting the server.
-      if (this.staleStatus) {
+      if (this.staleStatus || this.editorExiting()) {
         this.clear();
         this.forgetDialogRecords();
         return null;
@@ -816,7 +823,9 @@ export class DialogGuard {
       // evidence available: clearing on it is what keeps a dead editor from
       // refusing every action forever, including the two the refusal names.
       const socketUp = this.deps.isConnected?.() === true;
-      if (!socketUp && (this.staleStatus || this.deps.readSnapshot === undefined)) {
+      // An editor that is exiting answers nothing, and the dialog that was up
+      // before it began to exit is gone: the log says which (#1384).
+      if ((!socketUp && (this.staleStatus || this.deps.readSnapshot === undefined)) || this.editorExiting()) {
         this.clear();
         this.forgetDialogRecords();
         return null;
@@ -843,6 +852,15 @@ export class DialogGuard {
     const dialog = asDialog(first);
     if (dialog) this.note(dialog);
     return dialog;
+  }
+
+  /** Whether the editor is shutting down, by its log. A reader that throws says no. */
+  private editorExiting(): boolean {
+    try {
+      return this.deps.exiting?.() === true;
+    } catch {
+      return false;
+    }
   }
 
   /** Put it to the person; return the button they chose, or null. */
@@ -1211,6 +1229,14 @@ export class DialogGuard {
       // older plugin omits the field and is believed, which is the behaviour
       // that existed before it.
       const blocking = modal != null && modal.blocksGameThread !== false;
+      // An editor that has begun to exit stops rewriting the file, so the modal
+      // it last recorded (the Save Content prompt the quit raised, answered a
+      // moment ago) reads as current for another 15 seconds. Its log knows
+      // better (#1384).
+      if (blocking && this.editorExiting()) {
+        this.clear();
+        return;
+      }
       const dialog = blocking ? asDialog(modal) : null;
       if (dialog) this.note(dialog);
       // Cleared when nothing is holding the editor, which now covers a prompt
@@ -1375,6 +1401,10 @@ export function sessionGuardDeps(
     readSnapshot: () => {
       const proj = session.project.projectPath ?? session.bridge.getTarget().projectPath ?? null;
       return proj ? readEngineSnapshot(proj) : null;
+    },
+    exiting: () => {
+      const proj = session.project.projectPath ?? session.bridge.getTarget().projectPath ?? null;
+      return proj ? readLogState(proj).exiting : false;
     },
   };
 }
