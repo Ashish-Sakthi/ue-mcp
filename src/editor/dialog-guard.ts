@@ -1229,6 +1229,14 @@ export class DialogGuard {
       // older plugin omits the field and is believed, which is the behaviour
       // that existed before it.
       const blocking = modal != null && modal.blocksGameThread !== false;
+      // An editor that has begun to exit stops rewriting the file, so the modal
+      // it last recorded (the Save Content prompt the quit raised, answered a
+      // moment ago) reads as current for another 15 seconds. Its log knows
+      // better (#1384).
+      if (blocking && this.editorExiting()) {
+        this.clear();
+        return;
+      }
       const dialog = blocking ? asDialog(modal) : null;
       if (dialog) this.note(dialog);
       // Cleared when nothing is holding the editor, which now covers a prompt

@@ -1230,3 +1230,28 @@ describe("an editor that is exiting (#1384)", () => {
     expect((await guard.check("editor.stop_editor", "action")).allow).toBe(false);
   });
 });
+
+describe("the status file of an editor that is exiting (#1384)", () => {
+  it("is not read as a live modal: the editor stopped rewriting it when it began to exit", async () => {
+    let exiting = false;
+    const guard = make({
+      isConnected: () => true,
+      readSnapshot: () => ({ modal: { title: "Save Content", message: "m", buttons: DIALOG.buttons, blocksGameThread: true }, ageSeconds: 2 }),
+      exiting: () => exiting,
+      probe: async () => {
+        throw new Error("closed");
+      },
+    });
+    guard.startWatching(10);
+    try {
+      await new Promise((r) => setTimeout(r, 40));
+      expect(guard.current?.title).toBe("Save Content");
+      exiting = true;
+      await new Promise((r) => setTimeout(r, 40));
+      expect(guard.current).toBeNull();
+      expect((await guard.check("editor.stop_editor", "action")).allow).toBe(true);
+    } finally {
+      guard.stopWatching();
+    }
+  });
+});
