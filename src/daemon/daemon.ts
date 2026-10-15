@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer } from "ws";
-import { info, warn, error } from "../core/log.js";
+import { info, warn, error, stampLogs } from "../core/log.js";
 import { editorStepFailure } from "./editor-step.js";
 import { readEnv } from "../core/env.js";
 import { packageVersion } from "../core/package-root.js";
@@ -92,6 +92,10 @@ export interface DaemonOptions {
   /** Where UI bundles are kept. Defaults to uiStoreDir(). */
   uiDir?: string;
 }
+
+/** How often the daemon checks that it can still answer, and how long a hold is worth a warning. */
+const STALL_BEAT_MS = 1000;
+const STALL_REPORT_MS = 3000;
 
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   const rt = await createRuntime(opts.projects);
@@ -638,6 +642,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       info("daemon", `stopping: ${reason}`);
       events.publish("daemon.stopping", { reason });
       clearInterval(idleTimer);
+      clearInterval(stallTimer);
       for (const t of updateTimers) clearTimeout(t);
       unsubscribeFlows();
       unsubscribeDialogs();
@@ -669,6 +674,16 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   events.publish("daemon.started", { pid: process.pid, port, version: discovery.version });
   info("daemon", `listening on 127.0.0.1:${port} for ${path.basename(projectDir)}`);
 
+  // While the event loop is held nothing answers, not even /v1/health; say so, with how long.
+  let lastBeat = Date.now();
+  const stallTimer = setInterval(() => {
+    const now = Date.now();
+    const held = now - lastBeat - STALL_BEAT_MS;
+    if (held >= STALL_REPORT_MS) warn("daemon", `answered nothing for ${(held / 1000).toFixed(1)}s: something held the event loop`);
+    lastBeat = now;
+  }, STALL_BEAT_MS);
+  stallTimer.unref();
+
   return {
     port,
     token,
@@ -690,6 +705,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
  * same or newer version wins and this process exits.
  */
 export async function runDaemon(projects: string[]): Promise<number> {
+  stampLogs();
   if (projects.length === 0) {
     error("daemon", "no .uproject given");
     return 2;
