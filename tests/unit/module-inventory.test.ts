@@ -68,6 +68,7 @@ const PER_SESSION: Record<string, string> = {
   "server/mcp-server.ts": "Dispatches each MCP connection's calls through the runtime's sessions.",
   "daemon/daemon.ts": "One daemon per project root: it owns that project's runtime and follows each of its editors.",
   "daemon/discovery.ts": "Publishes and reads the discovery record of one project root's daemon.",
+  "daemon/start-lock.ts": "Holds the start lock of one project root's daemon, so that project gets one daemon.",
   "daemon/server-mode.ts": "Reads how the one project it is handed is served, from that project's config.",
   "daemon/shim.ts": "Relays one MCP client to the daemon of the project it was started for.",
   "cli/extension-cli.ts": "Installs extensions and restarts the daemon of the project it is handed.",
