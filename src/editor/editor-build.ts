@@ -45,6 +45,43 @@ export interface BuildResult {
   exitCode: number | null;
   /** Outputs the link could not write because another process held them open. */
   lockedOutputs?: LockedOutput[];
+  /** UnrealBuildTool's own verdict line, e.g. "Result: Failed (OtherCompilationError)". */
+  resultLine?: string;
+  /** The first compiler and linker errors, as `file(line,col): error CODE: text`. */
+  errors?: string[];
+}
+
+/** How many compiler errors a failed build names in its message. */
+const ERRORS_IN_MESSAGE = 5;
+
+/**
+ * What a failed build said about itself: UnrealBuildTool's verdict line and
+ * the first compiler or linker errors, deduplicated in the order they came.
+ * A failure reported as an exit code alone sent the caller to the log to find
+ * a one-line C4458 (#1384).
+ */
+export function readBuildFailure(output: string): { resultLine: string | null; errors: string[] } {
+  const lines = output.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  const resultLine = [...lines].reverse().find((l) => /^Result:\s*\S/.test(l)) ?? null;
+  const errors: string[] = [];
+  for (const l of lines) {
+    // A rules failure ("Could not find definition for module ...") stops UBT before any compile.
+    const rules = /^CompilationResultException:\s*\S+\s+\S/.test(l);
+    if (!rules && !/\b(fatal )?error\b/i.test(l)) continue;
+    const located = /\(\d+(,\d+)?\)\s*:\s*(fatal )?error\b/i.test(l);
+    const coded = /\berror (C|LNK|MSB)\d+/i.test(l) || /^error\s*:/i.test(l) || /: error:/.test(l);
+    if ((rules || located || coded) && !errors.includes(l)) errors.push(l);
+  }
+  return { resultLine, errors };
+}
+
+/** The message a failed build returns: exit code, verdict, and the errors to look at first. */
+export function describeBuildFailure(code: number | null, output: string): string {
+  const { resultLine, errors } = readBuildFailure(output);
+  const verdict = resultLine ? ` (${resultLine})` : "";
+  if (errors.length === 0) return `Build failed with exit code ${code}${verdict}.`;
+  const more = errors.length > ERRORS_IN_MESSAGE ? ` (${errors.length - ERRORS_IN_MESSAGE} more in output)` : "";
+  return `Build failed with exit code ${code}${verdict}. First errors: ${errors.slice(0, ERRORS_IN_MESSAGE).join(" | ")}${more}`;
 }
 
 function getPlatformString(): string {
@@ -306,6 +343,7 @@ export async function buildProject(
         return;
       }
       const locked = ranOutOfMemory(transcript) ? [] : findLockedOutputs(transcript);
+      const failure = readBuildFailure(transcript);
       resolve({
         success: false,
         exitCode: code,
@@ -313,8 +351,10 @@ export async function buildProject(
           ? describeMemoryFailure(safeParallelActions())
           : locked.length > 0
             ? describeLockedOutputs(code, locked)
-            : `Build failed with exit code ${code}`,
+            : describeBuildFailure(code, transcript),
         ...(locked.length > 0 ? { lockedOutputs: locked } : {}),
+        ...(failure.resultLine ? { resultLine: failure.resultLine } : {}),
+        ...(failure.errors.length > 0 ? { errors: failure.errors } : {}),
       });
     });
 
