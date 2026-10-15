@@ -1190,6 +1190,22 @@ export async function stopEditor(
       opts.crashReporters,
     );
   }
+  if (!bridgeUp && readLogState(projectPath).exiting) {
+    // Already on its way out (a quit asked earlier, a Save Content prompt just
+    // answered): its bridge is gone, but the process is shutting down by itself.
+    // Waiting for it is the stop; calling it unreachable sent the caller to
+    // close a window that was already closing (#1384).
+    for (let i = 0; i < 30; i++) {
+      if ((await findProjectEditors(projectPath)).length === 0) {
+        return withCrashReporterCleanup(
+          { success: true, message: "The editor was already exiting, and has exited." },
+          projectDir,
+          opts.crashReporters,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, confirmPollMs));
+    }
+  }
   if (!bridgeUp) {
     // "Unreachable" is where the user is left guessing, so say what the engine
     // is actually doing: a modal dialog waiting on an answer, a slow task at
