@@ -1018,6 +1018,17 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListSkeletonBones(const TSharedPtr<FJsonO
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 	const bool bIncludeTransforms = OptionalBool(Params, TEXT("includeTransforms"), true);
+	int32 Limit = -1;
+	bool bHasLimit = TryGetNumberParam(Params, TEXT("limit"), Limit);
+	const int32 Offset = FMath::Max(0, OptionalInt(Params, TEXT("offset"), 0));
+	// The category's shared limit is a page size of at least one, so the summary-only read is its own flag.
+	const bool bIncludeBones = OptionalBool(Params, TEXT("includeBones"), true);
+	if (bHasLimit && Limit < 0) return MCPError(TEXT("limit must be 0 or more"));
+	if (!bIncludeBones)
+	{
+		bHasLimit = true;
+		Limit = 0;
+	}
 
 	FString SourceKind;
 	const FReferenceSkeleton* RefPtr = nullptr;
@@ -1043,7 +1054,6 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListSkeletonBones(const TSharedPtr<FJsonO
 	// Component-space accumulation. Bones are stored parent-before-child, so a
 	// single forward pass yields valid parent transforms for every child.
 	TArray<FTransform> CompSpace;
-	if (bIncludeTransforms)
 	{
 		CompSpace.SetNum(NumBones);
 		for (int32 i = 0; i < NumBones; ++i)
@@ -1055,8 +1065,44 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListSkeletonBones(const TSharedPtr<FJsonO
 		}
 	}
 
+	// Scale summary over every bone, whatever the page: a scaled root that every
+	// child inherits is the usual units problem, and it shows as componentScale (#1201).
+	TSharedPtr<FJsonObject> Summary = MakeShared<FJsonObject>();
+	{
+		int32 NonUnitLocal = 0;
+		double MinComponent = TNumericLimits<double>::Max();
+		double MaxComponent = 0.0;
+		TArray<TSharedPtr<FJsonValue>> Scaled;
+		for (int32 i = 0; i < NumBones; ++i)
+		{
+			const FVector Local = RefPose.IsValidIndex(i) ? RefPose[i].GetScale3D() : FVector::OneVector;
+			const FVector Component = CompSpace[i].GetScale3D();
+			MinComponent = FMath::Min(MinComponent, Component.GetAbsMin());
+			MaxComponent = FMath::Max(MaxComponent, Component.GetAbsMax());
+			if (!Local.Equals(FVector::OneVector, 1.e-4))
+			{
+				++NonUnitLocal;
+				if (Scaled.Num() < 32)
+				{
+					TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+					Entry->SetStringField(TEXT("name"), Ref.GetBoneName(i).ToString());
+					Entry->SetObjectField(TEXT("localScale"), MCPVec3ToJsonObject(Local));
+					Entry->SetObjectField(TEXT("componentScale"), MCPVec3ToJsonObject(Component));
+					Scaled.Add(MakeShared<FJsonValueObject>(Entry));
+				}
+			}
+		}
+		Summary->SetNumberField(TEXT("bonesWithNonUnitLocalScale"), NonUnitLocal);
+		Summary->SetNumberField(TEXT("minComponentScale"), NumBones > 0 ? MinComponent : 1.0);
+		Summary->SetNumberField(TEXT("maxComponentScale"), NumBones > 0 ? MaxComponent : 1.0);
+		if (NumBones > 0) Summary->SetObjectField(TEXT("rootScale"), MCPVec3ToJsonObject(CompSpace[0].GetScale3D()));
+		Summary->SetArrayField(TEXT("scaledBones"), Scaled);
+	}
+
+	const int32 First = FMath::Min(Offset, NumBones);
+	const int32 Last = bHasLimit ? FMath::Min(NumBones, First + Limit) : NumBones;
 	TArray<TSharedPtr<FJsonValue>> Bones;
-	for (int32 i = 0; i < NumBones; ++i)
+	for (int32 i = First; i < Last; ++i)
 	{
 		TSharedPtr<FJsonObject> B = MakeShared<FJsonObject>();
 		B->SetStringField(TEXT("name"), Ref.GetBoneName(i).ToString());
@@ -1085,6 +1131,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListSkeletonBones(const TSharedPtr<FJsonO
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetStringField(TEXT("sourceKind"), SourceKind);
 	Result->SetNumberField(TEXT("boneCount"), NumBones);
+	Result->SetObjectField(TEXT("scaleSummary"), Summary);
+	Result->SetNumberField(TEXT("offset"), First);
+	Result->SetNumberField(TEXT("returned"), Bones.Num());
+	// A summary-only read pages nothing, so it has no next page to point at.
+	if (Last < NumBones && Limit != 0) Result->SetNumberField(TEXT("nextOffset"), Last);
 	Result->SetArrayField(TEXT("bones"), Bones);
 	return MCPResult(Result);
 }

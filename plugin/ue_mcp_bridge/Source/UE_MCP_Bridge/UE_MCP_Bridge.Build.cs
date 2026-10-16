@@ -51,6 +51,8 @@ public class UE_MCP_Bridge : ModuleRules
 				"AnimationBlueprintLibrary",
 				"AnimationModifiers",
 				"AssetTools",
+				// ISourceControlModule / ISourceControlProvider, behind source_control(*).
+				"SourceControl",
 				"AudioEditor",
 				"AudioMixer",
 				"MetasoundEngine",

@@ -14,9 +14,21 @@ import { runDaemon } from "../daemon/daemon.js";
 import { ensureDaemon } from "../daemon/shim.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { fail, ok } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 import { openUrl } from "../core/open-url.js";
 
 const USAGE = "usage: ue-mcp daemon <run|start|stop|status|open> [project] [--json] [--browser]";
+
+export const usage: CliUsage = {
+  usage: "ue-mcp daemon <run|start|stop|status|open> [project] [flags]",
+  summary: "Run, start, stop or inspect a project's daemon.",
+  strict: true,
+  flags: [
+    { name: "--json", description: "Print one JSON document" },
+    { name: "--browser", description: "open: use the system browser" },
+    { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
+  ],
+};
 
 export async function run(argv: string[]): Promise<number | void> {
   const json = argv.includes("--json");

@@ -428,6 +428,25 @@ FString FMCPBridgeServer::CreateJsonRpcResponse(const TSharedPtr<FJsonObject>& R
 	FString OutputString;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
 	FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
+
+	// A result of hundreds of megabytes took the MCP server down while parsing and re-encoding it (#1277).
+	// Past the bound the caller gets a refusal it can act on instead.
+	constexpr int32 MaxResponseChars = 32 * 1024 * 1024;
+	if (OutputString.Len() > MaxResponseChars)
+	{
+		TSharedPtr<FJsonObject> Refusal = MakeShared<FJsonObject>();
+		Refusal->SetBoolField(TEXT("success"), false);
+		Refusal->SetStringField(TEXT("reason"), TEXT("response_too_large"));
+		Refusal->SetNumberField(TEXT("responseChars"), OutputString.Len());
+		Refusal->SetNumberField(TEXT("maxResponseChars"), MaxResponseChars);
+		Refusal->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("The result was %d characters, over the %d-character bound, so it was not sent. Narrow the call: name one component or property, drop includeProperties, or page with limit."),
+			OutputString.Len(), MaxResponseChars));
+		Response->SetField(TEXT("result"), MakeShared<FJsonValueObject>(Refusal));
+		OutputString.Reset();
+		TSharedRef<TJsonWriter<>> RefusalWriter = TJsonWriterFactory<>::Create(&OutputString);
+		FJsonSerializer::Serialize(Response.ToSharedRef(), RefusalWriter);
+	}
 	return OutputString;
 }
 
@@ -541,6 +560,8 @@ TSharedPtr<FJsonObject> FMCPBridgeServer::BuildCapabilitiesPayload()
 		TEXT("param-echo"),
 		// #1057: handlerSpecs below.
 		TEXT("handler-specs"),
+		// #1339: a frame-level timeoutMs raises the game-thread wait.
+		TEXT("call-timeout"),
 	};
 	TArray<TSharedPtr<FJsonValue>> FeatureValues;
 	for (const TCHAR* Feature : Features)
@@ -682,7 +703,17 @@ FString FMCPBridgeServer::ProcessMessage(const FString& Message)
 	// Some handlers (create_cpp_class regenerates IDE project files;
 	// long-running compiles) legitimately need minutes. Honor per-handler
 	// timeouts registered via FMCPHandlerRegistry::RegisterHandlerWithTimeout.
-	const float PerHandlerTimeout = HandlerRegistry.GetHandlerTimeout(Method);
+	float PerHandlerTimeout = HandlerRegistry.GetHandlerTimeout(Method);
+
+	// A caller's explicit budget (frame-level timeoutMs) raises the wait, never
+	// lowers it, so execute_python and the like can run past 30s (#1339).
+	double RequestedTimeoutMs = 0.0;
+	if (Request->TryGetNumberField(TEXT("timeoutMs"), RequestedTimeoutMs) && RequestedTimeoutMs > 0.0)
+	{
+		const float RequestedSeconds = (float)FMath::Min(RequestedTimeoutMs / 1000.0, 3600.0);
+		const float BaseSeconds = PerHandlerTimeout > 0.0f ? PerHandlerTimeout : FMCPGameThreadExecutor::DefaultTimeoutSeconds;
+		PerHandlerTimeout = FMath::Max(BaseSeconds, RequestedSeconds);
+	}
 
 	// These read or answer the dialog that is blocking the engine loop, so they
 	// are the handlers that must keep working while one is up. Everything else
@@ -693,6 +724,9 @@ FString FMCPBridgeServer::ProcessMessage(const FString& Message)
 		TEXT("get_dialog_policy"),
 		TEXT("set_dialog_policy"),
 		TEXT("clear_dialog_policy"),
+		TEXT("list_windows"),
+		TEXT("press_window_button"),
+		TEXT("close_window"),
 	};
 	const bool bModalSafe = ModalSafeMethods.Contains(Method);
 

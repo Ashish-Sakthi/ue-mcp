@@ -65,7 +65,15 @@ const BASELINE = {
   // 130: asset(compile_customizable_object) compiles derived data and has no inverse (#1059).
   // 131: blueprint(export_batch) writes files, which nothing can delete (#1166).
   // 132: pcg(update_level_assets) overwrites assets with a fresh export and has no inverse (#1244).
-  mutationsWithoutRollback: 132,
+  // 133: asset(generate_skeletal_mesh_lods) replaces LOD geometry, and no action removes LODs (#1372).
+  // 135: editor(press_window_button) and editor(close_window) act on a live window, which has no inverse (#1231).
+  // 136: source_control(revert) discards local edits, which nothing restores (#1357).
+  // 137: source_control(submit) is repository history; undoing it is a new change (#1357).
+  // 138: niagara(capture_sim_cache) advances the simulation, which cannot be rewound (#1394).
+  // 139: material(delete_orphans) deletes unreachable nodes and keeps no copy to restore (#1403).
+  // 141: datasmith(import) creates an asset set and actors, and datasmith(reimport) rewrites them from source (#1383).
+  // 145: metahuman(set_wardrobe, request_rig, request_textures, assemble) replace or create character data with no inverse (#1354).
+  mutationsWithoutRollback: 145,
   // Zero, and held there by a flat assertion. Every mutation with no inverse
   // now says so in its own result body with the reason, which is the half a
   // caller can act on.

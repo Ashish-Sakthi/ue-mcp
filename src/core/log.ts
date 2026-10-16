@@ -18,11 +18,18 @@ function threshold(): number {
   return LEVELS[envLevel as Level] ?? LEVELS.info;
 }
 
+let stamped = false;
+
+/** Put the time on every line: the daemon's log is read after the fact, when "when" is the question. */
+export function stampLogs(on = true): void {
+  stamped = on;
+}
+
 function fmt(level: Level, component: string, msg: string, err?: unknown): string {
   const detail = err === undefined
     ? ""
     : ` :: ${err instanceof Error ? `${err.name}: ${err.message}` : String(err)}`;
-  return `[ue-mcp] ${level} ${component}: ${msg}${detail}`;
+  return `[ue-mcp] ${stamped ? `${new Date().toISOString()} ` : ""}${level} ${component}: ${msg}${detail}`;
 }
 
 export function debug(component: string, msg: string, err?: unknown): void {

@@ -1180,7 +1180,7 @@ TSharedPtr<FJsonValue> FAudioHandlers::MetaSoundInspectNode(const TSharedPtr<FJs
 	Res->SetArrayField(TEXT("outgoing"), Outgoing);
 
 	Res->SetStringField(TEXT("note"),
-		TEXT("Set an unconnected input with audio(metasound_set_input_default) using this nodeId plus the input's name as inputName; ")
+		TEXT("Set an unconnected input with audio(metasound_set_default) using this nodeId plus the input's name as inputName; ")
 		TEXT("wire one with audio(metasound_connect) using the same nodeId as toNodeId and the name as toInput."));
 	return MCPResult(Res);
 }
@@ -1303,7 +1303,7 @@ TSharedPtr<FJsonValue> FAudioHandlers::MetaSoundValidate(const TSharedPtr<FJsonO
 				UnconnectedGraphOutputs++;
 				Problems.Add(FString::Printf(
 					TEXT("graph output '%s' is never driven, so it outputs silence/zero: connect a node to it with ")
-					TEXT("audio(metasound_connect_graph_output, fromNodeId=<node>, fromOutput=<vertex>, graphOutput='%s')"),
+					TEXT("audio(metasound_connect_output, fromNodeId=<node>, fromOutput=<vertex>, graphOutput='%s')"),
 					*NodeName, *NodeName));
 			}
 			continue;
@@ -1316,7 +1316,7 @@ TSharedPtr<FJsonValue> FAudioHandlers::MetaSoundValidate(const TSharedPtr<FJsonO
 			{
 				Problems.Add(FString::Printf(
 					TEXT("graph input '%s' is exposed but nothing in the graph reads it, so setting it does nothing: ")
-					TEXT("wire it with audio(metasound_connect_graph_input, graphInput='%s', toNodeId=<node>, toInput=<vertex>)"),
+					TEXT("wire it with audio(metasound_connect_input, graphInput='%s', toNodeId=<node>, toInput=<vertex>)"),
 					*NodeName, *NodeName));
 			}
 			continue;
@@ -1395,7 +1395,7 @@ TSharedPtr<FJsonValue> FAudioHandlers::MetaSoundValidate(const TSharedPtr<FJsonO
 		{
 			Problems.Add(FString::Printf(
 				TEXT("variable '%s' is read by %d node(s) but never set, so it always holds its initial value: ")
-				TEXT("add a setter or fold the value into the reading node's default with audio(metasound_set_input_default)"),
+				TEXT("add a setter or fold the value into the reading node's default with audio(metasound_set_default)"),
 				*Var.Name.ToString(), Getters));
 		}
 		else if (Var.MutatorNodeID.IsValid() && Getters == 0)

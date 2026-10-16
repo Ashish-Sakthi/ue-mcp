@@ -93,6 +93,34 @@ TSharedPtr<FJsonValue> FPCGHandlers::ExportLevelToAsset(const TSharedPtr<FJsonOb
 			TEXT("'%s' is loaded as a sub-level of another world. Unload it from that world first, then export."), *Forms.PackagePath));
 	}
 
+	// assetPath names the asset itself when it is an object path or an existing package; otherwise it is the folder (#1296).
+	if (!AssetFolder.IsEmpty())
+	{
+		const FMCPAssetPathForms Target = MCPAssetPathForms(AssetFolder);
+		const bool bObjectPath = AssetFolder.Contains(TEXT("."));
+		if (bObjectPath || (!Target.PackagePath.IsEmpty() && FPackageName::DoesPackageExist(Target.PackagePath)))
+		{
+			const FString NamedAsset = FPackageName::GetShortName(Target.PackagePath);
+			if (!AssetName.IsEmpty() && AssetName != NamedAsset)
+			{
+				return MCPError(FString::Printf(
+					TEXT("assetPath '%s' names the asset '%s', but assetName is '%s'. Pass the asset's path alone, or a folder with assetName."),
+					*AssetFolder, *NamedAsset, *AssetName));
+			}
+			if (FPackageName::DoesPackageExist(Target.PackagePath))
+			{
+				IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+				const FAssetData Existing = Registry.GetAssetByObjectPath(FSoftObjectPath(Target.ObjectPath));
+				if (Existing.IsValid() && !Existing.IsInstanceOf(UPCGDataAsset::StaticClass()))
+				{
+					return MCPError(FString::Printf(TEXT("'%s' is a %s, not a PCG data asset; nothing was exported."),
+						*Target.ObjectPath, *Existing.AssetClassPath.GetAssetName().ToString()));
+				}
+			}
+			AssetName = NamedAsset;
+			AssetFolder = FPackageName::GetLongPackagePath(Target.PackagePath);
+		}
+	}
 	if (AssetName.IsEmpty())
 	{
 		AssetName = World->GetName() + TEXT("_PCG");

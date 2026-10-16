@@ -669,15 +669,20 @@ TSharedPtr<FJsonValue> FMCPHandlerRegistry::ExecuteHandler(const FString& Method
 		const FMCPHandlerSpec* Spec = HandlerSpecs.Find(MethodName);
 		const TSharedPtr<FJsonObject> Effective = Spec ? ResolveParamAliases(*Spec, Params) : Params;
 
+		// Files a write checked out in auto checkout mode are reported on the result.
+		const int32 CheckoutMark = MCPSourceControl::AutoCheckoutMark();
 		const FString* Category = HandlerCategories.Find(MethodName);
 		if (!Category || !Effective.IsValid())
 		{
-			return (*Handler)(Effective);
+			TSharedPtr<FJsonValue> Result = (*Handler)(Effective);
+			MCPSourceControl::AttachAutoCheckouts(Result, CheckoutMark);
+			return Result;
 		}
 		// #1057: a key the handler never read had no effect, so say so.
 		FMCPParamReadScope ReadScope(Effective);
 		TSharedPtr<FJsonValue> Result = (*Handler)(Effective);
 		MCPAttachParamsNotRead(Result, ReadScope.Unread());
+		MCPSourceControl::AttachAutoCheckouts(Result, CheckoutMark);
 		return Result;
 	}
 

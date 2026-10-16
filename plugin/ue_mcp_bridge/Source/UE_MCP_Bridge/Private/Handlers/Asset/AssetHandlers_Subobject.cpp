@@ -128,7 +128,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateSubobject(const TSharedPtr<FJsonObj
 	if (Class->IsChildOf(AActor::StaticClass()))
 	{
 		return MCPClassUnusableError(ClassName, Class, TEXT("actor_class"),
-			TEXT("an Actor is spawned into a level, not created inside an asset package. Use level(spawn_actor)."));
+			TEXT("an Actor is spawned into a level, not created inside an asset package. Use level(place_actor)."));
 	}
 	if (Class->IsChildOf(UClass::StaticClass()))
 	{

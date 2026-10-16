@@ -127,7 +127,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("edit_skeleton_bones"), &EditSkeletonBones, {
 		SessionTag(),
 		SessionMesh(),
-		MCPParam::Required(TEXT("edits"), EType::Array, TEXT("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}")).Items(EType::Object),
+		MCPParam::Required(TEXT("edits"), EType::Array, TEXT("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation")).Items(EType::Object),
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Remove a bone despite dependents, which are listed in the refusal")),
 	});
 	Registry.RegisterHandler(TEXT("commit_skeleton_edit"), &CommitSkeletonEdit, {
@@ -193,7 +193,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		Limit(TEXT("Rows per page (default 200, max 5000)")),
 	});
 	Registry.RegisterHandler(TEXT("get_skeleton_info"), &GetSkeletonInfo, {
-		AssetPath(TEXT("SkeletalMesh asset path")),
+		AssetPath(TEXT("SkeletalMesh, or a Skeleton, asset path")),
 	});
 	Registry.RegisterHandler(TEXT("list_animation_sockets"), &ListSockets, {
 		AssetPath(TEXT("SkeletalMesh asset path")),
@@ -600,6 +600,18 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		RetargeterPath(),
 		Side(),
 	});
+	// UE 5.7+; older engines read their parameters ahead and refuse.
+	Registry.RegisterHandler(TEXT("remove_retarget_pose"), &RemoveRetargetPose, {
+		RetargeterPath(),
+		MCPParam::Required(TEXT("poseName"), EType::String, TEXT("Retarget pose to remove; the default pose is refused")),
+		Side(),
+	});
+	Registry.RegisterHandler(TEXT("rename_retarget_pose"), &RenameRetargetPose, {
+		RetargeterPath(),
+		MCPParam::Required(TEXT("poseName"), EType::String, TEXT("Retarget pose to rename; the default pose is refused")),
+		MCPParam::Required(TEXT("newName"), EType::String, TEXT("New pose name, not already taken on that side")),
+		Side(),
+	});
 	// UE 5.8 only; the older-engine stub reads its parameters ahead and refuses.
 	Registry.RegisterHandlerWithTimeout(TEXT("batch_retarget_animations"), &BatchRetargetAnimations, 300.0f, {
 		MCPParam::Required(TEXT("retargeterPath"), EType::String, TEXT("IKRetargeter to bake through")).Alias(TEXT("assetPath")),
@@ -634,6 +646,10 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default <Source>_CtrlRig)")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default the source's folder)")),
 		OnConflict(TEXT("skip (default) returns the existing asset, error refuses; it never overwrites")),
+	});
+	Registry.RegisterHandler(TEXT("set_control_rig_preview_mesh"), &SetControlRigPreviewMesh, {
+		AssetPath(TEXT("Control Rig Blueprint asset path")),
+		MCPParam::Required(TEXT("skeletalMeshPath"), EType::String, TEXT("SkeletalMesh to preview the rig on")),
 	});
 	// The Control Rig edit session is UE 5.8 only. The read and capture stubs on
 	// older engines read their parameters ahead and refuse.
@@ -799,6 +815,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("USkeleton asset path")),
 		MCPParam::Required(TEXT("sourceBone"), EType::String, TEXT("Bone the virtual bone starts from")),
 		MCPParam::Required(TEXT("targetBone"), EType::String, TEXT("Bone the virtual bone points at")),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Name for the virtual bone; the engine's 'VB ' prefix is added when missing (default the engine-generated name)")),
 	});
 	Registry.RegisterHandler(TEXT("remove_virtual_bone"), &RemoveVirtualBone, {
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("USkeleton asset path")),
@@ -867,12 +884,56 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("AnimSequence asset path")),
 		MCPParam::Required(TEXT("boneName"), EType::String, TEXT("Bone whose track to sample")),
 		MCPParam::Optional(TEXT("frames"), EType::Array, TEXT("Frames to sample (default: first, middle and last)")).Items(EType::Number),
+		MCPParam::Optional(TEXT("rotationFormat"), EType::String, TEXT("euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat")),
+		MCPParam::Optional(TEXT("space"), EType::String, TEXT("local (default) | component, which composes the parent chain")),
+	});
+	Registry.RegisterHandler(TEXT("transform_bone_tracks"), &TransformBoneTracks, {
+		MCPParam::Required(TEXT("assetPaths"), EType::Array, TEXT("AnimSequences to rewrite, at most 500")).Items(EType::String),
+		MCPParam::Required(TEXT("trackOps"), EType::Array, TEXT("Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("op"), EType::String, TEXT("rotate | offset | copy_from_donor | reference_delta")),
+			MCPParam::OptionalField(TEXT("bones"), EType::Array, TEXT("Bones the op writes; required except for reference_delta")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("rotation"), EType::Object, TEXT("rotate: {x,y,z,w} or {pitch,yaw,roll}")),
+			MCPParam::OptionalField(TEXT("order"), EType::String, TEXT("rotate: pre (default) multiplies in parent space, post in bone space")),
+			MCPParam::OptionalField(TEXT("rotateTranslation"), EType::Boolean, TEXT("rotate with order pre: also rotate each key's translation (default false)")),
+			MCPParam::OptionalField(TEXT("translation"), EType::Object, TEXT("offset: {x,y,z} added to every key")),
+			MCPParam::OptionalField(TEXT("donorPath"), EType::String, TEXT("copy_from_donor (required) and reference_delta: AnimSequence to read the pose from")),
+			MCPParam::OptionalField(TEXT("donorFrame"), EType::Integer, TEXT("Donor frame (default 0); exclusive with donorTime")),
+			MCPParam::OptionalField(TEXT("donorTime"), EType::Number, TEXT("Donor time in seconds; exclusive with donorFrame")),
+			MCPParam::OptionalField(TEXT("keepTranslation"), EType::Boolean, TEXT("copy_from_donor: keep each key's own translation (default true)")),
+			MCPParam::OptionalField(TEXT("keepScale"), EType::Boolean, TEXT("copy_from_donor: keep each key's own scale (default true)")),
+			MCPParam::OptionalField(TEXT("sourceBone"), EType::String, TEXT("reference_delta: bone whose rotation relative to its reference pose is applied")),
+			MCPParam::OptionalField(TEXT("targetBone"), EType::String, TEXT("reference_delta: bone set to its reference pose times that delta")),
+		}),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each sequence (default true)")),
+	});
+	Registry.RegisterHandler(TEXT("compose_pose_sequence"), &ComposePoseSequence, {
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("New AnimSequence name")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default the first source's folder)")),
+		MCPParam::Required(TEXT("sources"), EType::Array, TEXT("Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("assetPath"), EType::String, TEXT("AnimSequence to sample")),
+			MCPParam::OptionalField(TEXT("frame"), EType::Integer, TEXT("Frame to sample (default 0); exclusive with time")),
+			MCPParam::OptionalField(TEXT("time"), EType::Number, TEXT("Time in seconds to sample; exclusive with frame")),
+		}),
+		MCPParam::Optional(TEXT("layers"), EType::Array, TEXT("Per-bone blends over the base pose, applied in order, at most 64")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("source"), EType::Integer, TEXT("Index into sources to blend toward")),
+			MCPParam::OptionalField(TEXT("weight"), EType::Number, TEXT("0 to 1 (default 1): rotation slerps, translation and scale lerp")),
+			MCPParam::OptionalField(TEXT("bones"), EType::Array, TEXT("Bones by exact name")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("nameContains"), EType::Array, TEXT("Bones whose name contains any of these, case-insensitive")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("excludeContains"), EType::Array, TEXT("Drop matched bones whose name contains any of these")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("includeDescendants"), EType::Boolean, TEXT("Also match every descendant of a matched bone (default false)")),
+			MCPParam::OptionalField(TEXT("rotationOnly"), EType::Boolean, TEXT("Blend rotation only, keeping translation and scale (default false)")),
+		}),
+		MCPParam::Optional(TEXT("numFrames"), EType::Number, TEXT("Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys")),
+		MCPParam::Optional(TEXT("frameRate"), EType::Number, TEXT("Frames per second (default 30)")),
+		MCPParam::Optional(TEXT("easeToSource"), EType::Integer, TEXT("Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame")),
+		MCPParam::Optional(TEXT("easeCurve"), EType::String, TEXT("linear (default) | smooth")),
+		OnConflict(TEXT("skip (default) returns an existing asset untouched, error refuses; it never overwrites")),
 	});
 
 	// v1.0.0-rc.2 - animation authoring gaps (#153, #154)
 	Registry.RegisterHandler(TEXT("set_sequence_properties"), &SetSequenceProperties, {
 		MCPParam::Required(TEXT("assetPaths"), EType::Array, TEXT("AnimSequences to write, or montages when resolveFromMontages is on")).Items(EType::String),
-		MCPParam::Required(TEXT("properties"), EType::Object, TEXT("{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}")),
+		MCPParam::Required(TEXT("properties"), EType::Object, TEXT("{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call")),
 		MCPParam::Optional(TEXT("resolveFromMontages"), EType::Boolean, TEXT("Resolve a montage to its first AnimSequence (default true)")),
 	});
 	Registry.RegisterHandler(TEXT("bake_root_motion_from_bone"), &BakeRootMotionFromBone, {
@@ -1108,6 +1169,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		PoseMesh(),
 		MCPParam::Optional(TEXT("incorporateRootMotion"), EType::Boolean, TEXT("Fold the clip's root motion into the pose (default true)")),
 		BlendPosition(),
+		MCPParam::Optional(TEXT("rotationFormat"), EType::String, TEXT("euler (default) | quaternion | both, which adds rotationQuat")),
 	});
 	Registry.RegisterHandler(TEXT("measure_natural_speed"), &MeasureNaturalSpeed, {
 		AssetPath(TEXT("AnimSequence or BlendSpace asset path")),
@@ -1304,18 +1366,45 @@ TSharedPtr<FJsonValue> FAnimationHandlers::GetSkeletonInfo(const TSharedPtr<FJso
 
 	UObject* LoadedAsset = MCPLoadAssetObject(AssetPath);
 	USkeletalMesh* SkeletalMesh = Cast<USkeletalMesh>(LoadedAsset);
-	if (!SkeletalMesh)
+	USkeleton* Skeleton = SkeletalMesh ? SkeletalMesh->GetSkeleton() : Cast<USkeleton>(LoadedAsset);
+	if (!SkeletalMesh && !Skeleton)
 	{
-		return MCPError(FString::Printf(TEXT("Failed to load SkeletalMesh at '%s'"), *AssetPath));
+		return LoadedAsset
+			? MCPAssetWrongTypeError(AssetPath, LoadedAsset, TEXT("SkeletalMesh or Skeleton"))
+			: MCPAssetNotFoundError(AssetPath);
 	}
-
-	USkeleton* Skeleton = SkeletalMesh->GetSkeleton();
 	if (!Skeleton)
 	{
 		return MCPError(TEXT("SkeletalMesh has no Skeleton"));
 	}
 
 	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("skeletonPath"), Skeleton->GetPathName());
+	if (SkeletalMesh) Result->SetStringField(TEXT("skeletalMeshPath"), SkeletalMesh->GetPathName());
+
+	// Virtual bones and slot groups live on the skeleton and are not reachable
+	// from Python, so they are read here (#1238).
+	TArray<TSharedPtr<FJsonValue>> VirtualBones;
+	for (const FVirtualBone& VB : Skeleton->GetVirtualBones())
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), VB.VirtualBoneName.ToString());
+		Obj->SetStringField(TEXT("sourceBone"), VB.SourceBoneName.ToString());
+		Obj->SetStringField(TEXT("targetBone"), VB.TargetBoneName.ToString());
+		VirtualBones.Add(MakeShared<FJsonValueObject>(Obj));
+	}
+	Result->SetArrayField(TEXT("virtualBones"), VirtualBones);
+	TArray<TSharedPtr<FJsonValue>> SlotGroups;
+	for (const FAnimSlotGroup& Group : Skeleton->GetSlotGroups())
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), Group.GroupName.ToString());
+		TArray<FString> Slots;
+		for (const FName& Slot : Group.SlotNames) Slots.Add(Slot.ToString());
+		Obj->SetArrayField(TEXT("slots"), MCPStringListToJson(Slots));
+		SlotGroups.Add(MakeShared<FJsonValueObject>(Obj));
+	}
+	Result->SetArrayField(TEXT("slotGroups"), SlotGroups);
 
 	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
 	TArray<TSharedPtr<FJsonValue>> BonesArray;
@@ -2835,7 +2924,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::RemoveAnimNotify(const TSharedPtr<FJs
 			TEXT("The add action re-creates the entry of the same class at the same time (and, for a notify state, over the same duration) with DEFAULT property values, ")
 			TEXT("so anything configured on the notify or notify-state object itself is not restored. ")
 			TEXT("This call removed %d entr(ies), %d of them notify states, and the rollback replays only the first. ")
-			TEXT("The rest are listed in removedNotifies, each with a 'kind' saying which action puts it back: animation(add_anim_notify) for 'notify', animation(add_anim_notify_state) for 'notifyState'."),
+			TEXT("The rest are listed in removedNotifies, each with a 'kind' saying which action puts it back: animation(add_notify) for 'notify', animation(add_notify_state) for 'notifyState'."),
 			RemovedTimes.Num(), RemovedStateCount));
 	}
 	return MCPResult(Result);
@@ -4556,9 +4645,24 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddVirtualBone(const TSharedPtr<FJson
 	if (auto Err = RequireString(Params, TEXT("sourceBone"), SourceBone)) return Err;
 	FString TargetBone;
 	if (auto Err = RequireString(Params, TEXT("targetBone"), TargetBone)) return Err;
+	FString RequestedName = OptionalString(Params, TEXT("name")).TrimStartAndEnd();
 
 	USkeleton* Skeleton = LoadAssetByPath<USkeleton>(SkeletonPath);
 	if (!Skeleton) return MCPError(FString::Printf(TEXT("Skeleton not found: %s"), *SkeletonPath));
+
+	// Virtual bones carry the engine's 'VB ' prefix, which is how the editor tells them apart.
+	static const FString VirtualPrefix = TEXT("VB ");
+	if (!RequestedName.IsEmpty() && !RequestedName.StartsWith(VirtualPrefix)) RequestedName = VirtualPrefix + RequestedName;
+	if (!RequestedName.IsEmpty())
+	{
+		const FName Wanted(*RequestedName);
+		const bool bTaken = Skeleton->GetReferenceSkeleton().FindBoneIndex(Wanted) != INDEX_NONE
+			|| Skeleton->GetVirtualBones().ContainsByPredicate([&Wanted](const FVirtualBone& VB) { return VB.VirtualBoneName == Wanted; });
+		if (bTaken)
+		{
+			return MCPError(FString::Printf(TEXT("'%s' is already a bone or virtual bone on '%s'"), *RequestedName, *SkeletonPath));
+		}
+	}
 
 	Skeleton->Modify();
 	FName NewBoneName;
@@ -4566,6 +4670,11 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddVirtualBone(const TSharedPtr<FJson
 	if (!bOk)
 	{
 		return MCPError(TEXT("Failed to add virtual bone (source/target invalid or duplicate)"));
+	}
+	if (!RequestedName.IsEmpty())
+	{
+		Skeleton->RenameVirtualBone(NewBoneName, FName(*RequestedName));
+		NewBoneName = FName(*RequestedName);
 	}
 	Skeleton->PostEditChange();
 
@@ -4636,11 +4745,11 @@ TSharedPtr<FJsonValue> FAnimationHandlers::RemoveVirtualBone(const TSharedPtr<FJ
 	Rollback->SetStringField(TEXT("skeletonPath"), SkeletonPath);
 	Rollback->SetStringField(TEXT("sourceBone"), SourceBone);
 	Rollback->SetStringField(TEXT("targetBone"), TargetBone);
+	Rollback->SetStringField(TEXT("name"), BoneName);
 	MCPSetRollback(Result, TEXT("add_virtual_bone"), Rollback);
-	Result->SetBoolField(TEXT("rollbackLossy"), true);
+	Result->SetBoolField(TEXT("rollbackLossy"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("add_virtual_bone re-creates the bone from its source and target, and Unreal mints the name, so a virtual bone that had been renamed comes back under the generated name. ")
-		TEXT("Anything that referenced the old name (sockets, curves, animation node bone references) still points at the name that was removed."));
+		TEXT("add_virtual_bone re-creates the bone from its source and target under the same name."));
 	return MCPResult(Result);
 }
 TSharedPtr<FJsonValue> FAnimationHandlers::SetAnimBlueprintSkeleton(const TSharedPtr<FJsonObject>& Params)

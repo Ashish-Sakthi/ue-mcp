@@ -49,6 +49,10 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "Materials/MaterialInterface.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "PhysicsEngine/BodyInstance.h"
+#include "Materials/MaterialInstanceDynamic.h"
+#include "HandlerJsonProperty.h"
 #include "UObject/EnumProperty.h"
 #include "UObject/UnrealType.h"
 
@@ -135,6 +139,9 @@ namespace
 		bool bMesh = false;
 		bool bDecal = false;
 		bool bHealth = false;
+		bool bPhysics = false;
+		bool bAttachment = false;
+		bool bCustomPrimitiveData = false;
 	};
 
 	/** Every field name this action understands, so an unknown one is an error
@@ -151,6 +158,9 @@ namespace
 		if (Name == TEXT("materials"))   { Fields.bMaterials = true;   return true; }
 		if (Name == TEXT("mesh"))        { Fields.bMesh = true;        return true; }
 		if (Name == TEXT("decal"))       { Fields.bDecal = true;       return true; }
+		if (Name == TEXT("physics"))     { Fields.bPhysics = true;     return true; }
+		if (Name == TEXT("attachment"))  { Fields.bAttachment = true;  return true; }
+		if (Name == TEXT("customPrimitiveData")) { Fields.bCustomPrimitiveData = true; return true; }
 		if (Name == TEXT("health"))
 		{
 			// health is derived from the others, so asking for it turns on
@@ -233,6 +243,7 @@ namespace
 		double DuplicateQuantum = 0.0;
 		FMCPQueryFields Fields;
 		TArray<FString> ProjectedProperties;
+		TArray<FString> ProjectedActorProperties;
 		TArray<MCPQuery::FPredicate> Predicates;
 		TArray<FString> CountByPaths;
 		UClass* ComponentClass = nullptr;
@@ -303,7 +314,7 @@ namespace
 					if (!MCPQueryApplyFieldName(Name, Fields))
 					{
 						return MCPError(FString::Printf(
-							TEXT("Unknown 'fields' entry '%s'. Valid: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health"),
+							TEXT("Unknown 'fields' entry '%s'. Valid: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData"),
 							*Name));
 					}
 					bAnyFieldRequested = true;
@@ -335,6 +346,20 @@ namespace
 		{
 			return MCPError(FString::Printf(
 				TEXT("'propertyNames' exceeds the maximum of %d entries"), MCPQueryMaxProjectedProperties));
+		}
+		// #1303: the owning actor's properties, Blueprint variables included.
+		TArray<FString> ProjectedActorProperties;
+		{
+			const TArray<TSharedPtr<FJsonValue>>* ActorPropertyValues = nullptr;
+			if (TryGetArrayParam(Params, TEXT("actorPropertyNames"), ActorPropertyValues) && ActorPropertyValues)
+			{
+				ProjectedActorProperties = JsonArrayToStringList(ActorPropertyValues);
+			}
+		}
+		if (ProjectedActorProperties.Num() > MCPQueryMaxProjectedProperties)
+		{
+			return MCPError(FString::Printf(
+				TEXT("'actorPropertyNames' exceeds the maximum of %d entries"), MCPQueryMaxProjectedProperties));
 		}
 
 		// Predicates. Parsing and evaluation live in the shared query header, so
@@ -440,6 +465,7 @@ namespace
 		OutRequest.DuplicateQuantum = DuplicateTolerance > 0.0 ? DuplicateTolerance : 0.0;
 		OutRequest.Fields = Fields;
 		OutRequest.ProjectedProperties = MoveTemp(ProjectedProperties);
+		OutRequest.ProjectedActorProperties = MoveTemp(ProjectedActorProperties);
 		OutRequest.Predicates = MoveTemp(Predicates);
 		OutRequest.CountByPaths = MoveTemp(CountByPaths);
 		OutRequest.ComponentClass = ComponentClass;
@@ -719,6 +745,70 @@ namespace
 			Row->SetObjectField(TEXT("navigation"), NavObject);
 		}
 
+		// ── #1250: attachment and owner visibility, for dual-mesh checks ─
+		if (SceneComponent && Fields.bAttachment)
+		{
+			TSharedPtr<FJsonObject> AttachObject = MakeShared<FJsonObject>();
+			USceneComponent* AttachParent = SceneComponent->GetAttachParent();
+			AttachObject->SetStringField(TEXT("parentComponent"), AttachParent ? AttachParent->GetName() : FString());
+			AActor* ParentOwner = AttachParent ? AttachParent->GetOwner() : nullptr;
+			AttachObject->SetStringField(TEXT("parentActor"), ParentOwner && ParentOwner != Actor ? ParentOwner->GetPathName() : FString());
+			const FName Socket = SceneComponent->GetAttachSocketName();
+			AttachObject->SetStringField(TEXT("socket"), Socket == NAME_None ? FString() : Socket.ToString());
+			AttachObject->SetObjectField(TEXT("relativeLocation"), MCPVec3ToJsonObject(SceneComponent->GetRelativeLocation()));
+			AttachObject->SetObjectField(TEXT("relativeRotation"), MCPRotatorToJsonObject(SceneComponent->GetRelativeRotation()));
+			AttachObject->SetBoolField(TEXT("isRoot"), SceneComponent == Actor->GetRootComponent());
+			if (Primitive)
+			{
+				AttachObject->SetBoolField(TEXT("onlyOwnerSee"), Primitive->bOnlyOwnerSee != 0);
+				AttachObject->SetBoolField(TEXT("ownerNoSee"), Primitive->bOwnerNoSee != 0);
+				// First-person rendering exists on newer engines only, so it is read by name.
+				if (const TSharedPtr<FJsonValue> FirstPerson = MCPQueryReflectProperty(Component, TEXT("FirstPersonPrimitiveType")))
+				{
+					AttachObject->SetField(TEXT("firstPersonPrimitiveType"), FirstPerson);
+				}
+			}
+			Row->SetObjectField(TEXT("attachment"), AttachObject);
+		}
+
+		// ── #1212: live rigid-body state, readable in world=pie ─────────
+		if (Primitive && Fields.bPhysics)
+		{
+			TSharedPtr<FJsonObject> PhysicsObject = MakeShared<FJsonObject>();
+			const bool bSimulating = Primitive->IsSimulatingPhysics();
+			PhysicsObject->SetBoolField(TEXT("simulatingPhysics"), bSimulating);
+			PhysicsObject->SetBoolField(TEXT("gravityEnabled"), Primitive->IsGravityEnabled());
+			PhysicsObject->SetStringField(TEXT("collisionEnabled"), MCPQueryCollisionEnabledName(Primitive->GetCollisionEnabled()));
+			PhysicsObject->SetStringField(TEXT("collisionProfile"), Primitive->GetCollisionProfileName().ToString());
+			PhysicsObject->SetObjectField(TEXT("linearVelocity"), MCPVec3ToJsonObject(Primitive->GetPhysicsLinearVelocity()));
+			PhysicsObject->SetObjectField(TEXT("angularVelocityDegrees"), MCPVec3ToJsonObject(Primitive->GetPhysicsAngularVelocityInDegrees()));
+			if (bSimulating)
+			{
+				PhysicsObject->SetNumberField(TEXT("mass"), Primitive->GetMass());
+			}
+			if (const FBodyInstance* Body = Primitive->GetBodyInstance())
+			{
+				PhysicsObject->SetBoolField(TEXT("awake"), Body->IsInstanceAwake());
+				// The override is a reflected member of the body instance; the
+				// effective material is what a hit actually reports.
+				if (const FProperty* OverrideProp = FBodyInstance::StaticStruct()->FindPropertyByName(TEXT("PhysMaterialOverride")))
+				{
+					PhysicsObject->SetField(TEXT("physMaterialOverride"),
+						MCPQuery::PropertyToJson(const_cast<FProperty*>(OverrideProp), OverrideProp->ContainerPtrToValuePtr<void>(Body)));
+				}
+				if (UPhysicalMaterial* Effective = Body->GetSimplePhysicalMaterial())
+				{
+					TSharedPtr<FJsonObject> MaterialObject = MakeShared<FJsonObject>();
+					MaterialObject->SetStringField(TEXT("path"), Effective->GetPathName());
+					MaterialObject->SetNumberField(TEXT("friction"), Effective->Friction);
+					MaterialObject->SetNumberField(TEXT("restitution"), Effective->Restitution);
+					MaterialObject->SetNumberField(TEXT("density"), Effective->Density);
+					PhysicsObject->SetObjectField(TEXT("physicalMaterial"), MaterialObject);
+				}
+			}
+			Row->SetObjectField(TEXT("physics"), PhysicsObject);
+		}
+
 		// ── #912: tick settings ─────────────────────────────────────────
 		if (Fields.bTick)
 		{
@@ -827,6 +917,9 @@ namespace
 					}
 					SlotObject->SetStringField(TEXT("source"),
 						bOverride ? TEXT("componentOverride") : (bIsNull ? TEXT("none") : TEXT("meshDefault")));
+					// #1303: Material, MaterialInstanceConstant or MaterialInstanceDynamic.
+					SlotObject->SetStringField(TEXT("materialClass"), bIsNull ? FString() : Effective->GetClass()->GetName());
+					SlotObject->SetBoolField(TEXT("isDynamic"), !bIsNull && Effective->IsA<UMaterialInstanceDynamic>());
 					SlotObject->SetBoolField(TEXT("isNull"), bIsNull);
 					SlotObject->SetBoolField(TEXT("isWorldGrid"), bIsWorldGrid);
 					SlotArray.Add(MakeShared<FJsonValueObject>(SlotObject));
@@ -864,6 +957,23 @@ namespace
 			Row->SetObjectField(TEXT("health"), HealthObject);
 		}
 
+		// ── #1303: custom primitive data, runtime and serialized defaults ─
+		if (Primitive && Fields.bCustomPrimitiveData)
+		{
+			TSharedPtr<FJsonObject> DataObject = MakeShared<FJsonObject>();
+			TArray<TSharedPtr<FJsonValue>> Runtime;
+			for (const float Value : Primitive->GetCustomPrimitiveData().Data)
+			{
+				Runtime.Add(MakeShared<FJsonValueNumber>(Value));
+			}
+			DataObject->SetArrayField(TEXT("runtime"), Runtime);
+			if (const TSharedPtr<FJsonValue> Defaults = MCPQueryReflectProperty(Component, TEXT("CustomPrimitiveData")))
+			{
+				DataObject->SetField(TEXT("defaults"), Defaults);
+			}
+			Row->SetObjectField(TEXT("customPrimitiveData"), DataObject);
+		}
+
 		// ── Requested UPROPERTY projection ──────────────────────────────
 		if (ProjectedProperties.Num() > 0)
 		{
@@ -879,6 +989,24 @@ namespace
 					MCPQuery::PropertyToJson(Property, Property->ContainerPtrToValuePtr<void>(Component)));
 			}
 			Row->SetObjectField(TEXT("props"), PropsObject);
+		}
+
+		// ── #1303: owning actor projection, Blueprint variables included ─
+		if (Request.ProjectedActorProperties.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> ActorPropsObject = MakeShared<FJsonObject>();
+			for (const FString& PropertyName : Request.ProjectedActorProperties)
+			{
+				FProperty* Property = nullptr;
+				void* ValueAddr = nullptr;
+				UObject* LeafOwner = nullptr;
+				FString PathError;
+				if (MCPJsonProperty::ResolveDottedPath(Actor, PropertyName, Property, ValueAddr, LeafOwner, PathError))
+				{
+					ActorPropsObject->SetField(PropertyName, MCPQuery::PropertyToJson(Property, ValueAddr));
+				}
+			}
+			Row->SetObjectField(TEXT("actorProps"), ActorPropsObject);
 		}
 
 		bOutHasTransform = bHasTransform;
@@ -1266,9 +1394,9 @@ TSharedPtr<FJsonValue> FLevelHandlers::QueryComponents(const TSharedPtr<FJsonObj
 	MCPReadParamsAhead(Params, {
 		TEXT("componentClass"), TEXT("actorClass"), TEXT("matchSubclasses"), TEXT("componentNameContains"),
 		TEXT("actorLabelPrefix"), TEXT("actorLabelContains"), TEXT("actorTag"), TEXT("folderPath"), TEXT("folderPathPrefix"),
-		TEXT("fields"), TEXT("propertyNames"), TEXT("where"), TEXT("whereMode"), TEXT("suspectOnly"), TEXT("groupBy"),
-		TEXT("countBy"), TEXT("sampleLimit"), TEXT("countOnly"), TEXT("limit"), TEXT("startIndex"),
-		TEXT("duplicateTransformTolerance"), TEXT("levelPath"), TEXT("world"), TEXT("pieInstance"),
+		TEXT("fields"), TEXT("propertyNames"), TEXT("actorPropertyNames"), TEXT("where"), TEXT("whereMode"),
+		TEXT("suspectOnly"), TEXT("groupBy"), TEXT("countBy"), TEXT("sampleLimit"), TEXT("countOnly"), TEXT("limit"),
+		TEXT("startIndex"), TEXT("duplicateTransformTolerance"), TEXT("levelPath"), TEXT("world"), TEXT("pieInstance"),
 	});
 
 	FMCPQueryRequest Request;

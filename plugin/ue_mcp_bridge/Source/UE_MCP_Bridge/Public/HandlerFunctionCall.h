@@ -26,6 +26,7 @@
 #include "Serialization/JsonSerializer.h"
 #include "HandlerResult.h"
 #include "HandlerParams.h"
+#include "HandlerWorld.h"
 
 namespace MCPFunctionCall
 {
@@ -439,7 +440,45 @@ namespace MCPFunctionCall
 		return true;
 	}
 
-	/** Wording for the case above, so a false negative is visible in the result. */
+	/**
+	 * Whether a scripted call on Target needs FEditorScriptExecutionGuard. A
+	 * world whose actors are initialised for play runs ProcessEvent without it,
+	 * and the guard would force every actor callspace there to Local (#1217).
+	 */
+	inline bool NeedsEditorScriptGuard(const UObject* Target)
+	{
+		const UWorld* World = Target ? Target->GetWorld() : nullptr;
+		return !(World && World->IsGameWorld() && World->AreActorsInitialized());
+	}
+
+	/**
+	 * ProcessEvent in the target's own context: inside the PIE instance that owns
+	 * it with normal RPC routing, or under the editor script guard for an object
+	 * whose world was never initialised for play.
+	 */
+	inline void ProcessEventInOwnContext(UObject* Target, UFunction* Func, void* Parms, bool& bOutUsedEditorGuard)
+	{
+		bOutUsedEditorGuard = NeedsEditorScriptGuard(Target);
+		FMCPScopedPlayWorldContext PlayContext(MCPPlayWorldOf(Target));
+		if (bOutUsedEditorGuard)
+		{
+			FEditorScriptExecutionGuard ScriptGuard;
+			Target->ProcessEvent(Func, Parms);
+		}
+		else
+		{
+			Target->ProcessEvent(Func, Parms);
+		}
+	}
+
+	/** The callspace a net function resolves to, or empty for a non-net function. */
+	inline FString NetCallspaceOf(UObject* Target, UFunction* Func)
+	{
+		if (!Target || !Func || !Func->HasAnyFunctionFlags(FUNC_Net)) return FString();
+		return DescribeCallspace(Target->GetFunctionCallspace(Func, nullptr));
+	}
+
+	/** Wording for a callspace WouldForceNetCallspaceLocal reported, so the override is visible in the result. */
 	inline FString DescribeForcedLocalCallspace(const FString& FunctionName, const FString& NaturalCallspace)
 	{
 		return FString::Printf(
@@ -502,6 +541,7 @@ namespace MCPFunctionCall
 				{
 					// Deliberately NOT under FEditorScriptExecutionGuard: the
 					// whole point of the deferral is that the guard is closed.
+					FMCPScopedPlayWorldContext PlayContext(MCPPlayWorldOf(LiveTarget));
 					LiveTarget->ProcessEvent(LiveFunc, Frame->GetData());
 				}
 				if (LiveFunc)

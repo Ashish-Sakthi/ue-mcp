@@ -9,6 +9,8 @@
 // happens in MaterialHandlers.cpp::RegisterHandlers.
 
 #include "MaterialHandlers.h"
+#include "MaterialGraph/MaterialGraphNode.h"
+#include "Materials/MaterialExpressionMaterialFunctionCall.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "HandlerAssetCreate.h"
@@ -173,8 +175,8 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ConnectMaterialFunctionExpressions(con
 	};
 	const FExpressionRef SourceRef = ReadRef(TEXT("sourceExpression"));
 	const FExpressionRef TargetRef = ReadRef(TEXT("targetExpression"));
-	const FString SourceOutput = OptionalString(Params, TEXT("sourceOutput"));
-	const FString TargetInput = OptionalString(Params, TEXT("targetInput"));
+	FString SourceOutput = OptionalString(Params, TEXT("sourceOutput"));
+	FString TargetInput = OptionalString(Params, TEXT("targetInput"));
 
 	REQUIRE_ASSET(UMaterialFunction, MF, FunctionPath);
 
@@ -245,6 +247,30 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ConnectMaterialFunctionExpressions(con
 		SourceOutputLabels.Add(OutputName.IsEmpty() ? TEXT("(default)") : OutputName);
 	}
 
+	// The editor library matches pins by their short graph label, where "Input"
+	// is blank, so an index, a reflected name or "Input" is translated first (#1403).
+	if (!Cast<UMaterialExpressionMaterialFunctionCall>(To))
+	{
+		int32 PinIndex = INDEX_NONE;
+		FString PinError;
+		if (ResolveExpressionInputIndex(To, TargetInput, PinIndex, PinError))
+		{
+			const FName Short = UMaterialGraphNode::GetShortenPinName(To->GetInputName(PinIndex));
+			if (!Short.IsNone()) TargetInput = Short.ToString();
+			else if (PinIndex == 0) TargetInput.Reset();
+		}
+	}
+	{
+		int32 PinIndex = INDEX_NONE;
+		FString PinError;
+		if (!SourceOutput.IsEmpty() && SourceOutput.IsNumeric()
+			&& ResolveExpressionOutputIndex(From, SourceOutput, PinIndex, PinError) && From->GetOutputs().IsValidIndex(PinIndex))
+		{
+			const FName OutName = From->GetOutputs()[PinIndex].OutputName;
+			if (!OutName.IsNone()) SourceOutput = OutName.ToString();
+			else if (PinIndex == 0) SourceOutput.Reset();
+		}
+	}
 	const bool bOk = UMaterialEditingLibrary::ConnectMaterialExpressions(From, SourceOutput, To, TargetInput);
 	if (!bOk)
 	{

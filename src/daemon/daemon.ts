@@ -18,7 +18,7 @@ import * as fs from "node:fs";
 import * as http from "node:http";
 import * as path from "node:path";
 import { WebSocketServer } from "ws";
-import { info, warn, error } from "../core/log.js";
+import { info, warn, error, stampLogs } from "../core/log.js";
 import { editorStepFailure } from "./editor-step.js";
 import { readEnv } from "../core/env.js";
 import { packageVersion } from "../core/package-root.js";
@@ -57,6 +57,7 @@ import { resolvePluginDir } from "../editor/install-marker.js";
 import { applyUpdate, checkForUpdate, readPendingUpdate, repinClientConfigs, settlePendingUpdate } from "../editor/bridge-update.js";
 import { subscribeFlowEvents } from "../flow/events.js";
 import { pluginRoutes } from "./plugin-routes.js";
+import { releaseStartLock, waitForStartTurn } from "./start-lock.js";
 
 const DEFAULT_IDLE_MS = 30 * 60_000;
 const DEFAULT_WAIT_FOR_EDITOR_SECONDS = 60;
@@ -76,6 +77,8 @@ export interface Daemon {
   inflight(): number;
   extensions: LoadedExtension[];
   ui: UiBundleStore;
+  /** A same-or-newer daemon that published first; this one did not publish and should close. */
+  superseded: DaemonDiscovery | null;
   close(): Promise<void>;
 }
 
@@ -92,6 +95,10 @@ export interface DaemonOptions {
   /** Where UI bundles are kept. Defaults to uiStoreDir(). */
   uiDir?: string;
 }
+
+/** How often the daemon checks that it can still answer, and how long a hold is worth a warning. */
+const STALL_BEAT_MS = 1000;
+const STALL_REPORT_MS = 3000;
 
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   const rt = await createRuntime(opts.projects);
@@ -638,6 +645,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       info("daemon", `stopping: ${reason}`);
       events.publish("daemon.stopping", { reason });
       clearInterval(idleTimer);
+      clearInterval(stallTimer);
       for (const t of updateTimers) clearTimeout(t);
       unsubscribeFlows();
       unsubscribeDialogs();
@@ -665,9 +673,20 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     projectRoot: normalizeProjectRoot(projectDir),
     startedAt,
   };
-  if (opts.publish !== false) writeDiscovery(projectDir, discovery);
+  const superseded = opts.publish !== false ? rivalDaemon(projectDir, discovery.version) : null;
+  if (opts.publish !== false && !superseded) writeDiscovery(projectDir, discovery);
   events.publish("daemon.started", { pid: process.pid, port, version: discovery.version });
   info("daemon", `listening on 127.0.0.1:${port} for ${path.basename(projectDir)}`);
+
+  // While the event loop is held nothing answers, not even /v1/health; say so, with how long.
+  let lastBeat = Date.now();
+  const stallTimer = setInterval(() => {
+    const now = Date.now();
+    const held = now - lastBeat - STALL_BEAT_MS;
+    if (held >= STALL_REPORT_MS) warn("daemon", `answered nothing for ${(held / 1000).toFixed(1)}s: something held the event loop`);
+    lastBeat = now;
+  }, STALL_BEAT_MS);
+  stallTimer.unref();
 
   return {
     port,
@@ -680,6 +699,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     inflight,
     extensions,
     ui,
+    superseded,
     close: () => shutdown("closed"),
   };
 }
@@ -687,36 +707,52 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
 /**
  * `ue-mcp daemon run`: start in the foreground. A live daemon of an older
  * version is asked to hand off once this one is listening; a live one of the
- * same or newer version wins and this process exits.
+ * same or newer version wins and this process exits. The start lock makes
+ * concurrent starters wait for one daemon instead of each running their own.
  */
 export async function runDaemon(projects: string[]): Promise<number> {
+  stampLogs();
   if (projects.length === 0) {
     error("daemon", "no .uproject given");
     return 2;
   }
   const projectDir = path.dirname(path.resolve(projects[0]));
-  const existing = readLiveDiscovery(projectDir);
-  if (existing && !isOlder(existing.version, packageVersion())) {
-    info("daemon", `daemon ${existing.version} already running (pid ${existing.pid}); not starting another`);
+  const turn = await waitForStartTurn(projectDir, (d) => !isOlder(d.version, packageVersion()));
+  if (turn.action === "defer") {
+    info("daemon", `daemon ${turn.live.version} already running (pid ${turn.live.pid}); not starting another`);
     return 0;
   }
+  const existing = turn.existing;
 
-  const daemon = await startDaemon({ projects, publish: !existing });
-  if (existing) {
-    await requestHandoff(existing);
-    const deadline = Date.now() + 120_000;
-    while (readLiveDiscovery(projectDir)?.pid === existing.pid && Date.now() < deadline) {
-      await new Promise((r) => setTimeout(r, 250));
+  let daemon: Daemon;
+  try {
+    daemon = await startDaemon({ projects, publish: !existing });
+    if (existing && !daemon.superseded) {
+      await requestHandoff(existing);
+      const deadline = Date.now() + 120_000;
+      while (readLiveDiscovery(projectDir)?.pid === existing.pid && Date.now() < deadline) {
+        await new Promise((r) => setTimeout(r, 250));
+      }
+      daemon.superseded = rivalDaemon(projectDir, packageVersion(), existing.pid);
+      if (!daemon.superseded) {
+        writeDiscovery(projectDir, {
+          pid: process.pid,
+          port: daemon.port,
+          token: daemon.token,
+          version: packageVersion(),
+          apiVersion: DAEMON_API_VERSION,
+          projectRoot: normalizeProjectRoot(projectDir),
+          startedAt: new Date().toISOString(),
+        });
+      }
     }
-    writeDiscovery(projectDir, {
-      pid: process.pid,
-      port: daemon.port,
-      token: daemon.token,
-      version: packageVersion(),
-      apiVersion: DAEMON_API_VERSION,
-      projectRoot: normalizeProjectRoot(projectDir),
-      startedAt: new Date().toISOString(),
-    });
+  } finally {
+    releaseStartLock(projectDir);
+  }
+  if (daemon.superseded) {
+    info("daemon", `daemon ${daemon.superseded.version} (pid ${daemon.superseded.pid}) published first; stopping this one`);
+    await daemon.close();
+    return 0;
   }
 
   const stop = (): void => void daemon.close().then(() => process.exit(0));
@@ -726,6 +762,12 @@ export async function runDaemon(projects: string[]): Promise<number> {
     if (e.type === "daemon.stopping") setTimeout(() => process.exit(0), 500).unref();
   });
   return new Promise<number>(() => {});
+}
+
+/** A live same-or-newer daemon published by another process, other than `ignorePid`. */
+function rivalDaemon(projectDir: string, version: string, ignorePid?: number): DaemonDiscovery | null {
+  const d = readLiveDiscovery(projectDir);
+  return d && d.pid !== process.pid && d.pid !== ignorePid && !isOlder(d.version, version) ? d : null;
 }
 
 async function requestHandoff(d: DaemonDiscovery): Promise<void> {

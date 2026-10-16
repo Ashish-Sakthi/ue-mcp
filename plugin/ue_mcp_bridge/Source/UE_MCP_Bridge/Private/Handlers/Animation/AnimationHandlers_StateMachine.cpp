@@ -2696,9 +2696,10 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetIKRetargeterRig(const TSharedPtr<F
 static TSharedPtr<FJsonObject> CaptureRetargetPosePayload(
 	UIKRetargeterController* Controller,
 	const ERetargetSourceOrTarget Side,
-	const FString& SideName)
+	const FString& SideName,
+	const FName PoseNameOverride = NAME_None)
 {
-	const FName PoseName = Controller->GetCurrentRetargetPoseName(Side);
+	const FName PoseName = PoseNameOverride.IsNone() ? Controller->GetCurrentRetargetPoseName(Side) : PoseNameOverride;
 	TMap<FName, FIKRetargetPose>& Poses = Controller->GetRetargetPoses(Side);
 	const FIKRetargetPose* Pose = Poses.Find(PoseName);
 	if (!Pose) return nullptr;
@@ -2867,6 +2868,199 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ResetRetargetPose(const TSharedPtr<FJ
 		TEXT("so on this engine there is no action that can replay them."));
 #endif
 	return MCPResult(Result);
+}
+
+// ─── #1288 remove_retarget_pose / rename_retarget_pose ──────────────
+// The controller's pose list and its remove and rename calls are checked against
+// the 5.7 and 5.8 headers, so older engines refuse rather than guess.
+namespace MCPRetargetPoseEdit
+{
+	/** Resolve the retargeter, its controller and the side, or the error. */
+	TSharedPtr<FJsonValue> Resolve(const FString& RetargeterPath, const FString& Side,
+		UIKRetargeter*& OutRetargeter, UIKRetargeterController*& OutController)
+	{
+		if (MCPIsProtectedAssetPath(RetargeterPath))
+		{
+			return MCPError(FString::Printf(TEXT("Protected asset cannot be modified: %s"), *RetargeterPath));
+		}
+		if (!Side.Equals(TEXT("source"), ESearchCase::IgnoreCase) && !Side.Equals(TEXT("target"), ESearchCase::IgnoreCase))
+		{
+			return MCPError(TEXT("'side' must be 'source' or 'target'"));
+		}
+		OutRetargeter = LoadAssetByPath<UIKRetargeter>(RetargeterPath);
+		if (!OutRetargeter) return MCPError(FString::Printf(TEXT("IKRetargeter not found: %s"), *RetargeterPath));
+		if (auto Blocked = MCPAssetWriteBlockedError(OutRetargeter, OutRetargeter->GetPathName(), TEXT("edit its retarget poses"))) return Blocked;
+		OutController = UIKRetargeterController::GetController(OutRetargeter);
+		if (!OutController) return MCPError(TEXT("IKRetargeterController unavailable"));
+		return nullptr;
+	}
+
+#if UE_MCP_HAS_5_7_API
+	TArray<FString> PoseNames(UIKRetargeterController* Controller, ERetargetSourceOrTarget Side)
+	{
+		TArray<FName> Keys;
+		Controller->GetRetargetPoses(Side).GetKeys(Keys);
+		TArray<FString> Out;
+		for (const FName& Key : Keys) Out.Add(Key.ToString());
+		Out.Sort();
+		return Out;
+	}
+#endif
+}
+
+TSharedPtr<FJsonValue> FAnimationHandlers::RemoveRetargetPose(const TSharedPtr<FJsonObject>& Params)
+{
+	MCPReadParamsAhead(Params, { TEXT("retargeterPath"), TEXT("poseName"), TEXT("side") });
+#if !UE_MCP_HAS_5_7_API
+	return MCPUnsupportedEngineError(TEXT("remove_retarget_pose"), TEXT("5.7"));
+#else
+	using namespace MCPRetargetPoseEdit;
+	FString RetargeterPath;
+	if (auto Err = RequireString(Params, TEXT("retargeterPath"), RetargeterPath)) return Err;
+	FString PoseText;
+	if (auto Err = RequireString(Params, TEXT("poseName"), PoseText)) return Err;
+	const FString Side = OptionalString(Params, TEXT("side"), TEXT("target")).ToLower();
+
+	UIKRetargeter* Retargeter = nullptr;
+	UIKRetargeterController* Controller = nullptr;
+	if (auto Err = Resolve(RetargeterPath, Side, Retargeter, Controller)) return Err;
+	const ERetargetSourceOrTarget SoT = ParseSourceOrTarget(Side);
+	const FName PoseName(*PoseText);
+
+	if (PoseName == UIKRetargeter::GetDefaultPoseName())
+	{
+		return MCPError(FString::Printf(TEXT("'%s' is the default retarget pose, which every retargeter keeps; it cannot be removed"), *PoseText));
+	}
+	if (!Controller->GetRetargetPoses(SoT).Contains(PoseName))
+	{
+		auto Noop = MCPSuccess();
+		Noop->SetStringField(TEXT("retargeterPath"), Retargeter->GetPathName());
+		Noop->SetStringField(TEXT("side"), Side);
+		Noop->SetStringField(TEXT("poseName"), PoseText);
+		Noop->SetBoolField(TEXT("alreadyRemoved"), true);
+		Noop->SetStringField(TEXT("currentPose"), Controller->GetCurrentRetargetPoseName(SoT).ToString());
+		Noop->SetArrayField(TEXT("poses"), MCPStringListToJson(PoseNames(Controller, SoT)));
+		return MCPResult(Noop);
+	}
+
+	const bool bWasCurrent = Controller->GetCurrentRetargetPoseName(SoT) == PoseName;
+#if UE_MCP_HAS_5_8_API
+	// Captured before the pose and its offsets are gone.
+	TSharedPtr<FJsonObject> PrevPose = CaptureRetargetPosePayload(Controller, SoT, Side, PoseName);
+#endif
+	Controller->RemoveRetargetPose(PoseName, SoT);
+	if (Controller->GetRetargetPoses(SoT).Contains(PoseName))
+	{
+		return MCPError(FString::Printf(TEXT("The retargeter kept pose '%s' after the remove call"), *PoseText));
+	}
+
+	auto Result = MCPSuccess();
+	MCPAnimSaveOutcome(Result, Retargeter, Retargeter->GetPathName());
+	MCPSetUpdated(Result);
+	Result->SetStringField(TEXT("retargeterPath"), Retargeter->GetPathName());
+	Result->SetStringField(TEXT("side"), Side);
+	Result->SetStringField(TEXT("removed"), PoseText);
+	Result->SetBoolField(TEXT("alreadyRemoved"), false);
+	Result->SetBoolField(TEXT("wasCurrent"), bWasCurrent);
+	Result->SetStringField(TEXT("currentPose"), Controller->GetCurrentRetargetPoseName(SoT).ToString());
+	Result->SetArrayField(TEXT("poses"), MCPStringListToJson(PoseNames(Controller, SoT)));
+#if UE_MCP_HAS_5_8_API
+	if (PrevPose.IsValid())
+	{
+		PrevPose->SetBoolField(TEXT("create"), true);
+		TSharedPtr<FJsonObject> Rollback = MakeShared<FJsonObject>();
+		Rollback->SetStringField(TEXT("retargeterPath"), Retargeter->GetPathName());
+		Rollback->SetBoolField(TEXT("ensureDefaultOps"), false);
+		Rollback->SetObjectField(TEXT("pose"), PrevPose);
+		MCPSetRollback(Result, TEXT("configure_ik_retargeter"), Rollback);
+		Result->SetBoolField(TEXT("rollbackLossy"), true);
+		Result->SetStringField(TEXT("rollbackNote"),
+			TEXT("The replay re-creates the pose with every captured per-bone rotation offset and the root offset's Z, and makes it current. ")
+			TEXT("The root translation offset's X and Y are not restored, because configure_ik_retargeter authors rootOffsetZ only."));
+	}
+#else
+	Result->SetBoolField(TEXT("rollbackPossible"), false);
+	Result->SetStringField(TEXT("rollbackNote"),
+		TEXT("Re-creating the pose with its offsets needs animation(configure_ik_retargeter), which requires Unreal Engine 5.8."));
+#endif
+	return MCPResult(Result);
+#endif
+}
+
+TSharedPtr<FJsonValue> FAnimationHandlers::RenameRetargetPose(const TSharedPtr<FJsonObject>& Params)
+{
+	MCPReadParamsAhead(Params, { TEXT("retargeterPath"), TEXT("poseName"), TEXT("newName"), TEXT("side") });
+#if !UE_MCP_HAS_5_7_API
+	return MCPUnsupportedEngineError(TEXT("rename_retarget_pose"), TEXT("5.7"));
+#else
+	using namespace MCPRetargetPoseEdit;
+	FString RetargeterPath;
+	if (auto Err = RequireString(Params, TEXT("retargeterPath"), RetargeterPath)) return Err;
+	FString PoseText;
+	if (auto Err = RequireString(Params, TEXT("poseName"), PoseText)) return Err;
+	FString NewText;
+	if (auto Err = RequireString(Params, TEXT("newName"), NewText)) return Err;
+	const FString Side = OptionalString(Params, TEXT("side"), TEXT("target")).ToLower();
+
+	UIKRetargeter* Retargeter = nullptr;
+	UIKRetargeterController* Controller = nullptr;
+	if (auto Err = Resolve(RetargeterPath, Side, Retargeter, Controller)) return Err;
+	const ERetargetSourceOrTarget SoT = ParseSourceOrTarget(Side);
+	const FName PoseName(*PoseText);
+	const FName NewName(*NewText.TrimStartAndEnd());
+
+	if (PoseName == UIKRetargeter::GetDefaultPoseName())
+	{
+		return MCPError(FString::Printf(TEXT("'%s' is the default retarget pose, whose name the retargeter relies on; it cannot be renamed"), *PoseText));
+	}
+	if (NewName.IsNone() || NewName == UIKRetargeter::GetDefaultPoseName())
+	{
+		return MCPError(TEXT("newName must be a non-empty name other than the default pose's"));
+	}
+	TMap<FName, FIKRetargetPose>& Poses = Controller->GetRetargetPoses(SoT);
+	if (!Poses.Contains(PoseName))
+	{
+		if (Poses.Contains(NewName))
+		{
+			auto Noop = MCPSuccess();
+			Noop->SetStringField(TEXT("retargeterPath"), Retargeter->GetPathName());
+			Noop->SetStringField(TEXT("side"), Side);
+			Noop->SetStringField(TEXT("poseName"), NewName.ToString());
+			Noop->SetBoolField(TEXT("alreadyRenamed"), true);
+			return MCPResult(Noop);
+		}
+		return MCPError(FString::Printf(TEXT("No %s retarget pose named '%s'. Poses: %s"), *Side, *PoseText,
+			*FString::Join(PoseNames(Controller, SoT), TEXT(", "))));
+	}
+	if (Poses.Contains(NewName))
+	{
+		return MCPError(FString::Printf(TEXT("A %s retarget pose named '%s' already exists"), *Side, *NewName.ToString()));
+	}
+
+	Controller->RenameRetargetPose(PoseName, NewName, SoT);
+	if (!Controller->GetRetargetPoses(SoT).Contains(NewName))
+	{
+		return MCPError(FString::Printf(TEXT("The retargeter did not rename '%s' to '%s'"), *PoseText, *NewName.ToString()));
+	}
+
+	auto Result = MCPSuccess();
+	MCPAnimSaveOutcome(Result, Retargeter, Retargeter->GetPathName());
+	MCPSetUpdated(Result);
+	Result->SetStringField(TEXT("retargeterPath"), Retargeter->GetPathName());
+	Result->SetStringField(TEXT("side"), Side);
+	Result->SetStringField(TEXT("previousName"), PoseText);
+	Result->SetStringField(TEXT("poseName"), NewName.ToString());
+	Result->SetStringField(TEXT("currentPose"), Controller->GetCurrentRetargetPoseName(SoT).ToString());
+	Result->SetArrayField(TEXT("poses"), MCPStringListToJson(PoseNames(Controller, SoT)));
+	TSharedPtr<FJsonObject> Rollback = MakeShared<FJsonObject>();
+	Rollback->SetStringField(TEXT("retargeterPath"), Retargeter->GetPathName());
+	Rollback->SetStringField(TEXT("poseName"), NewName.ToString());
+	Rollback->SetStringField(TEXT("newName"), PoseText);
+	Rollback->SetStringField(TEXT("side"), Side);
+	MCPSetRollback(Result, TEXT("rename_retarget_pose"), Rollback);
+	Result->SetBoolField(TEXT("rollbackLossy"), false);
+	return MCPResult(Result);
+#endif
 }
 
 // ─── #701 batch_retarget_animations ─────────────────────────────────

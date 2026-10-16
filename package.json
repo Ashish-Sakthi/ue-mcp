@@ -1,7 +1,7 @@
 {
   "name": "ue-mcp",
-  "version": "1.4.5",
-  "description": "Unreal Engine MCP server - 26 tools, 1975+ actions for AI-driven editor control",
+  "version": "1.4.7",
+  "description": "Unreal Engine MCP server - 29 tools, 2030+ actions for AI-driven editor control",
   "type": "module",
   "main": "dist/index.js",
   "exports": {
@@ -73,6 +73,7 @@
     "lint:prose": "node scripts/lint-prose.mjs",
     "check:config": "node scripts/check-tracked-config.mjs",
     "check:flows": "node scripts/check-flows.mjs",
+    "coverage:behavioural": "tsx scripts/behavioural-coverage.ts",
     "check:release": "node scripts/check-release-gates.mjs all",
     "audit:unity": "node scripts/audit-unity-collisions.mjs",
     "audit:param-reads": "node scripts/audit-direct-param-reads.mjs",

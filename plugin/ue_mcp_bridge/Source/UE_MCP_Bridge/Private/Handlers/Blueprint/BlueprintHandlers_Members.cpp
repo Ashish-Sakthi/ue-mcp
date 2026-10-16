@@ -1525,7 +1525,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::RenameBlueprintVariable(const TShared
 	Result->SetNumberField(TEXT("referencesStillOnOldName"), StillOld);
 	Result->SetStringField(TEXT("referenceScope"), TEXT("thisBlueprint"));
 	Result->SetStringField(TEXT("externalReferences"),
-		TEXT("Other Blueprints bind this member through its variable GUID, which the rename preserves, so they rebind on load. Run asset(get_asset_referencers) on this Blueprint and blueprint(compile_all) over the result to confirm."));
+		TEXT("Other Blueprints bind this member through its variable GUID, which the rename preserves, so they rebind on load. Run asset(get_referencers) on this Blueprint and blueprint(compile_all) over the result to confirm."));
 
 	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 	Payload->SetStringField(TEXT("assetPath"), AssetPath);

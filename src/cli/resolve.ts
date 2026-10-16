@@ -12,6 +12,7 @@ import * as path from "node:path";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { projectDirOf } from "../config/uproject-path.js";
 import { RESET, BOLD, DIM, RED, CYAN, YELLOW, ok } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 
 const fail = (msg: string) => {
   console.error(`  ${RED}✗${RESET} ${msg}`);
@@ -237,6 +238,16 @@ async function resolve(argv: string[]) {
 
   console.log("");
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp resolve <issue-number> [flags]",
+  summary: "Work a GitHub issue into a pull request.",
+  strict: true,
+  flags: [
+    { name: "--ci", description: "Run unattended (also when CI is set)" },
+    { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
+  ],
+};
 
 /** Entry point for `ue-mcp resolve <issue-number> [--ci]`. */
 export async function run(argv: string[]): Promise<number | void> {

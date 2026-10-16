@@ -10,6 +10,8 @@
  *   node scripts/check-release-gates.mjs count-markers   stamped counts are current
  *   node scripts/check-release-gates.mjs docs-freshness  handlers moved, docs did not
  *   node scripts/check-release-gates.mjs context-tax     every seed within its budget
+ *   node scripts/check-release-gates.mjs behavioural-coverage
+ *                                                        every action tested, exempt or a shrinking gap
  *   node scripts/check-release-gates.mjs all             every gate above
  */
 import fs from "node:fs";
@@ -23,6 +25,13 @@ import {
   measureContextTax,
   staleStamps,
 } from "./context-tax.mjs";
+import {
+  EXEMPTIONS_FILE,
+  RATCHET_FILE,
+  parseRatchet,
+  ratchetGrowth,
+  readRatchet,
+} from "./lib/behavioural-ratchet.mjs";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
@@ -327,11 +336,70 @@ async function checkContextTax() {
   return 0;
 }
 
+/**
+ * The grandfathered behavioural-coverage gaps may only shrink (#1223). Null
+ * when the head list adds nothing to the baseline's, or a sentence naming
+ * every entry it added. A baseline with no list yet is the commit that
+ * introduces it, which adds nothing.
+ */
+export function ratchetGrowthProblem(baselineText, headGaps) {
+  if (baselineText === null) return null;
+  const added = ratchetGrowth(parseRatchet(baselineText), headGaps);
+  if (added.length === 0) return null;
+  return (
+    `${RATCHET_FILE} grew by ${added.length}: ${added.join(", ")}. The gap list only shrinks. ` +
+    `Give each action a behavioural test, or a reasoned exemption in ${EXEMPTIONS_FILE}.`
+  );
+}
+
+/**
+ * Every registered bridge action has a behavioural test, a reasoned exemption
+ * or a grandfathered gap row, the inventory is current, and the gap list did
+ * not grow against the baseline.
+ */
+function checkBehaviouralCoverage() {
+  let bad = 0;
+  try {
+    const out = execFileSync("npx", ["tsx", "scripts/behavioural-coverage.ts", "--check"], {
+      cwd: REPO,
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "pipe"],
+      shell: process.platform === "win32",
+    });
+    const line = out.split("\n").find((l) => l.startsWith("behavioural-coverage:"));
+    console.log(`coverage        - ${(line ?? "inventory current").replace(/^behavioural-coverage:\s*/, "")}`);
+  } catch (e) {
+    const detail = String(e.stderr ?? e.message).split("\n").filter((l) => l.trim()).map((l) => `      ${l}`).join("\n");
+    console.error(`coverage        - the behavioural-coverage inventory does not pass:\n${detail}`);
+    bad = 1;
+  }
+
+  const base = baselineRef();
+  if (base === null) {
+    console.error("coverage        - no baseline commit, so the gap list's growth is unchecked.");
+    return 1;
+  }
+  let baselineText = null;
+  try {
+    baselineText = git("show", `${base}:${RATCHET_FILE}`);
+  } catch {
+    baselineText = null;
+  }
+  const problem = ratchetGrowthProblem(baselineText, readRatchet(REPO));
+  if (problem) {
+    console.error(`coverage        - ${problem}`);
+    return 1;
+  }
+  if (bad === 0) console.log("coverage        - gap list did not grow");
+  return bad;
+}
+
 const GATES = {
   "version-delta": checkVersionDelta,
   "count-markers": checkCountMarkers,
   "docs-freshness": checkDocsFreshness,
   "context-tax": checkContextTax,
+  "behavioural-coverage": checkBehaviouralCoverage,
 };
 
 async function main(argv) {

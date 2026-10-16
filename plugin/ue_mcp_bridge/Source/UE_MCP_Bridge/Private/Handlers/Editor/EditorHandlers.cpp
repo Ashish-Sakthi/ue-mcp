@@ -7,6 +7,7 @@
 #include "HandlerSkinnedAsset.h"
 #include "HandlerSceneCapture.h"
 #include "Handlers/Level/LevelHandlers.h"
+#include "Handlers/HandlerEditorState.h"
 #include "Misc/PackageName.h"
 
 #include "MessageLogModule.h"
@@ -25,6 +26,7 @@
 #include "Editor.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/StringOutputDevice.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
@@ -69,6 +71,7 @@
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "FileHelpers.h"
+#include "Engine/Level.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Misc/DateTime.h"
 #include "HAL/FileManager.h"
@@ -191,9 +194,10 @@ namespace
 		}
 		FString SaveError;
 		bool bSaved = false;
-		if (Package && Package->ContainsMap())
+		// A level's actors and components are not assets: save the map or external actor package itself (#1315).
+		if (Package && (Package->ContainsMap() || Asset->GetTypedOuter<ULevel>() != nullptr))
 		{
-			bSaved = !MCPPackageWriteBlocked(Asset, SaveError) && UEditorAssetLibrary::SaveLoadedAsset(Asset, /*bOnlyIfIsDirty=*/true);
+			bSaved = !MCPPackageWriteBlocked(Asset, SaveError) && UEditorLoadingAndSavingUtils::SavePackages({ Package }, /*bOnlyDirty=*/true);
 			if (!bSaved && SaveError.IsEmpty())
 			{
 				SaveError = TEXT("The editor refused to save the level package. The output log carries the reason.");
@@ -308,13 +312,17 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		return TArray<FMCPParamSpec>{
 			MCPParam::Optional(TEXT("objectPath"), EType::String, TEXT("Object path of the live instance. Wins over target")),
 			MCPParam::Optional(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
-			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem")),
-			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller or playerpawn (default 0)")),
+			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
+			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
+			MCPParam::Optional(TEXT("propertyPath"), EType::String, TEXT("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor")),
 		};
 	};
 
 	Registry.RegisterHandler(TEXT("execute_command"), &ExecuteCommand, {
-		MCPParam::Required(TEXT("command"), EType::String, TEXT("Console command to run in the editor world")),
+		MCPParam::Required(TEXT("command"), EType::String, TEXT("Console command to run")),
+		MCPParam::Optional(TEXT("world"), EType::String, TEXT("editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world")),
+		MCPParam::Optional(TEXT("pieInstance"), EType::Number, TEXT("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances")),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Local player whose console runs a PIE command (default 0)")),
 	}, MCPSpec::ContractExempt(TEXT("runs a console command")));
 	Registry.RegisterHandler(TEXT("execute_python"), &ExecutePython);
 	// `args` on run_python_file and the invoke_* handlers takes one of four
@@ -331,7 +339,9 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	};
 	Registry.RegisterHandler(TEXT("run_python_file"), &RunPythonFile, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Absolute path to the .py file")).Alias(TEXT("path")),
-		MCPParam::Optional(TEXT("entryPoint"), EType::String, TEXT("Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result")),
+		MCPParam::Optional(TEXT("entryPoint"), EType::String, TEXT("Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result")),
+		MCPParam::Optional(TEXT("runName"), EType::String, TEXT("Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire")),
+		MCPParam::Optional(TEXT("asMain"), EType::Boolean, TEXT("Shorthand for runName __main__ (default false)")),
 		MCPParam::Optional(TEXT("args"), EType::Any,
 			TEXT("Positional arguments, as sys.argv[1:] or, with entryPoint, the call's arguments: a list of strings, a JSON array string, or one string. A parameter map is refused")).OneOfForms(ArgForms),
 		MCPParam::Optional(TEXT("kwargs"), EType::Object, TEXT("Keyword arguments for the entryPoint call")),
@@ -383,7 +393,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("get_editor_performance_stats"), &GetEditorPerformanceStats, NoParams);
 	Registry.RegisterHandler(TEXT("get_output_log"), &GetOutputLog, {
-		MCPParam::Optional(TEXT("maxLines"), EType::Integer, TEXT("How far back into the ring buffer to read (default 100)")),
+		MCPParam::Optional(TEXT("maxLines"), EType::Integer, TEXT("How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)")),
 		MCPParam::Optional(TEXT("filter"), EType::String, TEXT("Case-insensitive substring the message must contain")),
 		MCPParam::Optional(TEXT("category"), EType::String, TEXT("Case-insensitive substring the log category must contain")),
 		CursorParam(),
@@ -546,6 +556,11 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		Spec.Append(RuntimeTargetParams());
 		Spec.Append({
 			FunctionArgsParam(),
+			MCPParam::Optional(TEXT("modify"), EType::Object, TEXT("Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument")).WithFields({
+				MCPParam::RequiredField(TEXT("argument"), EType::String, TEXT("Struct parameter of functionName to fill")),
+				MCPParam::RequiredField(TEXT("getter"), EType::String, TEXT("Zero-argument UFUNCTION on the same object that returns that struct")),
+				MCPParam::OptionalField(TEXT("patch"), EType::Object, TEXT("Field name or dotted path to structured JSON value, applied to the struct the getter returned")),
+			}),
 			WorldParam(),
 			PieInstanceParam(),
 			MCPParam::Optional(TEXT("deferToNextTick"), EType::Boolean, TEXT("Queue the call for the next engine tick, outside the editor script-execution guard, so a replicated UFUNCTION routes normally; return and out values are not reported")),
@@ -558,8 +573,9 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::RequiredField(TEXT("functionName"), EType::String, TEXT("UFUNCTION to call")),
 			MCPParam::OptionalField(TEXT("objectPath"), EType::String, TEXT("Object path of the live instance. Wins over target")),
 			MCPParam::OptionalField(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
-			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem")),
-			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller or playerpawn (default 0)")),
+			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
+			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
+			MCPParam::OptionalField(TEXT("propertyPath"), EType::String, TEXT("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor")),
 			MCPParam::OptionalField(TEXT("args"), EType::Any, TEXT("This call's arguments, in any form invoke_object_function takes")).OneOfForms(ArgForms),
 		}),
 		WorldParam(),
@@ -568,7 +584,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	{
 		TArray<FMCPParamSpec> Spec = RuntimeTargetParams();
 		Spec.Append({
-			MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these properties. The Details-panel spelling is accepted")).Items(EType::String),
+			MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components")).Items(EType::String),
 			WorldParam(),
 			PieInstanceParam(),
 			LimitParam(TEXT("Max properties returned (default 200)")),
@@ -681,9 +697,12 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("levelPath"), EType::String, TEXT("Long package path of the new level, e.g. /Game/Maps/MyLevel. Validated before the engine is asked")),
 		MCPParam::Optional(TEXT("templateLevel"), EType::String, TEXT("Level to copy; omit, Empty or None for a blank level")),
 		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the level exists: skip (default) returns it untouched, error refuses")),
+		MCPParam::Optional(TEXT("worldPartition"), EType::Boolean, TEXT("Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself")),
 	}, MCPSpec::ContractExempt(TEXT("creates and opens a level")));
 	Registry.RegisterHandler(TEXT("open_asset"), &OpenAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to open in its editor")).Alias(TEXT("path")),
+		MCPParam::Optional(TEXT("saveFirst"), EType::Boolean, TEXT("For a map: save the open map's unsaved packages before switching (default false)")),
+		MCPParam::Optional(TEXT("discardUnsaved"), EType::Boolean, TEXT("For a map: switch even though the open map has unsaved changes, discarding them (default false)")),
 	});
 	// #1112: the inverse of open_asset - what is already open, and what has focus.
 	Registry.RegisterHandler(TEXT("get_open_asset_editors"), &GetOpenAssetEditors, NoParams);
@@ -742,6 +761,14 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("set_pie_time_scale"), &SetPieTimeScale, {
 		MCPParam::Required(TEXT("factor"), EType::Number, TEXT("Time-scale factor, greater than 0 (e.g. 500)")),
 	});
+	// #1215: pause or resume a running PIE instance.
+	Registry.RegisterHandler(TEXT("set_pie_paused"), &SetPiePaused, {
+		MCPParam::Required(TEXT("paused"), EType::Boolean, TEXT("true pauses, false resumes")),
+		MCPParam::Optional(TEXT("mode"), EType::String, TEXT("game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world")),
+		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)")),
+		WorldParam(),
+		PieInstanceParam(),
+	});
 	Registry.RegisterHandler(TEXT("capture_scene_png"), &CaptureScenePng, {
 		MCPParam::Required(TEXT("outputPath"), EType::String, TEXT("Absolute or project-relative PNG path to write, e.g. Saved/Screenshots/cap.png")).Alias(TEXT("filename")),
 		MCPParam::Optional(TEXT("location"), EType::Vec3, TEXT("Camera location")),
@@ -790,6 +817,13 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("launchSeparateServer"), EType::Boolean, TEXT("Launch a separate dedicated server")),
 		MCPParam::Optional(TEXT("newWindowWidth"), EType::Number, TEXT("Play-in-New-Window width")),
 		MCPParam::Optional(TEXT("newWindowHeight"), EType::Number, TEXT("Play-in-New-Window height")),
+		MCPParam::Optional(TEXT("clientWindowWidth"), EType::Number, TEXT("Width of each additional multiplayer client window")),
+		MCPParam::Optional(TEXT("clientWindowHeight"), EType::Number, TEXT("Height of each additional multiplayer client window")),
+		MCPParam::Optional(TEXT("newWindowPosition"), EType::Object, TEXT("Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed")).WithFields({
+			MCPParam::RequiredField(TEXT("x"), EType::Number, TEXT("Screen X in pixels")),
+			MCPParam::RequiredField(TEXT("y"), EType::Number, TEXT("Screen Y in pixels")),
+		}),
+		MCPParam::Optional(TEXT("centerNewWindow"), EType::Boolean, TEXT("Center new PIE windows; false places them at newWindowPosition")),
 	}, MCPSpec::ContractExempt(TEXT("writes the editor's Play settings")));
 	Registry.RegisterHandler(TEXT("get_pie_config"), &GetPieConfig, NoParams);
 	Registry.RegisterHandler(TEXT("pie_set_player_view"), &PieSetPlayerView, {
@@ -797,6 +831,26 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("yaw"), EType::Number, TEXT("Control-rotation yaw")),
 		MCPParam::Optional(TEXT("roll"), EType::Number, TEXT("Control-rotation roll")),
 	}, MCPSpec::ContractExempt(TEXT("rotates the running PIE player's view")));
+	// #1203: point the PIE player's camera at an actor, such as a spawned CameraActor.
+	Registry.RegisterHandler(TEXT("set_pie_view_target"), &SetPieViewTarget, {
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player whose view target is set (default 0)")),
+		MCPParam::Optional(TEXT("blendTime"), EType::Number, TEXT("Seconds to blend from the current view (default 0, a cut)")),
+		WorldParam(),
+		PieInstanceParam(),
+	}, MCPSpec::AtLeastOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } }));
+	// #1250: eject and aim the PIE debug camera for verification shots.
+	Registry.RegisterHandler(TEXT("pose_debug_camera"), &PoseDebugCamera, {
+		MCPParam::Optional(TEXT("enabled"), EType::Boolean, TEXT("true (default) ejects the debug camera if needed and poses it; false returns control to the player")),
+		MCPParam::Optional(TEXT("location"), EType::Vec3, TEXT("Camera location; omit to keep the current one")),
+		MCPParam::Optional(TEXT("rotation"), EType::Rotator, TEXT("Camera rotation; omit to keep the current one")),
+		MCPParam::Optional(TEXT("lookAtActorLabel"), EType::String, TEXT("Aim at this PIE actor's bounds center; wins over rotation")),
+		MCPParam::Optional(TEXT("lookAtActorPath"), EType::String, TEXT("Full path of the PIE actor to aim at. Wins over lookAtActorLabel")),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Local player whose debug camera is used (default 0)")),
+		WorldParam(),
+		PieInstanceParam(),
+	});
 	Registry.RegisterHandler(TEXT("stage_game_input"), &StageGameInput, {
 		MCPParam::Optional(TEXT("inputMode"), EType::String, TEXT("gameOnly (default) | gameAndUI | uiOnly")),
 		MCPParam::Optional(TEXT("showMouseCursor"), EType::Boolean, TEXT("Show the mouse cursor (default false for gameOnly, true otherwise)")),
@@ -828,15 +882,69 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every parameter is read before anything can fail (#1057).
 	FString Command;
-	if (auto Err = RequireString(Params, TEXT("command"), Command)) return Err;
-
-	REQUIRE_EDITOR_WORLD(World);
-
-	UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
+	TSharedPtr<FJsonValue> CommandErr = RequireString(Params, TEXT("command"), Command);
+	const FString Scope = OptionalString(Params, TEXT("world"), TEXT("editor")).ToLower();
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	UWorld* Resolved = ResolveWorldFromParams(Params, TEXT("editor"));
+	if (CommandErr) return CommandErr;
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("command"), Command);
+
+	// #1250: world=pie runs the command as a PIE player, through its local
+	// player's console, so cheat-manager commands such as slomo reach that
+	// instance. Calling ExecuteConsoleCommand through invoke_object_function
+	// is the crash this route replaces.
+	const bool bWantsPlay = Scope == TEXT("pie") || Scope == TEXT("game")
+		|| (Scope == TEXT("auto") && Resolved && Resolved->IsPlayInEditor());
+	if (bWantsPlay)
+	{
+		if (!Resolved || !Resolved->IsPlayInEditor())
+		{
+			return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+		}
+		FString Output;
+		FString Route;
+		{
+			FMCPScopedPlayWorldContext PlayContext(Resolved);
+			if (APlayerController* PC = UGameplayStatics::GetPlayerController(Resolved, PlayerIndex))
+			{
+				Output = PC->ConsoleCommand(Command, false);
+				Route = TEXT("playerController");
+				Result->SetStringField(TEXT("playerController"), PC->GetPathName());
+			}
+			else if (GEngine)
+			{
+				// A dedicated server has no player: run it against that world.
+				FStringOutputDevice Captured;
+				GEngine->Exec(Resolved, *Command, Captured);
+				Output = Captured;
+				Route = TEXT("engine");
+			}
+		}
+		Result->SetStringField(TEXT("route"), Route);
+		Result->SetStringField(TEXT("world"), Resolved->GetPathName());
+		Result->SetStringField(TEXT("netMode"), DescribePIENetMode(Resolved));
+		if (const FWorldContext* Ctx = GEngine ? GEngine->GetWorldContextFromWorld(Resolved) : nullptr)
+		{
+			Result->SetNumberField(TEXT("pieInstance"), Ctx->PIEInstance);
+		}
+		Result->SetStringField(TEXT("output"), Output.Left(20000));
+	}
+	else
+	{
+		REQUIRE_EDITOR_WORLD(World);
+		// Open is game travel: in the editor world it does nothing yet would report success (#1393).
+		if (!World->IsGameWorld() && Command.TrimStart().StartsWith(TEXT("open "), ESearchCase::IgnoreCase))
+		{
+			return MCPError(TEXT("The Open console command does not switch the editor's map. Use level(load, levelPath), with saveFirst or discardUnsaved when the open map has unsaved changes."));
+		}
+		UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
+		Result->SetStringField(TEXT("world"), World->GetPathName());
+	}
+
 	// The command was dispatched. Whether it changed anything is the command's
 	// business: the console reports nothing back that this handler could read.
 	Result->SetBoolField(TEXT("changed"), true);
@@ -1085,7 +1193,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::ExecutePython(const TSharedPtr<FJsonObje
 	// before it ran, and there is no inverse script to name.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("Arbitrary Python has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when they are transactional, or write the undo script yourself."));
+		TEXT("Arbitrary Python has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_transaction) and roll back with editor(cancel_transaction) when they are transactional, or write the undo script yourself."));
 
 	return MCPResult(Result);
 }
@@ -1127,17 +1235,49 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	// the named function is called from a module that really was loaded rather
 	// than from a re-exec of the source.
 	const FString EntryPoint = OptionalString(Params, TEXT("entryPoint"));
+	// runName runs the file through runpy under that module name; "__main__"
+	// (or asMain) makes an `if __name__ == '__main__':` guard fire (#1361).
+	FString RunName = OptionalString(Params, TEXT("runName"));
+	if (OptionalBool(Params, TEXT("asMain"), false))
+	{
+		if (!RunName.IsEmpty() && RunName != TEXT("__main__"))
+		{
+			return MCPError(FString::Printf(TEXT("asMain=true and runName='%s' disagree; pass one"), *RunName));
+		}
+		RunName = TEXT("__main__");
+	}
 
 	FPythonCommandEx PythonCommand;
 	PythonCommand.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
 	PythonCommand.FileExecutionScope = EPythonFileExecutionScope::Public;
-	if (EntryPoint.IsEmpty())
+	if (EntryPoint.IsEmpty() && RunName.IsEmpty())
 	{
 		PythonCommand.Command = FilePath;
 		for (const FString& A : ExtraArgs)
 		{
 			PythonCommand.Command += TEXT(" ") + A;
 		}
+	}
+	else if (EntryPoint.IsEmpty())
+	{
+		// sys.argv is the file plus args for the run, and the module's globals are
+		// copied into the console scope afterwards so resultVariable can read them.
+		TArray<TSharedPtr<FJsonValue>> ArgValues;
+		for (const FString& A : ExtraArgs) ArgValues.Add(MakeShared<FJsonValueString>(A));
+		FString ArgsJson;
+		const TSharedRef<TJsonWriter<>> ArgsWriter = TJsonWriterFactory<>::Create(&ArgsJson);
+		FJsonSerializer::Serialize(ArgValues, ArgsWriter);
+		PythonCommand.Command = FString::Printf(
+			TEXT("import runpy as _uemcp_runpy, sys as _uemcp_sys, json as _uemcp_json\n")
+			TEXT("_uemcp_path = %s\n")
+			TEXT("_uemcp_saved_argv = _uemcp_sys.argv\n")
+			TEXT("_uemcp_sys.argv = [_uemcp_path] + _uemcp_json.loads(%s)\n")
+			TEXT("try:\n")
+			TEXT("    _uemcp_ns = _uemcp_runpy.run_path(_uemcp_path, run_name=%s)\n")
+			TEXT("finally:\n")
+			TEXT("    _uemcp_sys.argv = _uemcp_saved_argv\n")
+			TEXT("globals().update({_k: _v for _k, _v in _uemcp_ns.items() if not (_k.startswith('__') and _k.endswith('__'))})\n"),
+			*PythonStringLiteral(FilePath), *PythonStringLiteral(ArgsJson), *PythonStringLiteral(RunName));
 	}
 	else
 	{
@@ -1164,12 +1304,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 			TEXT("import runpy as _uemcp_runpy, json as _uemcp_json\n")
 			TEXT("_uemcp_path = %s\n")
 			TEXT("_uemcp_entry = %s\n")
-			TEXT("_uemcp_ns = _uemcp_runpy.run_path(_uemcp_path, run_name='ue_mcp_entry')\n")
+			TEXT("_uemcp_ns = _uemcp_runpy.run_path(_uemcp_path, run_name=%s)\n")
 			TEXT("_uemcp_fn = _uemcp_ns.get(_uemcp_entry)\n")
 			TEXT("if not callable(_uemcp_fn):\n")
 			TEXT("    raise NameError('run_python_file: {!r} is not a callable defined by {}'.format(_uemcp_entry, _uemcp_path))\n")
 			TEXT("result = _uemcp_fn(*_uemcp_json.loads(%s), **_uemcp_json.loads(%s))\n"),
 			*PythonStringLiteral(FilePath), *PythonStringLiteral(EntryPoint),
+			*PythonStringLiteral(RunName.IsEmpty() ? FString(TEXT("ue_mcp_entry")) : RunName),
 			*PythonStringLiteral(ArgsJson), *PythonStringLiteral(KwargsJson));
 	}
 
@@ -1213,6 +1354,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	Result->SetBoolField(TEXT("success"), bSuccess);
 	Result->SetStringField(TEXT("path"), FilePath);
 	if (!EntryPoint.IsEmpty()) Result->SetStringField(TEXT("entryPoint"), EntryPoint);
+	if (!RunName.IsEmpty()) Result->SetStringField(TEXT("runName"), RunName);
 	Result->SetStringField(TEXT("result"), ResultText);
 	if (!ResultVariable.IsEmpty())
 	{
@@ -1228,7 +1370,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	// captured before it ran, and there is no inverse script to name.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("An arbitrary script file has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when they are transactional, or ship an undo script alongside it."));
+		TEXT("An arbitrary script file has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_transaction) and roll back with editor(cancel_transaction) when they are transactional, or ship an undo script alongside it."));
 
 	return MCPResult(Result);
 }
@@ -1588,7 +1730,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetProperty(const TSharedPtr<FJsonObject
 	// asset-path strings (FObjectProperty), and nested structs all apply
 	// without callers having to pre-format UE text.
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(Property, PropertyValue, ValueJsonRef, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(Property, PropertyValue, ValueJsonRef, LeafOwner ? LeafOwner : Asset, SetErr))
 	{
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
 	}
@@ -2263,9 +2405,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetEditorPerformanceStats(const TSharedP
 
 TSharedPtr<FJsonValue> FEditorHandlers::GetOutputLog(const TSharedPtr<FJsonObject>& Params)
 {
-	int32 MaxLines = OptionalInt(Params, TEXT("maxLines"), 100);
 	FString Filter = OptionalString(Params, TEXT("filter"));
 	FString Category = OptionalString(Params, TEXT("category"));
+	// A filtered read searches the whole buffer by default; a 100-line window missed older matches (#1315).
+	const bool bFiltered = !Filter.IsEmpty() || !Category.IsEmpty();
+	int32 MaxLines = OptionalInt(Params, TEXT("maxLines"), bFiltered ? 4096 : 100);
 
 	// T3: paged. `maxLines` still selects the recency WINDOW read out of the
 	// ring buffer, so the default call returns what it always did. What it no
@@ -2799,6 +2943,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScreenshot(const TSharedPtr<FJson
 	Result->SetStringField(TEXT("filename"), FullPath);
 	Result->SetStringField(TEXT("target"), TEXT("editor"));
 	Result->SetStringField(TEXT("note"), TEXT("Screenshot queued. The file will be written asynchronously by the renderer."));
+	if (TSharedPtr<FJsonObject> Lock = DescribeViewportCameraLock(ViewportClient))
+	{
+		Result->SetObjectField(TEXT("cameraLock"), Lock);
+		Result->SetStringField(TEXT("warning"), FString::Printf(TEXT("Captured from '%s', not from a pose set_viewport wrote. %s"),
+			*Lock->GetStringField(TEXT("actorLabel")), *Lock->GetStringField(TEXT("note"))));
+	}
 	Result->SetBoolField(TEXT("overwrote"), bOverwrote);
 	// The request was queued; a capture never finds work already done and
 	// skips it. The write itself happens after this response is sent.
@@ -2811,6 +2961,24 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScreenshot(const TSharedPtr<FJson
 		? TEXT("No bridge call deletes a file from disk, and a file was already at that path when the request was queued. Capture to a fresh path when a flow may need to roll back.")
 		: TEXT("No bridge call deletes a file from disk, so the captured image cannot be removed again. The renderer also writes it after this response is sent, so there is nothing to act on at rollback time."));
 	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonObject> FEditorHandlers::DescribeViewportCameraLock(FLevelEditorViewportClient* ViewportClient)
+{
+	if (!ViewportClient) return nullptr;
+	const bool bCinematic = ViewportClient->GetCinematicActorLock().HasValidLockedActor();
+	AActor* Locked = ViewportClient->GetActiveActorLock().Get();
+	if (!Locked) return nullptr;
+
+	TSharedPtr<FJsonObject> Lock = MakeShared<FJsonObject>();
+	Lock->SetStringField(TEXT("kind"), bCinematic ? TEXT("cinematic") : TEXT("pilot"));
+	Lock->SetStringField(TEXT("actorLabel"), Locked->GetActorLabel());
+	Lock->SetStringField(TEXT("actorPath"), Locked->GetPathName());
+	Lock->SetStringField(TEXT("actorClass"), Locked->GetClass()->GetName());
+	Lock->SetStringField(TEXT("note"), bCinematic
+		? TEXT("The viewport is locked to this actor by Sequencer, so it renders from that camera and a set pose does not hold. Release the cinematic lock (close the sequence or unlock its camera cut) first.")
+		: TEXT("The viewport is piloting this actor, so it renders from that actor and a set pose snaps back on the next tick. Eject the pilot (viewport menu: Stop Piloting) first."));
+	return Lock;
 }
 
 TSharedPtr<FJsonValue> FEditorHandlers::SetViewportCamera(const TSharedPtr<FJsonObject>& Params)
@@ -2980,6 +3148,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetViewportCamera(const TSharedPtr<FJson
 				!CurrentLocation.Equals(PreviousLocation) || !CurrentRotation.Equals(PreviousRotation)
 				|| ViewportClient->GetViewportType() != PreviousViewportType
 				|| !FMath::IsNearlyEqual(ViewportClient->GetOrthoZoom(), PreviousOrthoZoom));
+		if (TSharedPtr<FJsonObject> Lock = DescribeViewportCameraLock(ViewportClient))
+		{
+			Result->SetObjectField(TEXT("cameraLock"), Lock);
+			Result->SetStringField(TEXT("warning"), Lock->GetStringField(TEXT("note")));
+		}
 		Result->SetStringField(TEXT("projection"), ViewportTypeName(ViewportClient->GetViewportType()));
 		Result->SetStringField(TEXT("viewportType"), ViewportTypeName(ViewportClient->GetViewportType()));
 		Result->SetNumberField(TEXT("orthoZoom"), ViewportClient->GetOrthoZoom());
@@ -3118,6 +3291,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 
 	TArray<TSharedPtr<FJsonValue>> Saved;
 	TArray<TSharedPtr<FJsonValue>> Failed;
+	TArray<TSharedPtr<FJsonValue>> Deleted;
+	const int32 DirtyCount = Dirty.Num();
+	MCPCommitEmptyExternalPackages(Dirty, Deleted, Failed);
 
 	for (UPackage* Pkg : Dirty)
 	{
@@ -3154,10 +3330,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 	}
 
 	auto Result = MCPSuccess();
-	Result->SetNumberField(TEXT("dirtyCount"), Dirty.Num());
+	Result->SetNumberField(TEXT("dirtyCount"), DirtyCount);
 	Result->SetNumberField(TEXT("savedCount"), Saved.Num());
+	Result->SetNumberField(TEXT("deletedCount"), Deleted.Num());
 	Result->SetNumberField(TEXT("failedCount"), Failed.Num());
 	Result->SetArrayField(TEXT("saved"), Saved);
+	if (Deleted.Num() > 0) Result->SetArrayField(TEXT("deleted"), Deleted);
 	if (Failed.Num() > 0)
 	{
 		Result->SetArrayField(TEXT("failed"), Failed);
@@ -3165,7 +3343,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 	}
 	// Nothing dirty means nothing was written, which is what a replay of this
 	// call after a successful one finds.
-	Result->SetBoolField(TEXT("changed"), Saved.Num() > 0);
+	Result->SetBoolField(TEXT("changed"), Saved.Num() + Deleted.Num() > 0);
 	// No rollback: the previous contents of each .uasset were overwritten on
 	// disk and are not held anywhere the bridge can reach.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
@@ -3466,8 +3644,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::FocusViewportOnActor(const TSharedPtr<FJ
 }
 TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("onConflict"), TEXT("worldPartition") });
 	FString LevelPath = OptionalString(Params, TEXT("levelPath"));
 	FString TemplateLevel = OptionalString(Params, TEXT("templateLevel"));
+	const bool bWorldPartition = OptionalBool(Params, TEXT("worldPartition"), false);
 
 	ULevelEditorSubsystem* LevelEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<ULevelEditorSubsystem>() : nullptr;
 	if (!LevelEditorSubsystem)
@@ -3525,10 +3705,16 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 			TEXT("(UE 5.8 ships Template_Default, OpenWorld, TimeOfDay_Default). Nothing was created."), *TemplateLevel));
 	}
 
+	// A template carries its own partitioning, so asking for one on top is ambiguous.
+	if (bHasTemplate && bWorldPartition)
+	{
+		return MCPError(TEXT("worldPartition applies to a blank level; a templateLevel decides partitioning itself. Pass one or the other. Nothing was created."));
+	}
+
 	bool bSuccess = false;
 	if (!bHasTemplate)
 	{
-		bSuccess = LevelEditorSubsystem->NewLevel(LevelPath);
+		bSuccess = LevelEditorSubsystem->NewLevel(LevelPath, bWorldPartition);
 	}
 	else
 	{
@@ -3561,10 +3747,47 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 			TEXT("a map file may have been saved at levelPath without being opened."), *LevelPath, *OpenPackage));
 	}
 
+	// A World Partition copy keeps actor descs pointing at the /Temp world it was built in until it is saved
+	// and reopened, and PIE then streams none of those actors (#1284).
+	bool bReopened = false;
+	if (bHasTemplate && World->IsPartitionedWorld())
+	{
+		TArray<UPackage*> ToSave;
+		ToSave.Add(World->GetOutermost());
+		if (World->PersistentLevel)
+		{
+			for (UPackage* External : World->PersistentLevel->GetLoadedExternalObjectPackages())
+			{
+				if (External) ToSave.AddUnique(External);
+			}
+		}
+		if (!UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty*/ false))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' was created from the template but could not be saved, so its actor descriptors still point at /Temp. The output log carries the reason."), *LevelPath));
+		}
+		UEditorLoadingAndSavingUtils::NewBlankMap(/*bSaveExistingMap*/ false);
+		FString ReloadError;
+		if (!MCPEditorState::LoadLevelViaHandler(&FLevelHandlers::LoadLevel, LevelPath, ReloadError))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' was created and saved, but reopening it failed: %s"), *LevelPath, *ReloadError));
+		}
+		World = GetEditorWorld();
+		if (!World) return MCPError(TEXT("No editor world after reopening the new level"));
+		bReopened = true;
+	}
+
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
+	if (bReopened) Result->SetBoolField(TEXT("savedAndReopened"), true);
 	Result->SetStringField(TEXT("worldName"), World->GetName());
 	Result->SetStringField(TEXT("worldPath"), World->GetPathName());
+	Result->SetBoolField(TEXT("worldPartition"), World->IsPartitionedWorld());
+	Result->SetBoolField(TEXT("externalActors"), World->PersistentLevel && World->PersistentLevel->IsUsingExternalActors());
+	if (bWorldPartition && !World->IsPartitionedWorld())
+	{
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("'%s' was created but is not a World Partition level; the engine log carries the reason."), *LevelPath));
+	}
 
 	Result->SetStringField(TEXT("levelPath"), LevelPath);
 	Result->SetStringField(TEXT("message"), TEXT("New level created"));
@@ -3577,6 +3800,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 
 TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("assetPath"), TEXT("saveFirst"), TEXT("discardUnsaved") });
 	// `path` arrives as `assetPath`, renamed by the registry (#1057).
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
@@ -3589,6 +3813,8 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 	{
 		TSharedPtr<FJsonObject> LevelParams = MakeShared<FJsonObject>();
 		LevelParams->SetStringField(TEXT("levelPath"), AssetPath);
+		LevelParams->SetBoolField(TEXT("saveFirst"), OptionalBool(Params, TEXT("saveFirst"), false));
+		LevelParams->SetBoolField(TEXT("discardUnsaved"), OptionalBool(Params, TEXT("discardUnsaved"), false));
 		TSharedPtr<FJsonValue> LevelResult = FLevelHandlers::LoadLevel(LevelParams);
 		const TSharedPtr<FJsonObject>* LevelObject = nullptr;
 		if (LevelResult.IsValid() && LevelResult->TryGetObject(LevelObject) && LevelObject && LevelObject->IsValid())
@@ -3608,10 +3834,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 		return LevelResult;
 	}
 
-	UObject* Asset = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath);
+	// The shared resolver checks the path's shape before loading: StaticLoadObject on a malformed
+	// path such as "not/a/real//path" is a fatal error in CreatePackage, not a null (#1223).
+	TSharedPtr<FJsonValue> LoadError;
+	UObject* Asset = MCPRequireAssetObject(AssetPath, LoadError);
 	if (!Asset)
 	{
-		return MCPError(FString::Printf(TEXT("Failed to load asset at '%s'"), *AssetPath));
+		return LoadError;
 	}
 
 	if (!GEditor)
@@ -4247,6 +4476,42 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScenePng(const TSharedPtr<FJsonOb
 	const bool bFullyLoadTextures = OptionalBool(Params, TEXT("fullyLoadTextures"), true);
 	Rig.Capture(bFullyLoadTextures);
 
+	// #1203: components spawned at runtime are flushed to the renderer before
+	// the capture. Name the ones it still cannot show: no render state, or
+	// bOnlyOwnerSee, which a capture (owned by its own actor) never draws.
+	TSharedPtr<FJsonObject> RuntimeComponents;
+	if (World->IsGameWorld())
+	{
+		int32 RuntimeCount = 0;
+		int32 WithoutRenderState = 0;
+		int32 OnlyOwnerSee = 0;
+		TArray<TSharedPtr<FJsonValue>> NotDrawn;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			for (UActorComponent* Component : It->GetComponents())
+			{
+				UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Component);
+				if (!Primitive || Primitive->CreationMethod != EComponentCreationMethod::Instance) continue;
+				if (!Primitive->IsRegistered() || !Primitive->IsVisible() || Primitive->bHiddenInGame) continue;
+				++RuntimeCount;
+				const bool bNoRenderState = !Primitive->IsRenderStateCreated();
+				const bool bOwnerOnly = Primitive->bOnlyOwnerSee;
+				if (bNoRenderState) ++WithoutRenderState;
+				if (bOwnerOnly) ++OnlyOwnerSee;
+				if ((bNoRenderState || bOwnerOnly) && NotDrawn.Num() < 20)
+				{
+					NotDrawn.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("%s.%s (%s)"),
+						*It->GetActorLabel(), *Primitive->GetName(), bNoRenderState ? TEXT("no render state") : TEXT("bOnlyOwnerSee"))));
+				}
+			}
+		}
+		RuntimeComponents = MakeShared<FJsonObject>();
+		RuntimeComponents->SetNumberField(TEXT("visibleRuntimePrimitives"), RuntimeCount);
+		RuntimeComponents->SetNumberField(TEXT("withoutRenderState"), WithoutRenderState);
+		RuntimeComponents->SetNumberField(TEXT("onlyOwnerSee"), OnlyOwnerSee);
+		if (NotDrawn.Num() > 0) RuntimeComponents->SetArrayField(TEXT("notDrawn"), NotDrawn);
+	}
+
 	FString AbsPath = UEMCP::SceneCapture::ResolveOutputPath(OutputPath);
 	if (!AbsPath.EndsWith(TEXT(".png"))) AbsPath += TEXT(".png");
 
@@ -4285,6 +4550,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScenePng(const TSharedPtr<FJsonOb
 	CaptureMetadata->SetNumberField(TEXT("worldTimeSeconds"), World->GetTimeSeconds());
 	CaptureMetadata->SetBoolField(TEXT("fullyLoadTextures"), bFullyLoadTextures);
 	if (FocusMetadata) CaptureMetadata->SetObjectField(TEXT("focus"), FocusMetadata);
+	if (RuntimeComponents) CaptureMetadata->SetObjectField(TEXT("runtimeComponents"), RuntimeComponents);
 	Result->SetObjectField(TEXT("captureMetadata"), CaptureMetadata);
 	// The capture actor is gone by the time this reaches the caller, so say so
 	// rather than naming an actor they could go and look for.

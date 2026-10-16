@@ -78,6 +78,14 @@ abstract class ForwardingBridge implements IBridge {
     return this.inner.registeredActions;
   }
 
+  get epicToolsets(): IBridge["epicToolsets"] {
+    return this.inner.epicToolsets;
+  }
+
+  refreshEpicToolsets(): Promise<readonly string[] | null> {
+    return this.inner.refreshEpicToolsets?.() ?? Promise.resolve(this.inner.epicToolsets ?? null);
+  }
+
   connect(timeoutMs?: number): Promise<void> {
     return this.inner.connect(timeoutMs);
   }

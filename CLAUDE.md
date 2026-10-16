@@ -4,7 +4,7 @@ Operating guide for Claude Code (and any AI agent) working in this repo. Shared 
 
 ## Repo at a glance
 
-- **TS server** (`src/`) - the MCP server. Wraps the UE bridge over WebSocket, exposes <!-- count:tools -->26<!-- /count --> category tools with <!-- count:actions -->1975+<!-- /count --> actions. The numbers between those markers are stamped by `scripts/generate-tool-metadata.ts` from `ALL_TOOLS`; do not hand-edit them, and do not remove the markers, because a hand-written count here is the first thing every agent reads and the last thing anyone remembers to update.
+- **TS server** (`src/`) - the MCP server. Wraps the UE bridge over WebSocket, exposes <!-- count:tools -->29<!-- /count --> category tools with <!-- count:actions -->2030+<!-- /count --> actions. The numbers between those markers are stamped by `scripts/generate-tool-metadata.ts` from `ALL_TOOLS`; do not hand-edit them, and do not remove the markers, because a hand-written count here is the first thing every agent reads and the last thing anyone remembers to update.
 - **C++ plugin** (`plugin/ue_mcp_bridge/`) - the editor-side bridge. Lives in `Private/Handlers/<Category>/*.cpp`, registers actions with `FMCPHandlerRegistry`.
 - **Test project** (`tests/ue_mcp/`) - the dedicated UE project used for smoke testing. The plugin is deployed here from `plugin/` via the deployer. This is the **only** safe target for live tests.
 - **Docs** (`docs/`) - MkDocs site. Release bodies are drafted outside the repo (see Release process).
@@ -58,7 +58,7 @@ The merge style follows the commit count, and writing five commits only to squas
 
 - Target **only** `tests/ue_mcp/ue_mcp.uproject`. Confirm the MCP connection via `project(get_status)` before running. If the editor is connected to anything else (the user's real project, another workspace), abort.
 - Smoke tests execute real mutations (create blueprints, delete assets, modify levels). A misrouted run against a real project can corrupt an active editor session.
-- <!-- count:bridgeActions -->1914<!-- /count --> bridge actions. Pass = every handler responds either with success or an expected parameter-validation error. Any timeout or `Unknown method` is a real failure.
+- <!-- count:bridgeActions -->1968<!-- /count --> bridge actions. Pass = every handler responds either with success or an expected parameter-validation error. Any timeout or `Unknown method` is a real failure.
 
 ### Golden baseline - the advertised surface
 
@@ -87,6 +87,15 @@ The merge style follows the commit count, and writing five commits only to squas
 - One editor is enough. Cases needing more than one use a second session for a project whose editor is not running, since the session count is what arms targeting and gating.
 - The leak assertions need the parameter echo, which is armed at editor startup: launch with `UE_MCP_PARAM_ECHO=1` to include them. Without it they skip and say why.
 - `tests/live/matrix.ts` is the written form of plan item 7.3 of #817: every case, and where its assertion lives (live, engine-free and referenced, owned by the C++ suite, or pending on unshipped work). `tests/live/coverage.test.ts` fails when a reference stops resolving.
+- `npm run test:live -- --lifecycle` runs only `tests/live/editor-lifecycle.test.ts`: stop_editor, start_editor, stop_editor after a real crash with the crash reporter up (#1221), build_project against a locked output, and the rebuild flow. It stops, crashes and restarts the tests/ue_mcp editor and leaves one running. The default run skips it.
+
+### Behavioural coverage gate
+
+`tests/coverage/behavioural-coverage.json` maps every registered bridge action to the live and `UE.MCP.*` automation tests whose body dispatches it and asserts more than that the call answered (#1223). `npm run coverage:behavioural` regenerates it; `tests/unit/behavioural-coverage.test.ts` fails when it is stale or an action has no test.
+
+- A new action needs a behavioural test, or an exemption with a reason in `tests/coverage/behavioural-exemptions.json`. Never add it to `tests/coverage/behavioural-gaps.json`.
+- The gap list is the backlog grandfathered when the gate landed. It only shrinks: the unit test fails on an entry that has gained a test (`npm run coverage:behavioural -- --shrink-ratchet`), and the `behavioural-coverage` release gate fails on any entry the merge base did not have.
+- Registration, preflight and refusal suites, file-level fixtures and `expect(x.ok)` do not count. Read the header of `scripts/behavioural-coverage.ts` for the rule.
 
 ### Clean plugin rebuild recipe
 
@@ -102,6 +111,8 @@ UBT's incremental build + Live Coding can mask registration failures from earlie
 ## Release process
 
 CI **gates the publish job** on a single pre-staged input: the draft GitHub release for `vX.Y.Z`. The draft body must begin with YAML frontmatter declaring a `headline:` array. CI parses, validates against the regex enforced by `scripts/release-headline.mjs`, joins with ` · `, posts the `landing/headline` commit status itself, strips the frontmatter from the body, then promotes the draft. No manual `gh api ... statuses` step.
+
+0. **Green gates first**, all against `tests/ue_mcp`: `npm run test:smoke`, `npm run test:live`, `npm run test:live -- --lifecycle`, `npm run test:automation`, and `node scripts/check-release-gates.mjs all`, whose `behavioural-coverage` gate prints the covered-action share. The release notes state that share.
 
 1. **Author release notes locally** with frontmatter. Notes file lives anywhere (gitignored, scratch, /tmp). The frontmatter must be the first thing in the file:
    ```yaml
@@ -210,6 +221,7 @@ npm run test:smoke      # Live smoke tests (tests/ue_mcp only)
 npm run test:live       # Live tests against a running editor (tests/ue_mcp only)
 npm run test:automation # The plugin's C++ UE.MCP.* suite, through the bridge
 npm run golden:record   # Re-record tests/golden/editor-down.json (review the diff)
+npm run coverage:behavioural # Regenerate the behavioural-coverage inventory
 npm run release:notes   # Compose cumulative stable notes from a version's prereleases
 npm test                # Unit + multi-editor suites (no editor needed)
 npm run test:suites     # Vitest smoke suites (tests/ue_mcp only)

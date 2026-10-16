@@ -172,4 +172,17 @@ private:
 	static TSharedPtr<FJsonValue> AddMaterialDesignerLayer(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RemoveMaterialDesignerLayer(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CreateMaterialDesigner(const TSharedPtr<FJsonObject>& Params);
+
+	// Pin addressing shared by every connect path (#1403): an index, a pin name,
+	// or "Input"/"Output" for the single unnamed pin a node like Sine carries.
+	// The per-node keys add_material_expression and build_material_graph share:
+	// name, parameterName, group, sortPriority, defaultValue, value, channels.
+	static void ApplyExpressionSpec(UMaterialExpression* Expression, const TSharedPtr<FJsonObject>& Spec);
+	static bool ResolveExpressionInputIndex(UMaterialExpression* Expression, const FString& Pin, int32& OutIndex, FString& OutError);
+	static bool ResolveExpressionOutputIndex(UMaterialExpression* Expression, const FString& Pin, int32& OutIndex, FString& OutError);
+
+	// Expressions reachable from a material output or a custom output node.
+	// validate_material reports the rest as orphans; delete_orphan_expressions removes them (#1403).
+	static TSet<UMaterialExpression*> CollectReachableExpressions(UMaterial* Material);
+	static TSharedPtr<FJsonValue> DeleteOrphanExpressions(const TSharedPtr<FJsonObject>& Params);
 };

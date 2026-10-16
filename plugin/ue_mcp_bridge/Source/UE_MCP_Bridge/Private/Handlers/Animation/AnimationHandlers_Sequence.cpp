@@ -9,6 +9,7 @@
 #include "HandlerPagination.h"
 #include "HandlerAssetCreate.h"
 #include "HandlerJsonProperty.h"
+#include "HandlerAnimTrackPose.h"
 #include "Curves/RichCurve.h"
 #include "AnimationModifier.h"
 #include "AnimationModifiersAssetUserData.h"
@@ -1557,7 +1558,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ApplyAnimationModifier(const TSharedP
 	Result->SetStringField(TEXT("rollbackNote"),
 		TEXT("A modifier bakes whatever its OnApply writes (curves, notifies, track edits) and registers itself in the sequence's asset user data. ")
 		TEXT("No action reverts a modifier or unregisters one, and re-applying it is not an inverse, so there is no inverse call. ")
-		TEXT("Recover per artefact: animation(remove_anim_curve) for a baked curve, animation(remove_anim_notify) for baked notifies."));
+		TEXT("Recover per artefact: animation(remove_curve) for a baked curve, animation(remove_notify) for baked notifies."));
 	return MCPResult(Result);
 }
 
@@ -1644,6 +1645,8 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ListAnimModifiers(const TSharedPtr<FJ
 
 
 // ─── #112 read_bone_track ─────────────────────────────────────────────
+// Raw keys of one bone, local by default. rotationFormat=quaternion returns the
+// exact stored quaternion, which an Euler readback loses near gimbal lock (#1227).
 TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -1653,17 +1656,36 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonO
 	// Read before anything can fail (#1057).
 	const TArray<TSharedPtr<FJsonValue>>* FramesArr = nullptr;
 	const bool bHasFrames = TryGetArrayParam(Params, TEXT("frames"), FramesArr) && FramesArr != nullptr;
+	const FString FormatToken = OptionalString(Params, TEXT("rotationFormat"));
+	const FString Space = OptionalString(Params, TEXT("space"), TEXT("local")).ToLower();
+
+	MCPAnimTrackPose::ERotationFormat RotationFormat = MCPAnimTrackPose::ERotationFormat::Euler;
+	if (!MCPAnimTrackPose::ParseRotationFormat(FormatToken, RotationFormat))
+	{
+		return MCPError(TEXT("rotationFormat must be 'euler' (default), 'quaternion', or 'both'"));
+	}
+	if (Space != TEXT("local") && Space != TEXT("component"))
+	{
+		return MCPError(TEXT("space must be 'local' (default) or 'component'"));
+	}
 
 	UAnimSequence* Seq = LoadAssetByPath<UAnimSequence>(AssetPath);
 	if (!Seq) return MCPError(FString::Printf(TEXT("AnimSequence not found: %s"), *AssetPath));
 
 	const IAnimationDataModel* DataModel = Seq->GetDataModel();
 	if (!DataModel) return MCPError(TEXT("Sequence has no data model"));
+	USkeleton* Skeleton = Seq->GetSkeleton();
+	if (!Skeleton) return MCPError(TEXT("Sequence has no skeleton"));
+	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
+	const int32 BoneIndex = RefSkeleton.FindBoneIndex(FName(*BoneName));
+	if (BoneIndex == INDEX_NONE)
+	{
+		return MCPError(FString::Printf(TEXT("Bone '%s' is not on skeleton '%s'. animation(get_skeleton_info) lists the bones."), *BoneName, *Skeleton->GetPathName()));
+	}
 
 	const int32 NumFrames = DataModel->GetNumberOfFrames();
 	const double FrameRate = DataModel->GetFrameRate().AsDecimal();
 
-	// Frame selection
 	TArray<int32> FramesToSample;
 	if (bHasFrames)
 	{
@@ -1683,32 +1705,27 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonO
 		FramesToSample.Add(NumFrames);
 	}
 
-	FName BoneFName(*BoneName);
-
+	const bool bComponent = Space == TEXT("component");
 	TArray<TSharedPtr<FJsonValue>> SamplesArr;
 	for (int32 Frame : FramesToSample)
 	{
-		FTransform Xf = DataModel->EvaluateBoneTrackTransform(BoneFName, DataModel->GetFrameRate().AsFrameTime((double)Frame / FrameRate), EAnimInterpolationType::Linear);
+		const double Time = FrameRate > 0.0 ? (double)Frame / FrameRate : 0.0;
+		const FTransform Xf = bComponent
+			? MCPAnimTrackPose::ComponentBoneAtTime(Seq, RefSkeleton, BoneIndex, Time)
+			: MCPAnimTrackPose::LocalBoneAtTime(Seq, RefSkeleton, BoneIndex, Time);
 		TSharedPtr<FJsonObject> S = MakeShared<FJsonObject>();
 		S->SetNumberField(TEXT("frame"), Frame);
-		FVector Loc = Xf.GetLocation();
-		TSharedPtr<FJsonObject> L = MakeShared<FJsonObject>();
-		L->SetNumberField(TEXT("x"), Loc.X); L->SetNumberField(TEXT("y"), Loc.Y); L->SetNumberField(TEXT("z"), Loc.Z);
-		S->SetObjectField(TEXT("location"), L);
-		FRotator R = Xf.Rotator();
-		TSharedPtr<FJsonObject> RO = MakeShared<FJsonObject>();
-		RO->SetNumberField(TEXT("pitch"), R.Pitch); RO->SetNumberField(TEXT("yaw"), R.Yaw); RO->SetNumberField(TEXT("roll"), R.Roll);
-		S->SetObjectField(TEXT("rotation"), RO);
-		FVector Sc = Xf.GetScale3D();
-		TSharedPtr<FJsonObject> SO = MakeShared<FJsonObject>();
-		SO->SetNumberField(TEXT("x"), Sc.X); SO->SetNumberField(TEXT("y"), Sc.Y); SO->SetNumberField(TEXT("z"), Sc.Z);
-		S->SetObjectField(TEXT("scale"), SO);
+		S->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(Xf.GetLocation()));
+		MCPAnimTrackPose::WriteRotation(S, Xf.GetRotation(), RotationFormat);
+		S->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(Xf.GetScale3D()));
 		SamplesArr.Add(MakeShared<FJsonValueObject>(S));
 	}
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetStringField(TEXT("boneName"), BoneName);
+	Result->SetBoolField(TEXT("hasTrack"), DataModel->IsValidBoneTrackName(FName(*BoneName)));
+	Result->SetStringField(TEXT("space"), Space);
 	Result->SetNumberField(TEXT("numFrames"), NumFrames);
 	Result->SetNumberField(TEXT("frameRate"), FrameRate);
 	Result->SetArrayField(TEXT("samples"), SamplesArr);
@@ -1719,18 +1736,91 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonO
 // v1.0.0-rc.2 - animation authoring gaps
 // ===========================================================================
 
-// #153: batch-set properties on AnimSequence assets, optionally resolving
-// montage inputs to their first underlying sequence. Saves each mutated
-// sequence; returns per-path results so callers can diagnose mixed outcomes.
+namespace
+{
+	// Every field set_sequence_properties can write, as one comparable value.
+	struct FMCPSeqProps
+	{
+		bool bEnableRootMotion = false;
+		bool bForceRootLock = false;
+		bool bUseNormalizedRootMotionScale = false;
+		ERootMotionRootLock::Type RootLock = ERootMotionRootLock::RefPose;
+		EAdditiveAnimationType AdditiveType = AAT_None;
+		EAdditiveBasePoseType BasePoseType = ABPT_None;
+		FString RefPoseSeq;
+		int32 RefFrameIndex = 0;
 
+		static FMCPSeqProps Read(const UAnimSequence* Seq)
+		{
+			FMCPSeqProps P;
+			P.bEnableRootMotion = Seq->bEnableRootMotion;
+			P.bForceRootLock = Seq->bForceRootLock;
+			P.bUseNormalizedRootMotionScale = Seq->bUseNormalizedRootMotionScale;
+			P.RootLock = Seq->RootMotionRootLock;
+			P.AdditiveType = Seq->AdditiveAnimType;
+			P.BasePoseType = Seq->RefPoseType;
+			P.RefPoseSeq = Seq->RefPoseSeq ? Seq->RefPoseSeq->GetPathName() : FString();
+			P.RefFrameIndex = Seq->RefFrameIndex;
+			return P;
+		}
 
-// ===========================================================================
-// v1.0.0-rc.2 - animation authoring gaps
-// ===========================================================================
+		bool operator==(const FMCPSeqProps& O) const
+		{
+			return bEnableRootMotion == O.bEnableRootMotion && bForceRootLock == O.bForceRootLock
+				&& bUseNormalizedRootMotionScale == O.bUseNormalizedRootMotionScale && RootLock == O.RootLock
+				&& AdditiveType == O.AdditiveType && BasePoseType == O.BasePoseType
+				&& RefPoseSeq == O.RefPoseSeq && RefFrameIndex == O.RefFrameIndex;
+		}
 
-// #153: batch-set properties on AnimSequence assets, optionally resolving
-// montage inputs to their first underlying sequence. Saves each mutated
-// sequence; returns per-path results so callers can diagnose mixed outcomes.
+		TSharedPtr<FJsonObject> ToJson() const
+		{
+			TSharedPtr<FJsonObject> J = MakeShared<FJsonObject>();
+			J->SetBoolField(TEXT("enableRootMotion"), bEnableRootMotion);
+			J->SetBoolField(TEXT("forceRootLock"), bForceRootLock);
+			J->SetBoolField(TEXT("useNormalizedRootMotionScale"), bUseNormalizedRootMotionScale);
+			J->SetStringField(TEXT("rootMotionRootLock"),
+				RootLock == ERootMotionRootLock::RefPose ? TEXT("RefPose")
+				: (RootLock == ERootMotionRootLock::AnimFirstFrame ? TEXT("AnimFirstFrame") : TEXT("Zero")));
+			J->SetStringField(TEXT("additiveAnimType"),
+				AdditiveType == AAT_LocalSpaceBase ? TEXT("LocalSpaceBase")
+				: (AdditiveType == AAT_RotationOffsetMeshSpace ? TEXT("RotationOffsetMeshSpace") : TEXT("None")));
+			const TCHAR* Base = TEXT("None");
+			switch (BasePoseType)
+			{
+			case ABPT_RefPose: Base = TEXT("RefPose"); break;
+			case ABPT_AnimScaled: Base = TEXT("AnimScaled"); break;
+			case ABPT_AnimFrame: Base = TEXT("AnimFrame"); break;
+			case ABPT_LocalAnimFrame: Base = TEXT("LocalAnimFrame"); break;
+			default: break;
+			}
+			J->SetStringField(TEXT("refPoseType"), Base);
+			J->SetStringField(TEXT("refPoseSeq"), RefPoseSeq);
+			J->SetNumberField(TEXT("refFrameIndex"), RefFrameIndex);
+			return J;
+		}
+	};
+
+	/** Matches Name against Names, case-insensitively and with or without Prefix. */
+	template <typename TEnum>
+	bool MCPParseSeqEnum(const FString& Name, const TCHAR* Prefix, const TArray<const TCHAR*>& Names, const TArray<TEnum>& Values, TEnum& Out)
+	{
+		FString Bare = Name;
+		Bare.RemoveFromStart(Prefix, ESearchCase::IgnoreCase);
+		for (int32 Index = 0; Index < Names.Num() && Index < Values.Num(); ++Index)
+		{
+			if (Bare.Equals(Names[Index], ESearchCase::IgnoreCase))
+			{
+				Out = Values[Index];
+				return true;
+			}
+		}
+		return false;
+	}
+}
+
+// #153/#1230: batch-set properties on AnimSequence assets. Every key and value is
+// validated before any sequence is touched, so an unknown key or bad value refuses
+// the whole call instead of reporting an update it never made.
 TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPtr<FJsonObject>& Params)
 {
 	// Every parameter is read before anything can fail (#1057).
@@ -1748,16 +1838,127 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPt
 	{
 		return MCPError(TEXT("Missing 'properties' object parameter"));
 	}
-	const TSharedPtr<FJsonObject>& Props = *PropsObj;
+
+	static const TArray<FString> Known = {
+		TEXT("enableRootMotion"), TEXT("forceRootLock"), TEXT("useNormalizedRootMotionScale"), TEXT("rootMotionRootLock"),
+		TEXT("additiveAnimType"), TEXT("refPoseType"), TEXT("refPoseSeq"), TEXT("refFrameIndex"),
+	};
+	// Keys match case-insensitively, so AdditiveAnimType and additiveAnimType are the same write.
+	TMap<FString, TSharedPtr<FJsonValue>> Given;
+	for (const auto& Pair : (*PropsObj)->Values)
+	{
+		const FString PairKey(*Pair.Key);
+		const FString* Canonical = Known.FindByPredicate([&PairKey](const FString& K) { return K.Equals(PairKey, ESearchCase::IgnoreCase); });
+		if (!Canonical)
+		{
+			return MCPError(FString::Printf(TEXT("Unknown property '%s'. set_sequence_properties writes: %s"),
+				*PairKey, *FString::Join(Known, TEXT(", "))));
+		}
+		Given.Add(*Canonical, Pair.Value);
+	}
+	if (Given.Num() == 0)
+	{
+		return MCPError(FString::Printf(TEXT("'properties' is empty. set_sequence_properties writes: %s"), *FString::Join(Known, TEXT(", "))));
+	}
+
+	auto ReadBool = [&Given](const TCHAR* Key, TOptional<bool>& Out) -> FString
+	{
+		if (const TSharedPtr<FJsonValue>* V = Given.Find(Key))
+		{
+			bool B = false;
+			if (!V->IsValid() || !(*V)->TryGetBool(B)) return FString::Printf(TEXT("'%s' must be a boolean"), Key);
+			Out = B;
+		}
+		return FString();
+	};
+	TOptional<bool> EnableRootMotion, ForceRootLock, UseNormalized;
+	for (const FString& Err : { ReadBool(TEXT("enableRootMotion"), EnableRootMotion), ReadBool(TEXT("forceRootLock"), ForceRootLock),
+		ReadBool(TEXT("useNormalizedRootMotionScale"), UseNormalized) })
+	{
+		if (!Err.IsEmpty()) return MCPError(Err);
+	}
+
+	auto ReadString = [&Given](const TCHAR* Key, TOptional<FString>& Out) -> bool
+	{
+		if (const TSharedPtr<FJsonValue>* V = Given.Find(Key))
+		{
+			FString S;
+			if (!V->IsValid() || !(*V)->TryGetString(S)) return false;
+			Out = S;
+		}
+		return true;
+	};
+
+	TOptional<FString> RootLockName, AdditiveName, BaseName, RefSeqPath;
+	if (!ReadString(TEXT("rootMotionRootLock"), RootLockName)) return MCPError(TEXT("'rootMotionRootLock' must be a string"));
+	if (!ReadString(TEXT("additiveAnimType"), AdditiveName)) return MCPError(TEXT("'additiveAnimType' must be a string"));
+	if (!ReadString(TEXT("refPoseType"), BaseName)) return MCPError(TEXT("'refPoseType' must be a string"));
+	if (const TSharedPtr<FJsonValue>* V = Given.Find(TEXT("refPoseSeq")))
+	{
+		if (V->IsValid() && (*V)->Type == EJson::Null) RefSeqPath = FString();
+		else if (!ReadString(TEXT("refPoseSeq"), RefSeqPath)) return MCPError(TEXT("'refPoseSeq' must be an AnimSequence path, or empty to clear it"));
+	}
+
+	TOptional<ERootMotionRootLock::Type> RootLock;
+	if (RootLockName.IsSet())
+	{
+		ERootMotionRootLock::Type L = ERootMotionRootLock::RefPose;
+		if (!MCPParseSeqEnum<ERootMotionRootLock::Type>(RootLockName.GetValue(), TEXT(""),
+			{ TEXT("RefPose"), TEXT("AnimFirstFrame"), TEXT("Zero") },
+			{ ERootMotionRootLock::RefPose, ERootMotionRootLock::AnimFirstFrame, ERootMotionRootLock::Zero }, L))
+		{
+			return MCPError(FString::Printf(TEXT("rootMotionRootLock '%s' is not RefPose, AnimFirstFrame or Zero"), *RootLockName.GetValue()));
+		}
+		RootLock = L;
+	}
+	TOptional<EAdditiveAnimationType> Additive;
+	if (AdditiveName.IsSet())
+	{
+		EAdditiveAnimationType A = AAT_None;
+		if (!MCPParseSeqEnum<EAdditiveAnimationType>(AdditiveName.GetValue(), TEXT("AAT_"),
+			{ TEXT("None"), TEXT("LocalSpaceBase"), TEXT("RotationOffsetMeshSpace") },
+			{ AAT_None, AAT_LocalSpaceBase, AAT_RotationOffsetMeshSpace }, A))
+		{
+			return MCPError(FString::Printf(TEXT("additiveAnimType '%s' is not None, LocalSpaceBase or RotationOffsetMeshSpace"), *AdditiveName.GetValue()));
+		}
+		Additive = A;
+	}
+	TOptional<EAdditiveBasePoseType> BasePose;
+	if (BaseName.IsSet())
+	{
+		EAdditiveBasePoseType B = ABPT_None;
+		if (!MCPParseSeqEnum<EAdditiveBasePoseType>(BaseName.GetValue(), TEXT("ABPT_"),
+			{ TEXT("None"), TEXT("RefPose"), TEXT("AnimScaled"), TEXT("AnimFrame"), TEXT("LocalAnimFrame") },
+			{ ABPT_None, ABPT_RefPose, ABPT_AnimScaled, ABPT_AnimFrame, ABPT_LocalAnimFrame }, B))
+		{
+			return MCPError(FString::Printf(TEXT("refPoseType '%s' is not None, RefPose, AnimScaled, AnimFrame or LocalAnimFrame"), *BaseName.GetValue()));
+		}
+		BasePose = B;
+	}
+	UAnimSequence* RefSeq = nullptr;
+	if (RefSeqPath.IsSet() && !RefSeqPath.GetValue().IsEmpty())
+	{
+		RefSeq = Cast<UAnimSequence>(MCPLoadAssetObject(RefSeqPath.GetValue()));
+		if (!RefSeq) return MCPError(FString::Printf(TEXT("refPoseSeq '%s' is not an AnimSequence"), *RefSeqPath.GetValue()));
+	}
+	TOptional<int32> RefFrame;
+	if (const TSharedPtr<FJsonValue>* V = Given.Find(TEXT("refFrameIndex")))
+	{
+		double N = 0;
+		if (!V->IsValid() || !(*V)->TryGetNumber(N) || N < 0 || N != FMath::FloorToDouble(N))
+		{
+			return MCPError(TEXT("'refFrameIndex' must be a non-negative integer"));
+		}
+		RefFrame = (int32)N;
+	}
 
 	TArray<TSharedPtr<FJsonValue>> Results;
 	int32 UpdatedCount = 0;
 	int32 SkippedCount = 0;
-	// This action writes ONE properties object across many sequences, so it is
-	// its own inverse only when every sequence it touched carried the same prior
-	// values. Track them, and whether they agree.
+	// One properties object is its own inverse only when every sequence it touched
+	// carried the same prior values. Track them, and whether they agree.
 	TArray<TSharedPtr<FJsonValue>> RestorePaths;
-	TSharedPtr<FJsonObject> SharedPrevProps;
+	TOptional<FMCPSeqProps> SharedPrev;
 	bool bPrevPropsAgree = true;
 	int32 ChangedCount = 0;
 	int32 SaveFailedCount = 0;
@@ -1778,8 +1979,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPt
 		{
 			if (UAnimMontage* Montage = Cast<UAnimMontage>(Loaded))
 			{
-				UAnimSequenceBase* FirstRef = Montage->GetFirstAnimReference();
-				Seq = Cast<UAnimSequence>(FirstRef);
+				Seq = Cast<UAnimSequence>(Montage->GetFirstAnimReference());
 				if (Seq)
 				{
 					ResolvedPath = Seq->GetPathName();
@@ -1798,41 +1998,31 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPt
 			continue;
 		}
 
-		// Every field this action can write, read before any of them is touched.
-		const bool bPrevEnableRootMotion = Seq->bEnableRootMotion;
-		const bool bPrevForceRootLock = Seq->bForceRootLock;
-		const bool bPrevUseNormalizedRootMotionScale = Seq->bUseNormalizedRootMotionScale;
-		const ERootMotionRootLock::Type PrevRootLock = Seq->RootMotionRootLock;
-		const FString PrevRootLockName =
-			PrevRootLock == ERootMotionRootLock::RefPose ? TEXT("RefPose")
-			: (PrevRootLock == ERootMotionRootLock::AnimFirstFrame ? TEXT("AnimFirstFrame") : TEXT("Zero"));
-
+		const FMCPSeqProps Prev = FMCPSeqProps::Read(Seq);
 		Seq->Modify();
+		if (EnableRootMotion.IsSet()) Seq->bEnableRootMotion = EnableRootMotion.GetValue();
+		if (ForceRootLock.IsSet()) Seq->bForceRootLock = ForceRootLock.GetValue();
+		if (UseNormalized.IsSet()) Seq->bUseNormalizedRootMotionScale = UseNormalized.GetValue();
+		if (RootLock.IsSet()) Seq->RootMotionRootLock = RootLock.GetValue();
+		const bool bAdditiveWrite = Additive.IsSet() || BasePose.IsSet() || RefSeqPath.IsSet() || RefFrame.IsSet();
+		if (Additive.IsSet()) Seq->AdditiveAnimType = Additive.GetValue();
+		if (BasePose.IsSet()) Seq->RefPoseType = BasePose.GetValue();
+		if (RefSeqPath.IsSet()) Seq->RefPoseSeq = RefSeq;
+		if (RefFrame.IsSet()) Seq->RefFrameIndex = RefFrame.GetValue();
 
-		bool EnableRootMotion;
-		if (Props->TryGetBoolField(TEXT("enableRootMotion"), EnableRootMotion))
+		if (bAdditiveWrite)
 		{
-			Seq->bEnableRootMotion = EnableRootMotion;
+			// Naming the additive property is what makes the sequence rebuild its
+			// compressed additive data; a bare PostEditChange skips that.
+			FProperty* AdditiveProp = FindFProperty<FProperty>(UAnimSequence::StaticClass(), GET_MEMBER_NAME_CHECKED(UAnimSequence, AdditiveAnimType));
+			FPropertyChangedEvent Event(AdditiveProp, EPropertyChangeType::ValueSet);
+			Seq->PostEditChangeProperty(Event);
 		}
-		bool ForceRootLock;
-		if (Props->TryGetBoolField(TEXT("forceRootLock"), ForceRootLock))
+		else
 		{
-			Seq->bForceRootLock = ForceRootLock;
-		}
-		bool UseNormalizedRootMotionScale;
-		if (Props->TryGetBoolField(TEXT("useNormalizedRootMotionScale"), UseNormalizedRootMotionScale))
-		{
-			Seq->bUseNormalizedRootMotionScale = UseNormalizedRootMotionScale;
-		}
-		FString RootMotionMode;
-		if (Props->TryGetStringField(TEXT("rootMotionRootLock"), RootMotionMode))
-		{
-			if      (RootMotionMode.Equals(TEXT("RefPose"),        ESearchCase::IgnoreCase)) Seq->RootMotionRootLock = ERootMotionRootLock::RefPose;
-			else if (RootMotionMode.Equals(TEXT("AnimFirstFrame"), ESearchCase::IgnoreCase)) Seq->RootMotionRootLock = ERootMotionRootLock::AnimFirstFrame;
-			else if (RootMotionMode.Equals(TEXT("Zero"),           ESearchCase::IgnoreCase)) Seq->RootMotionRootLock = ERootMotionRootLock::Zero;
+			Seq->PostEditChange();
 		}
 
-		Seq->PostEditChange();
 		FString SaveError;
 		const bool bSaved = SaveAssetPackageChecked(Seq, SaveError);
 		Entry->SetBoolField(TEXT("saved"), bSaved);
@@ -1843,36 +2033,18 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPt
 			LastSaveError = FString::Printf(TEXT("'%s': %s"), *ResolvedPath, *SaveError);
 		}
 
-		TSharedPtr<FJsonObject> PrevProps = MakeShared<FJsonObject>();
-		PrevProps->SetBoolField(TEXT("enableRootMotion"), bPrevEnableRootMotion);
-		PrevProps->SetBoolField(TEXT("forceRootLock"), bPrevForceRootLock);
-		PrevProps->SetBoolField(TEXT("useNormalizedRootMotionScale"), bPrevUseNormalizedRootMotionScale);
-		PrevProps->SetStringField(TEXT("rootMotionRootLock"), PrevRootLockName);
-
-		if (!SharedPrevProps.IsValid())
-		{
-			SharedPrevProps = PrevProps;
-		}
-		else if (bPrevEnableRootMotion != SharedPrevProps->GetBoolField(TEXT("enableRootMotion"))
-			|| bPrevForceRootLock != SharedPrevProps->GetBoolField(TEXT("forceRootLock"))
-			|| bPrevUseNormalizedRootMotionScale != SharedPrevProps->GetBoolField(TEXT("useNormalizedRootMotionScale"))
-			|| PrevRootLockName != SharedPrevProps->GetStringField(TEXT("rootMotionRootLock")))
-		{
-			bPrevPropsAgree = false;
-		}
+		if (!SharedPrev.IsSet()) SharedPrev = Prev;
+		else if (!(SharedPrev.GetValue() == Prev)) bPrevPropsAgree = false;
 		RestorePaths.Add(MakeShared<FJsonValueString>(ResolvedPath));
-		if (bPrevEnableRootMotion != Seq->bEnableRootMotion
-			|| bPrevForceRootLock != Seq->bForceRootLock
-			|| bPrevUseNormalizedRootMotionScale != Seq->bUseNormalizedRootMotionScale
-			|| PrevRootLock != Seq->RootMotionRootLock)
-		{
-			++ChangedCount;
-		}
+
+		const FMCPSeqProps After = FMCPSeqProps::Read(Seq);
+		if (!(After == Prev)) ++ChangedCount;
 
 		Entry->SetStringField(TEXT("status"), TEXT("updated"));
 		Entry->SetBoolField(TEXT("enableRootMotion"), Seq->bEnableRootMotion);
 		Entry->SetBoolField(TEXT("forceRootLock"), Seq->bForceRootLock);
-		Entry->SetObjectField(TEXT("previousProperties"), PrevProps);
+		Entry->SetObjectField(TEXT("properties"), After.ToJson());
+		Entry->SetObjectField(TEXT("previousProperties"), Prev.ToJson());
 		Results.Add(MakeShared<FJsonValueObject>(Entry));
 		++UpdatedCount;
 	}
@@ -1892,14 +2064,13 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPt
 			TEXT("%d sequence(s) were changed in memory but not written, last %s"), SaveFailedCount, *LastSaveError));
 	}
 
-	if (UpdatedCount > 0 && bPrevPropsAgree && SharedPrevProps.IsValid())
+	if (UpdatedCount > 0 && bPrevPropsAgree && SharedPrev.IsSet())
 	{
-		// One properties object restores every sequence, because every one of
-		// them carried the same values. The paths are the RESOLVED sequence
-		// paths, so a montage input does not have to resolve again on replay.
+		// The paths are the RESOLVED sequence paths, so a montage input does not
+		// have to resolve again on replay.
 		TSharedPtr<FJsonObject> Rollback = MakeShared<FJsonObject>();
 		Rollback->SetArrayField(TEXT("assetPaths"), RestorePaths);
-		Rollback->SetObjectField(TEXT("properties"), SharedPrevProps);
+		Rollback->SetObjectField(TEXT("properties"), SharedPrev.GetValue().ToJson());
 		MCPSetRollback(Result, TEXT("set_sequence_properties"), Rollback);
 		Result->SetBoolField(TEXT("rollbackLossy"), false);
 	}
@@ -1908,7 +2079,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SetSequenceProperties(const TSharedPt
 		Result->SetBoolField(TEXT("rollbackPossible"), false);
 		Result->SetStringField(TEXT("rollbackNote"), UpdatedCount == 0
 			? TEXT("No sequence was updated, so there is nothing to undo.")
-			: TEXT("The sequences carried different root-motion settings before this call, and set_sequence_properties writes one properties object across every path it is given, so no single call restores them. Each entry's previousProperties holds its own values, replayable one path at a time."));
+			: TEXT("The sequences carried different settings before this call, and set_sequence_properties writes one properties object across every path it is given, so no single call restores them. Each entry's previousProperties holds its own values, replayable one path at a time."));
 	}
 	return MCPResult(Result);
 }
@@ -2085,7 +2256,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::BakeRootMotionFromBone(const TSharedP
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
 			TEXT("The replay restores the keys of the %d bone track(s) that already existed, and a track this call had to create stays on the sequence because nothing removes a bone track. ")
-			TEXT("It does not restore bEnableRootMotion, which this call forced on: replay animation(set_root_motion_settings) with enableRootMotion=%s to finish the undo."),
+			TEXT("It does not restore bEnableRootMotion, which this call forced on: replay animation(set_root_motion) with enableRootMotion=%s to finish the undo."),
 			PrevTracks.Num(), bPrevEnableRootMotion ? TEXT("true") : TEXT("false")));
 	}
 	else

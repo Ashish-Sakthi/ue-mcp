@@ -4,6 +4,7 @@
 #include "HandlerUtils.h"
 #include "HandlerPagination.h"
 #include "HandlerJsonProperty.h"
+#include "BlueprintHandlers_CDOPath.h"
 #include "JsonSerializer.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -140,6 +141,9 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecVarName,
 		SpecVarType,
 		SpecOnConflict,
+		MCPParam::Optional(TEXT("category"), EType::String, TEXT("Category shown in My Blueprint and the details panel")),
+		MCPParam::Optional(TEXT("tooltip"), EType::String, TEXT("Tooltip")),
+		MCPParam::Optional(TEXT("instanceEditable"), EType::Boolean, TEXT("true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default")),
 	});
 	Registry.RegisterHandler(TEXT("add_component"), &AddComponent, {
 		SpecAssetPath,
@@ -200,10 +204,16 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecGraphName,
 		MCPParam::Required(TEXT("nodeClass"), EType::String, TEXT("Node class or short alias such as CallFunction, CallParent or CustomEvent")),
 		MCPParam::Optional(TEXT("nodeParams"), EType::Object, TEXT("Node-specific settings, such as functionName and className for a CallFunction node")),
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("read_blueprint_graph"), &ReadBlueprintGraph, {
 		SpecAssetPath,
 		SpecGraphName,
+		MCPParam::Optional(TEXT("transitionGuid"), EType::String, TEXT("AnimBP: read this transition's rule graph, by the guid read_state_machine and add_transition report. Wins over graphName")),
+		MCPParam::Optional(TEXT("fromState"), EType::String, TEXT("AnimBP: with toState, read the rule graph of the transition between these states; refused when more than one matches")),
+		MCPParam::Optional(TEXT("toState"), EType::String, TEXT("AnimBP: the transition's destination state, with fromState")),
+		MCPParam::Optional(TEXT("stateMachineName"), EType::String, TEXT("AnimBP: narrow fromState and toState to one state machine")),
+		MCPParam::Optional(TEXT("includeLinks"), EType::Boolean, TEXT("List what each pin is wired to, as {nodeId, pin} (default false)")),
 		MCPParam::Optional(TEXT("offset"), EType::Integer, TEXT("Row offset into the (filtered) node list")),
 		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Nodes to return; omit for a safe default page, or dump the whole graph with dumpToFile")),
 		MCPParam::Optional(TEXT("includePins"), EType::Boolean, TEXT("Include pins (default true)")),
@@ -253,12 +263,14 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("targetPin"), EType::String, TEXT("Target pin name")).Alias(TEXT("targetPinName")),
 		MCPParam::Optional(TEXT("breakExistingSource"), EType::Boolean, TEXT("Break every existing link on the source pin first")),
 		MCPParam::Optional(TEXT("breakExistingTarget"), EType::Boolean, TEXT("Break every existing link on the target pin first")),
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("delete_node"), &DeleteNode, {
 		SpecAssetPath,
 		SpecGraphName,
 		SpecGraphSelector,
 		SpecNodeId,
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("refresh_node"), &RefreshNode, {
 		SpecAssetPath,
@@ -282,6 +294,7 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecNodeId,
 		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Pin or struct property name")).Alias(TEXT("pinName")),
 		MCPParam::Required(TEXT("value"), EType::Any, TEXT("New pin default or property value, as a string")).Alias(TEXT("defaultValue")),
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("list_blueprint_graphs"), &ListGraphs, {
 		SpecAssetPath,
@@ -319,7 +332,7 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("set_class_default"), &SetClassDefault, {
 		SpecAssetPath,
-		SpecPropertyName,
+		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius")),
 		SpecValue,
 	});
 	Registry.RegisterHandler(TEXT("remove_component"), &RemoveComponent, {
@@ -341,10 +354,12 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecAssetPath,
 		SpecVarName,
 		MCPParam::Required(TEXT("value"), EType::Any, TEXT("New default value, as a string")),
+		MCPParam::Optional(TEXT("propagateToInstances"), EType::Boolean, TEXT("Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("get_blueprint_variable_default"), &GetVariableDefault, {
 		SpecAssetPath,
-		SpecVarName,
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects")),
+		MCPParam::Optional(TEXT("includeChildren"), EType::Boolean, TEXT("Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)")),
 	});
 
 	Registry.RegisterHandler(TEXT("read_blueprint_graph_summary"), &ReadBlueprintGraphSummary, {
@@ -552,6 +567,12 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecOutputPath,
 	});
 	Registry.RegisterHandlerWithTimeout(TEXT("audit_blueprint_dead_code"), &AuditDeadCode, SearchCallSitesTimeoutSeconds);
+	Registry.RegisterHandler(TEXT("list_subclasses"), &ListSubclasses, {
+		MCPParam::Required(TEXT("className"), EType::String, TEXT("Base class: a native name or path such as Character, or a Blueprint asset path")),
+		MCPParam::Optional(TEXT("directory"), EType::String, TEXT("Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it")),
+		MCPParam::Optional(TEXT("includeTransitive"), EType::Boolean, TEXT("Include indirect subclasses (default true); false lists direct children only")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Rows to return (default 2000, max 20000); count stays complete")),
+	});
 
 	// V9 Blueprint depth (BlueprintHandlers_Members.cpp). Interface removal and
 	// listing, function flags and metadata, parameter CRUD across functions,
@@ -2012,6 +2033,12 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddVariable(const TSharedPtr<FJsonObj
 
 	FString VarType = OptionalString(Params, TEXT("varType"), TEXT("Float"));
 	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+	FString CategoryStr;
+	const bool bHasCategory = TryGetStringParam(Params, TEXT("category"), CategoryStr);
+	FString TooltipStr;
+	const bool bHasTooltip = TryGetStringParam(Params, TEXT("tooltip"), TooltipStr);
+	bool bInstanceEditable = false;
+	const bool bHasInstanceEditable = TryGetBoolParam(Params, TEXT("instanceEditable"), bInstanceEditable);
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
@@ -2050,6 +2077,25 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddVariable(const TSharedPtr<FJsonObj
 
 	if (bSuccess)
 	{
+		// Same writes set_variable_properties makes, applied before the one compile.
+		for (FBPVariableDescription& Var : Blueprint->NewVariables)
+		{
+			if (Var.VarName != VarNameFName) continue;
+			if (bHasCategory) Var.SetMetaData(FBlueprintMetadata::MD_FunctionCategory, *CategoryStr);
+			if (bHasCategory) Var.Category = FText::FromString(CategoryStr);
+			if (bHasTooltip) Var.SetMetaData(FBlueprintMetadata::MD_Tooltip, *TooltipStr);
+			if (bHasInstanceEditable && bInstanceEditable)
+			{
+				Var.PropertyFlags |= CPF_Edit;
+				Var.PropertyFlags &= ~(CPF_DisableEditOnInstance | CPF_DisableEditOnTemplate);
+			}
+			else if (bHasInstanceEditable)
+			{
+				Var.PropertyFlags |= CPF_Edit | CPF_DisableEditOnInstance;
+				Var.PropertyFlags &= ~CPF_DisableEditOnTemplate;
+			}
+			break;
+		}
 		FKismetEditorUtilities::CompileBlueprint(Blueprint);
 		FString SaveError;
 		const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
@@ -2062,6 +2108,9 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddVariable(const TSharedPtr<FJsonObj
 		Result->SetStringField(TEXT("variableType"), VarType);
 		bool bTypeRoundTrips = true;
 		Result->SetStringField(TEXT("resolvedType"), PinTypeSpec(PinType, bTypeRoundTrips));
+		if (bHasCategory) Result->SetStringField(TEXT("category"), CategoryStr);
+		if (bHasTooltip) Result->SetStringField(TEXT("tooltip"), TooltipStr);
+		if (bHasInstanceEditable) Result->SetBoolField(TEXT("instanceEditable"), bInstanceEditable);
 
 		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetStringField(TEXT("path"), AssetPath);
@@ -2753,6 +2802,7 @@ namespace
 		TSharedPtr<FJsonValue> Value;
 		FString DeclaringClass;
 		FString DeclaringClassPath;
+		FString Subobject;
 		bool bInherited = false;
 	};
 
@@ -2788,6 +2838,23 @@ namespace
 		}
 
 		FProperty* Prop = GeneratedClass->FindPropertyByName(FName(*VarName));
+		const void* PathAddr = nullptr;
+		UObject* PathOwner = CDO;
+		if (!Prop)
+		{
+			// A dotted path: struct members, array elements, owned subobjects
+			// such as CharacterMovement.MaxWalkSpeed.
+			void* Addr = nullptr;
+			FString PathError;
+			if (MCPResolveCDOPath(CDO, VarName, /*bOwnedOnly=*/false, Prop, Addr, PathOwner, PathError))
+			{
+				PathAddr = Addr;
+			}
+			else
+			{
+				Prop = nullptr;
+			}
+		}
 		if (!Prop)
 		{
 			// Name the variables that DO resolve, so a caller that has just
@@ -2804,8 +2871,8 @@ namespace
 		}
 
 		Out.Property = Prop;
-		Out.ValueAddress = Prop->ContainerPtrToValuePtr<void>(CDO);
-		Prop->ExportText_Direct(Out.ValueText, Out.ValueAddress, Out.ValueAddress, CDO, PPF_None);
+		Out.ValueAddress = PathAddr ? PathAddr : Prop->ContainerPtrToValuePtr<void>(CDO);
+		Prop->ExportText_Direct(Out.ValueText, Out.ValueAddress, Out.ValueAddress, PathOwner ? PathOwner : CDO, PPF_None);
 		Out.Value = FMCPJsonSerializer::SerializeValue(Out.ValueAddress, Prop);
 
 		if (UClass* Owner = Prop->GetOwnerClass())
@@ -2814,6 +2881,7 @@ namespace
 			Out.DeclaringClassPath = Owner->GetPathName();
 			Out.bInherited = Owner != GeneratedClass;
 		}
+		if (PathOwner && PathOwner != CDO) Out.Subobject = PathOwner->GetName();
 		return true;
 	}
 
@@ -2831,6 +2899,7 @@ namespace
 			Obj->SetStringField(TEXT("declaringClassPath"), Resolved.DeclaringClassPath);
 		}
 		Obj->SetBoolField(TEXT("inherited"), Resolved.bInherited);
+		if (!Resolved.Subobject.IsEmpty()) Obj->SetStringField(TEXT("subobject"), Resolved.Subobject);
 	}
 
 	// #931: state whether what was just read is on disk. The package's own
@@ -2864,6 +2933,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::GetVariableDefault(const TSharedPtr<F
 
 	FString VarName;
 	if (auto Err = RequireString(Params, TEXT("name"), VarName)) return Err;
+	const bool bIncludeChildren = OptionalBool(Params, TEXT("includeChildren"), false);
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
@@ -2912,6 +2982,54 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::GetVariableDefault(const TSharedPtr<F
 				Resolved.Property->Identical(Resolved.ValueAddress, Authored.GetObjAddress(), PPF_None));
 		}
 		break;
+	}
+
+	// Every Blueprint subclass, loaded if needed, with the same path read off
+	// its CDO. overridden compares against the immediate parent class's value.
+	if (bIncludeChildren && Blueprint->GeneratedClass)
+	{
+		UClass* ThisClass = Blueprint->GeneratedClass;
+		TMap<UClass*, FString> ValueByClass;
+		ValueByClass.Add(ThisClass, Resolved.ValueText);
+		const TArray<UClass*> Children = MCPBlueprintChildClasses(ThisClass, /*bLoad=*/true);
+		auto ReadText = [&VarName](UClass* Cls, FString& OutText) -> bool
+		{
+			FProperty* P = nullptr; void* A = nullptr; UObject* O = nullptr; FString E;
+			UObject* ChildCDO = Cls ? Cls->GetDefaultObject() : nullptr;
+			if (!ChildCDO || !MCPResolveCDOPath(ChildCDO, VarName, false, P, A, O, E)) return false;
+			P->ExportText_Direct(OutText, A, A, O ? O : ChildCDO, PPF_None);
+			return true;
+		};
+		TArray<TSharedPtr<FJsonValue>> Rows;
+		for (UClass* Child : Children)
+		{
+			TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+			Row->SetStringField(TEXT("class"), Child->GetPathName());
+			if (UBlueprint* ChildBP = UBlueprint::GetBlueprintFromClass(Child))
+			{
+				Row->SetStringField(TEXT("blueprint"), ChildBP->GetPathName());
+			}
+			UClass* Super = Child->GetSuperClass();
+			Row->SetStringField(TEXT("parentClass"), Super ? Super->GetPathName() : FString());
+			FString Text;
+			if (!ReadText(Child, Text))
+			{
+				Row->SetStringField(TEXT("error"), TEXT("path does not resolve on this class"));
+				Rows.Add(MakeShared<FJsonValueObject>(Row));
+				continue;
+			}
+			ValueByClass.Add(Child, Text);
+			FString ParentText;
+			const FString* Known = Super ? ValueByClass.Find(Super) : nullptr;
+			if (Known) ParentText = *Known;
+			else if (Super) ReadText(Super, ParentText);
+			Row->SetStringField(TEXT("valueText"), Text);
+			Row->SetBoolField(TEXT("overridden"), Text != ParentText);
+			Row->SetBoolField(TEXT("matchesThisBlueprint"), Text == Resolved.ValueText);
+			Rows.Add(MakeShared<FJsonValueObject>(Row));
+		}
+		Result->SetArrayField(TEXT("children"), Rows);
+		Result->SetNumberField(TEXT("childCount"), Rows.Num());
 	}
 
 	return MCPResult(Result);
@@ -3673,10 +3791,48 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReparentBlueprint(const TSharedPtr<FJ
 		return MCPResult(NoOp);
 	}
 
+	// Every Blueprint variable's class default, as text, so a reparent that
+	// rebuilt the class and dropped one is reported instead of silent (#1238).
+	auto ReadVariableDefaults = [Blueprint]()
+	{
+		TMap<FName, FString> Out;
+		UClass* Generated = Blueprint->GeneratedClass;
+		UObject* CDO = Generated ? Generated->GetDefaultObject(false) : nullptr;
+		for (const FBPVariableDescription& Var : Blueprint->NewVariables)
+		{
+			FString Value = Var.DefaultValue;
+			if (CDO)
+			{
+				if (FProperty* Prop = FindFProperty<FProperty>(Generated, Var.VarName))
+				{
+					Value.Reset();
+					Prop->ExportTextItem_Direct(Value, Prop->ContainerPtrToValuePtr<void>(CDO), nullptr, nullptr, PPF_None);
+				}
+			}
+			Out.Add(Var.VarName, Value);
+		}
+		return Out;
+	};
+	const TMap<FName, FString> DefaultsBefore = ReadVariableDefaults();
+
 	// Prefer the canonical UBlueprintEditorLibrary path (matches the Python API
 	// users have been falling back to in the workaround).
 	UBlueprintEditorLibrary::ReparentBlueprint(Blueprint, NewParent);
 	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+
+	const TMap<FName, FString> DefaultsAfter = ReadVariableDefaults();
+	TArray<TSharedPtr<FJsonValue>> DefaultsReset;
+	for (const TPair<FName, FString>& Before : DefaultsBefore)
+	{
+		const FString* After = DefaultsAfter.Find(Before.Key);
+		if (After && *After == Before.Value) continue;
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("variable"), Before.Key.ToString());
+		Entry->SetStringField(TEXT("before"), Before.Value);
+		if (After) Entry->SetStringField(TEXT("after"), *After);
+		else Entry->SetBoolField(TEXT("removed"), true);
+		DefaultsReset.Add(MakeShared<FJsonValueObject>(Entry));
+	}
 
 	FString SaveReason;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveReason);
@@ -3688,6 +3844,13 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReparentBlueprint(const TSharedPtr<FJ
 	if (OldParent)
 	{
 		Result->SetStringField(TEXT("previousParent"), OldParent->GetPathName());
+	}
+	Result->SetArrayField(TEXT("variableDefaultsChanged"), DefaultsReset);
+	if (DefaultsReset.Num() > 0)
+	{
+		Result->SetStringField(TEXT("warning"), FString::Printf(
+			TEXT("%d Blueprint variable default(s) changed when the class was rebuilt; variableDefaultsChanged lists each value before and after. ")
+			TEXT("Set them back with blueprint(set_variable_default) if they should keep their old values."), DefaultsReset.Num()));
 	}
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveReason);
 
