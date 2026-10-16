@@ -159,6 +159,9 @@ export function deployedPlugin(
         + `advertises from: ${drift.slice(0, NAMED).join(", ")}${drift.length > NAMED ? `, and ${drift.length - NAMED} more` : ""}. `
         + "Either the plugin is behind this package (rebuild it), or the specs changed and need "
         + "npm run specs:record then npm run specs:generate (for a plugin's handlers, ue-mcp plugin record-specs)."
+        + (pluginDrift.length > 0
+          ? " Calls to the drifted plugin handlers are checked against the contract the running module registered."
+          : "")
       : undefined,
   };
 }

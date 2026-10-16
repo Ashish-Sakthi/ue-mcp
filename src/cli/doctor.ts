@@ -18,6 +18,7 @@ import { packageVersion } from "../core/package-root.js";
 import { findUProject, isUProjectPath, projectDirOf } from "../config/uproject-path.js";
 import { RESET, BOLD, DIM, GREEN, RED, CYAN, YELLOW } from "./ui/ansi.js";
 import { cliCommandNames } from "./cli-commands.js";
+import type { CliUsage } from "./cli-main.js";
 import { defaultPluginDir, installKindOf, resolvePluginDir, type InstallKind } from "../editor/install-marker.js";
 
 export interface DoctorReport {
@@ -485,6 +486,16 @@ export function formatDoctor(d: DoctorReport): string {
   lines.push("");
   return lines.join("\n");
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp doctor [project.uproject] [flags]",
+  summary: "Report what is installed and running.",
+  strict: true,
+  flags: [
+    { name: "--fix", description: "Remove MCP client entries that point at nothing" },
+    { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
+  ],
+};
 
 /** Entry point for `ue-mcp doctor [project.uproject] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {
