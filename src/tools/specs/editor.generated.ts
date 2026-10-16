@@ -694,13 +694,13 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "subsystemClass",
         "type": "string",
         "required": false,
-        "description": "Subsystem class name or /Script path, with target=subsystem"
+        "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
       },
       {
         "name": "playerIndex",
         "type": "number",
         "required": false,
-        "description": "Player index for target=playercontroller or playerpawn (default 0)"
+        "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
       },
       {
         "name": "propertyNames",
@@ -1090,13 +1090,13 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "subsystemClass",
         "type": "string",
         "required": false,
-        "description": "Subsystem class name or /Script path, with target=subsystem"
+        "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
       },
       {
         "name": "playerIndex",
         "type": "number",
         "required": false,
-        "description": "Player index for target=playercontroller or playerpawn (default 0)"
+        "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
       },
       {
         "name": "args",
@@ -1163,13 +1163,13 @@ export const handlerSpecs: HandlerSpecs = {
             "name": "subsystemClass",
             "type": "string",
             "required": false,
-            "description": "Subsystem class name or /Script path, with target=subsystem"
+            "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
           },
           {
             "name": "playerIndex",
             "type": "integer",
             "required": false,
-            "description": "Player index for target=playercontroller or playerpawn (default 0)"
+            "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
           },
           {
             "name": "args",
@@ -2150,13 +2150,13 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "subsystemClass",
         "type": "string",
         "required": false,
-        "description": "Subsystem class name or /Script path, with target=subsystem"
+        "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
       },
       {
         "name": "playerIndex",
         "type": "number",
         "required": false,
-        "description": "Player index for target=playercontroller or playerpawn (default 0)"
+        "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
       },
       {
         "name": "postEditChange",
@@ -2913,7 +2913,7 @@ export const schema: Record<string, z.ZodType> = {
   bookmarkName: z.string().optional().describe("Label for the timeline marker"),
   buttonIndex: z.number().optional().describe("Index of the button to press, in the order list_dialogs reports"),
   buttonLabel: z.string().optional().describe("Label of the button to press, matched exactly first, then as a substring (respond_to_dialog). Button a matched dialog gets pressed for it, matched exactly first, then as a substring. Reaches buttons no response names, such as Don't Save (set_dialog_policy)"),
-  calls: z.array(z.object({ functionName: z.string().describe("UFUNCTION to call"), objectPath: z.string().optional().describe("Object path of the live instance. Wins over target"), target: z.string().optional().describe("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem"), subsystemClass: z.string().optional().describe("Subsystem class name or /Script path, with target=subsystem"), playerIndex: z.number().int().optional().describe("Player index for target=playercontroller or playerpawn (default 0)"), args: z.union([z.record(z.string(), z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))])), z.array(z.string()), z.array(z.object({ name: z.string(), value: z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))]).optional() })), z.string()], { errorMap: () => ({ message: "args must be an object mapping parameter name to value (e.g. {\"bEnabled\": true}), an array of positional strings, an entry list ([{\"name\": \"bEnabled\", \"value\": true}]), or a string" }) }).optional().describe("This call's arguments, in any form invoke_object_function takes") })).optional().describe("1 to 64 calls, run in order in one game-thread dispatch; the first failure stops the sequence"),
+  calls: z.array(z.object({ functionName: z.string().describe("UFUNCTION to call"), objectPath: z.string().optional().describe("Object path of the live instance. Wins over target"), target: z.string().optional().describe("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem"), subsystemClass: z.string().optional().describe("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"), playerIndex: z.number().int().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"), args: z.union([z.record(z.string(), z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))])), z.array(z.string()), z.array(z.object({ name: z.string(), value: z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))]).optional() })), z.string()], { errorMap: () => ({ message: "args must be an object mapping parameter name to value (e.g. {\"bEnabled\": true}), an array of positional strings, an entry list ([{\"name\": \"bEnabled\", \"value\": true}]), or a string" }) }).optional().describe("This call's arguments, in any form invoke_object_function takes") })).optional().describe("1 to 64 calls, run in order in one game-thread dispatch; the first failure stops the sequence"),
   cameraActorLabel: z.string().optional().describe("Camera actor to bind a CameraCut section to (add_sequence_section). Camera actor to render through instead of the camera cuts (render_sequence_frames)"),
   cameraActorPath: z.string().optional().describe("Full object path of the camera actor. Wins over cameraActorLabel (add_sequence_section). Full object path of that camera actor. Wins over cameraActorLabel (render_sequence_frames)"),
   cameraSpeed: z.number().optional().describe("Viewport camera speed, greater than 0"),
@@ -3031,7 +3031,7 @@ export const schema: Record<string, z.ZodType> = {
   pieInstance: z.number().optional().describe("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"),
   pitch: z.number().optional().describe("Control-rotation pitch"),
   platform: z.string().optional().describe("Target platform (default Windows)"),
-  playerIndex: z.number().optional().describe("Player index for target=playercontroller or playerpawn (default 0) (get_object_properties, invoke_object_function, set_object_property). 0-based player index (default 0) (get_pie_pawn)"),
+  playerIndex: z.number().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0) (get_object_properties, invoke_object_function, set_object_property). 0-based player index (default 0) (get_pie_pawn)"),
   postEditChange: z.boolean().optional().describe("Fire PostEditChangeProperty after the write (default false)"),
   prefix: z.string().optional().describe("Purge sys.modules entries starting with this prefix; must be non-empty"),
   projection: z.string().optional().describe("perspective | top | bottom | left | right | front | back | orthoFreelook. Switched before the pose is applied"),
@@ -3064,7 +3064,7 @@ export const schema: Record<string, z.ZodType> = {
   startSeconds: z.number().optional().describe("Section start in seconds (add_sequence_section). Range start in seconds (default the playback range) (render_sequence_frames). Range start in seconds (set_sequence_playback_range)"),
   steps: z.number().int().optional().describe("How many steps to apply (default 1)"),
   stopMovement: z.boolean().optional().describe("Stop the movement component so the move is not undone (default true)"),
-  subsystemClass: z.string().optional().describe("Subsystem class name or /Script path, with target=subsystem"),
+  subsystemClass: z.string().optional().describe("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"),
   sweep: z.boolean().optional().describe("Collide on the way (default false)"),
   tabId: z.string().optional().describe("Registered editor tab id, e.g. ProjectSettings, OutputLog or ContentBrowserTab1"),
   target: z.string().optional().describe("auto (default) | pie | editor | window (capture_screenshot). gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem (get_object_properties, invoke_object_function, set_object_property)"),

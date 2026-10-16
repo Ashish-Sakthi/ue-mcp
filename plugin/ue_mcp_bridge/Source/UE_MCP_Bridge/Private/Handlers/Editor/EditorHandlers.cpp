@@ -308,8 +308,8 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		return TArray<FMCPParamSpec>{
 			MCPParam::Optional(TEXT("objectPath"), EType::String, TEXT("Object path of the live instance. Wins over target")),
 			MCPParam::Optional(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
-			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem")),
-			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller or playerpawn (default 0)")),
+			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
+			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
 		};
 	};
 
@@ -558,8 +558,8 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::RequiredField(TEXT("functionName"), EType::String, TEXT("UFUNCTION to call")),
 			MCPParam::OptionalField(TEXT("objectPath"), EType::String, TEXT("Object path of the live instance. Wins over target")),
 			MCPParam::OptionalField(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
-			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem")),
-			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller or playerpawn (default 0)")),
+			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
+			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
 			MCPParam::OptionalField(TEXT("args"), EType::Any, TEXT("This call's arguments, in any form invoke_object_function takes")).OneOfForms(ArgForms),
 		}),
 		WorldParam(),

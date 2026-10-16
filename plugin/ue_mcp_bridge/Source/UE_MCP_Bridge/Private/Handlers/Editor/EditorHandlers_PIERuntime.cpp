@@ -35,8 +35,11 @@
 #include "GameFramework/PawnMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "EditorSubsystem.h"
+#include "Engine/LocalPlayer.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Subsystems/LocalPlayerSubsystem.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/Script.h"
@@ -136,35 +139,74 @@ namespace
 				OutError = TEXT("target=subsystem requires 'subsystemClass'");
 				return nullptr;
 			}
-			UClass* Cls = MCPResolveClass(SubsystemName);
+			UClass* Cls = MCPResolveClassOfType(SubsystemName, USubsystem::StaticClass());
 			if (!Cls)
 			{
-				OutError = FString::Printf(TEXT("Subsystem class not found: %s"), *SubsystemName);
+				OutError = FString::Printf(TEXT("Subsystem class not found: %s (a short name, /Script/Module.Class path, or Blueprint subsystem class)"), *SubsystemName);
 				return nullptr;
 			}
+			// Each collection ensures the class derives from its own base, so a
+			// class is only handed to the collection that owns its kind (#1249).
 			UObject* Found = nullptr;
+			FString Scope;
 			if (Cls->IsChildOf(UWorldSubsystem::StaticClass()))
 			{
+				Scope = TEXT("world");
 				Found = World->GetSubsystemBase(Cls);
 			}
 			else if (Cls->IsChildOf(UGameInstanceSubsystem::StaticClass()))
 			{
+				Scope = TEXT("game instance");
 				if (UGameInstance* GI = World->GetGameInstance())
 				{
 					Found = GI->GetSubsystemBase(Cls);
 				}
 			}
-			else if (Cls->IsChildOf(UEngineSubsystem::StaticClass()) && GEngine)
+			else if (Cls->IsChildOf(ULocalPlayerSubsystem::StaticClass()))
 			{
-				Found = GEngine->GetEngineSubsystemBase(Cls);
+				Scope = FString::Printf(TEXT("local player %d"), PlayerIndex);
+				ULocalPlayer* LocalPlayer = nullptr;
+				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, PlayerIndex))
+				{
+					LocalPlayer = PC->GetLocalPlayer();
+				}
+				if (!LocalPlayer)
+				{
+					if (UGameInstance* GI = World->GetGameInstance())
+					{
+						LocalPlayer = GI->GetLocalPlayerByIndex(PlayerIndex);
+					}
+				}
+				if (!LocalPlayer)
+				{
+					OutError = FString::Printf(
+						TEXT("'%s' is a LocalPlayer subsystem and world %s has no local player at playerIndex %d. A dedicated server has none; pick a client with pieInstance."),
+						*SubsystemName, *World->GetName(), PlayerIndex);
+					return nullptr;
+				}
+				Found = LocalPlayer->GetSubsystemBase(Cls);
 			}
-			else if (GEditor)
+			else if (Cls->IsChildOf(UEngineSubsystem::StaticClass()))
 			{
-				Found = GEditor->GetEditorSubsystemBase(Cls);
+				Scope = TEXT("engine");
+				if (GEngine) Found = GEngine->GetEngineSubsystemBase(Cls);
+			}
+			else if (Cls->IsChildOf(UEditorSubsystem::StaticClass()))
+			{
+				Scope = TEXT("editor");
+				if (GEditor) Found = GEditor->GetEditorSubsystemBase(Cls);
+			}
+			else
+			{
+				OutError = FString::Printf(
+					TEXT("'%s' (%s) is not a world, game instance, local player, engine or editor subsystem class"),
+					*SubsystemName, *Cls->GetPathName());
+				return nullptr;
 			}
 			if (!Found)
 			{
-				OutError = FString::Printf(TEXT("Subsystem '%s' is not active in this context"), *SubsystemName);
+				OutError = FString::Printf(TEXT("Subsystem '%s' is not active in the %s scope of world %s"),
+					*SubsystemName, *Scope, *World->GetName());
 				return nullptr;
 			}
 			OutDescription = Found->GetPathName();

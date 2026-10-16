@@ -16101,13 +16101,13 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
         },
         {
           "name": "propertyNames",
@@ -18060,13 +18060,13 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
         },
         {
           "name": "args",
@@ -18133,13 +18133,13 @@
               "name": "subsystemClass",
               "type": "string",
               "required": false,
-              "description": "Subsystem class name or /Script path, with target=subsystem"
+              "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
             },
             {
               "name": "playerIndex",
               "type": "integer",
               "required": false,
-              "description": "Player index for target=playercontroller or playerpawn (default 0)"
+              "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
             },
             {
               "name": "args",
@@ -33060,13 +33060,13 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
         },
         {
           "name": "postEditChange",
