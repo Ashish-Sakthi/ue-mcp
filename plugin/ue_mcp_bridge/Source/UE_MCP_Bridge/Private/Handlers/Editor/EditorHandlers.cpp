@@ -686,6 +686,8 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	}, MCPSpec::ContractExempt(TEXT("creates and opens a level")));
 	Registry.RegisterHandler(TEXT("open_asset"), &OpenAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to open in its editor")).Alias(TEXT("path")),
+		MCPParam::Optional(TEXT("saveFirst"), EType::Boolean, TEXT("For a map: save the open map's unsaved packages before switching (default false)")),
+		MCPParam::Optional(TEXT("discardUnsaved"), EType::Boolean, TEXT("For a map: switch even though the open map has unsaved changes, discarding them (default false)")),
 	});
 	// #1112: the inverse of open_asset - what is already open, and what has focus.
 	Registry.RegisterHandler(TEXT("get_open_asset_editors"), &GetOpenAssetEditors, NoParams);
@@ -3581,6 +3583,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 
 TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("assetPath"), TEXT("saveFirst"), TEXT("discardUnsaved") });
 	// `path` arrives as `assetPath`, renamed by the registry (#1057).
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
@@ -3593,6 +3596,8 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 	{
 		TSharedPtr<FJsonObject> LevelParams = MakeShared<FJsonObject>();
 		LevelParams->SetStringField(TEXT("levelPath"), AssetPath);
+		LevelParams->SetBoolField(TEXT("saveFirst"), OptionalBool(Params, TEXT("saveFirst"), false));
+		LevelParams->SetBoolField(TEXT("discardUnsaved"), OptionalBool(Params, TEXT("discardUnsaved"), false));
 		TSharedPtr<FJsonValue> LevelResult = FLevelHandlers::LoadLevel(LevelParams);
 		const TSharedPtr<FJsonObject>* LevelObject = nullptr;
 		if (LevelResult.IsValid() && LevelResult->TryGetObject(LevelObject) && LevelObject && LevelObject->IsValid())

@@ -1380,6 +1380,18 @@ export const handlerSpecs: HandlerSpecs = {
         "aliases": [
           "path"
         ]
+      },
+      {
+        "name": "saveFirst",
+        "type": "boolean",
+        "required": false,
+        "description": "For a map: save the open map's unsaved packages before switching (default false)"
+      },
+      {
+        "name": "discardUnsaved",
+        "type": "boolean",
+        "required": false,
+        "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
       }
     ]
   },
@@ -2844,7 +2856,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   list_function_libraries: "Params: pattern?, includeFunctions?",
   list_pie_instances: "Params: none",
   list_trace_channels: "Params: filter?, enabledOnly?",
-  open_asset: "Params: assetPath (or path)",
+  open_asset: "Params: assetPath (or path), saveFirst?, discardUnsaved?",
   open_settings: "Params: container?, category?, section?",
   open_tab: "Params: tabId",
   pause_insights_trace: "Params: paused?",
@@ -2941,6 +2953,7 @@ export const schema: Record<string, z.ZodType> = {
   direction: z.string().optional().describe("undo (default) | redo"),
   directory: z.string().optional().describe("Package path validated recursively (default /Game/). Not with assetPath or assetPaths"),
   disable: z.union([z.array(z.string()), z.string()]).optional().describe("Channels to turn off, as an array or a comma-separated string"),
+  discardUnsaved: z.boolean().optional().describe("For a map: switch even though the open map has unsaved changes, discarding them (default false)"),
   dryRun: z.boolean().optional().describe("Report the targets without touching them (default TRUE; pass false to apply)"),
   enable: z.union([z.array(z.string()), z.string()]).optional().describe("Channels to turn on, as an array or a comma-separated string"),
   enabled: z.boolean().optional().describe("Hide editor-only overlays (default true); false shows them again (set_game_view). Realtime update on every level viewport (default true) (set_realtime)"),
@@ -3052,6 +3065,7 @@ export const schema: Record<string, z.ZodType> = {
   rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Camera rotation (capture_scene_png, set_viewport_camera). Fixed camera rotation (render_sequence_frames). Destination rotation; omit to keep the current one (teleport_runtime_actor)"),
   runUnderOneProcess: z.boolean().optional().describe("Run every client in the editor process"),
   save: z.boolean().optional().describe("Save the package to disk after the write (default true; false leaves it dirty)"),
+  saveFirst: z.boolean().optional().describe("For a map: save the open map's unsaved packages before switching (default false)"),
   seconds: z.number().optional().describe("Playhead position in seconds. Pass exactly one of seconds and frame"),
   section: z.string().optional().describe("Settings section, e.g. Physics, or a combined Engine.Physics"),
   sectionIndex: z.number().int().optional().describe("Target section index (default 0)"),

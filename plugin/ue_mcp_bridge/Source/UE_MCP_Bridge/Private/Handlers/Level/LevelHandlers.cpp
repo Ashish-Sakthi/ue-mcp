@@ -1,4 +1,5 @@
 #include "LevelHandlers.h"
+#include "FileHelpers.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "HandlerPagination.h"
@@ -263,6 +264,8 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("load_level"), &LoadLevel, {
 		MCPParam::Required(TEXT("levelPath"), EType::String, TEXT("Map package to open")),
+		MCPParam::Optional(TEXT("saveFirst"), EType::Boolean, TEXT("Save the open map and its dirty external actor packages before switching (default false)")).Alias(TEXT("saveCurrent")),
+		MCPParam::Optional(TEXT("discardUnsaved"), EType::Boolean, TEXT("Switch even though the open map has unsaved changes, discarding them (default false)")),
 	}, MCPSpec::ContractExempt(TEXT("Ends any play session, collects garbage and swaps the open map before the contract path can fail")));
 	Registry.RegisterHandler(TEXT("clear_level_script"), &ClearLevelScript, {
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report what would be removed without removing it (default true)")),
@@ -2387,6 +2390,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::RemoveComponentFromActor(const TSharedPtr
 
 TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("levelPath"), TEXT("saveFirst"), TEXT("discardUnsaved") });
 	FString LevelPath;
 	if (auto Err = RequireString(Params, TEXT("levelPath"), LevelPath)) return Err;
 
@@ -2448,6 +2452,60 @@ TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& 
 		return MCPError(FString::Printf(TEXT("Level '%s' does not exist on disk. Nothing was unloaded."), *LevelPath));
 	}
 
+	// Loading discards unsaved map and external actor packages, so it refuses unless told what to do with them (#1259).
+	const bool bSaveFirst = OptionalBool(Params, TEXT("saveFirst"), false);
+	const bool bDiscardUnsaved = OptionalBool(Params, TEXT("discardUnsaved"), false);
+	if (bSaveFirst && bDiscardUnsaved)
+	{
+		return MCPError(TEXT("Pass saveFirst or discardUnsaved, not both."));
+	}
+	auto CollectDirtyWorldPackages = []()
+	{
+		TArray<UPackage*> Packages;
+		FEditorFileUtils::GetDirtyWorldPackages(Packages);
+		TArray<FString> Names;
+		for (UPackage* Package : Packages)
+		{
+			if (Package && Package->IsDirty()) Names.AddUnique(Package->GetName());
+		}
+		Names.Sort();
+		return Names;
+	};
+	TArray<FString> DirtyBefore = CollectDirtyWorldPackages();
+	TArray<FString> SavedFirst;
+	if (DirtyBefore.Num() > 0 && !bDiscardUnsaved)
+	{
+		if (!bSaveFirst)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("The open map has %d unsaved package(s) that loading '%s' would discard. Pass saveFirst=true to save them first, or discardUnsaved=true to drop them. Nothing was unloaded."),
+				DirtyBefore.Num(), *LevelPath));
+			Refusal->SetArrayField(TEXT("dirtyPackages"), MCPStringListToJson(DirtyBefore));
+			return MCPResult(Refusal);
+		}
+		// An untitled map has no path to save to, and saving it would raise a modal Save As dialog.
+		for (const FString& Name : DirtyBefore)
+		{
+			if (FPackageName::IsTempPackage(Name) || !FPackageName::IsValidLongPackageName(Name))
+			{
+				TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+					TEXT("'%s' is an untitled map with no file to save to. Save it under a path first, or pass discardUnsaved=true. Nothing was unloaded."), *Name));
+				Refusal->SetArrayField(TEXT("dirtyPackages"), MCPStringListToJson(DirtyBefore));
+				return MCPResult(Refusal);
+			}
+		}
+		UEditorLoadingAndSavingUtils::SaveDirtyPackages(/*bSaveMapPackages*/ true, /*bSaveContentPackages*/ false);
+		const TArray<FString> StillDirty = CollectDirtyWorldPackages();
+		if (StillDirty.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("saveFirst could not save %d package(s); the output log carries the reason. Nothing was unloaded."), StillDirty.Num()));
+			Refusal->SetArrayField(TEXT("stillDirty"), MCPStringListToJson(StillDirty));
+			return MCPResult(Refusal);
+		}
+		SavedFirst = DirtyBefore;
+	}
+
 	// #590/#589: loading a map right after a PIE session (or a level-script
 	// recompile / duplicate) fatally asserts "World Memory Leaks: N leaks
 	// objects and packages" - the previous world's objects are still
@@ -2490,7 +2548,10 @@ TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& 
 	Result->SetStringField(TEXT("worldName"), World->GetName());
 	Result->SetStringField(TEXT("worldPath"), World->GetPathName());
 	Result->SetStringField(TEXT("levelPath"), LevelPath);
+	Result->SetStringField(TEXT("levelName"), FPackageName::GetShortName(RequestedPackageName));
 	Result->SetBoolField(TEXT("endedPlaySession"), bEndedPIE);
+	if (SavedFirst.Num() > 0) Result->SetArrayField(TEXT("savedPackages"), MCPStringListToJson(SavedFirst));
+	if (bDiscardUnsaved && DirtyBefore.Num() > 0) Result->SetArrayField(TEXT("discardedPackages"), MCPStringListToJson(DirtyBefore));
 	// The already-open case returned above, so reaching here is a real load.
 	Result->SetBoolField(TEXT("alreadyOpen"), false);
 	Result->SetBoolField(TEXT("unchanged"), false);
@@ -2503,7 +2564,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& 
 		MCPSetRollback(Result, TEXT("load_level"), Payload);
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"),
-			TEXT("Reopening the previous map loads it from disk. Unsaved in-memory changes to it were discarded by this load and do not come back, and any play session this call ended is not restarted."));
+			TEXT("Reopening the previous map loads it from disk. Changes dropped with discardUnsaved do not come back, and any play session this call ended is not restarted."));
 	}
 	else
 	{

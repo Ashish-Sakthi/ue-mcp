@@ -20385,6 +20385,21 @@
           "type": "string",
           "required": true,
           "description": "Map package to open"
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the open map and its dirty external actor packages before switching (default false)",
+          "aliases": [
+            "saveCurrent"
+          ]
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ],
       "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -21839,6 +21854,18 @@
           "aliases": [
             "path"
           ]
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: save the open map's unsaved packages before switching (default false)"
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ]
     },

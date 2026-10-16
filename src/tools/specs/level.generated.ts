@@ -1902,6 +1902,21 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": true,
         "description": "Map package to open"
+      },
+      {
+        "name": "saveFirst",
+        "type": "boolean",
+        "required": false,
+        "description": "Save the open map and its dirty external actor packages before switching (default false)",
+        "aliases": [
+          "saveCurrent"
+        ]
+      },
+      {
+        "name": "discardUnsaved",
+        "type": "boolean",
+        "required": false,
+        "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
       }
     ],
     "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -5001,7 +5016,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   list_transient_actors: "Params: world?, pieInstance?, cursor?, limit?",
   list_volumes: "Params: volumeType?, cursor?, limit?",
   load_actor_descs: "Params: mode?, filter?, className?, guids?, bounds?, loadedOnly?, unloadedOnly?, maxActors?, dryRun?",
-  load_level: "Params: levelPath",
+  load_level: "Params: levelPath, saveFirst? (or saveCurrent), discardUnsaved?",
   move_actor: "Params: actorLabel?, actorPath?, location?, rotation?, scale?, world?, pieInstance?",
   nav_project_point: "Params: point, extent?, world?, pieInstance?",
   nudge_component: "Params: actorLabel OR actorPath, componentName, frame?, translationDelta?, axisRotation?, viewRotation?, scaleMultiplier?, dryRun?, world?, pieInstance?",
@@ -5110,6 +5125,7 @@ export const schema: Record<string, z.ZodType> = {
   defaultGameMode: z.string().optional().describe("GameMode class path or short name; None clears it"),
   destinationPath: z.string().optional().describe("Content path the generated static meshes are written to (default /Game/Meshes/Converted)"),
   direction: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Ray direction, normalised internally (line_trace). Trace direction (default straight down) (snap_instances_to_surface)"),
+  discardUnsaved: z.boolean().optional().describe("Switch even though the open map has unsaved changes, discarding them (default false)"),
   distance: z.number().optional().describe("Ray length when direction is given (default 200000)"),
   dryRun: z.boolean().optional().describe("Report what would change without writing (batch_set_actor_properties, bulk_set_component_property, load_actor_descs, set_actor_hlod_layer, set_component_materials, snap_instances_to_surface). Report what would be removed without removing it (default true) (clear_level_script). Report the verdict per brush without converting (default TRUE) (convert_brushes_to_static_mesh). Report the matches without deleting them (default false) (delete_actors). Preview without deleting (default TRUE) (delete_exact_labeled_actors_in_levels). Inspect and preview the requested transform without writing (default false) (nudge_component). List what would be rebuilt without rebuilding it (default TRUE) (recreate_physics_state). Report what would be removed without removing it (default TRUE) (remove_components_by_class). Report the matches without moving them (default false) (set_actor_folder_path). Return every computed transform without spawning (spawn_actors_batch)"),
   duplicateTransformTolerance: z.number().optional().describe("Centimetre bucket for duplicate-transform detection"),
@@ -5231,6 +5247,8 @@ export const schema: Record<string, z.ZodType> = {
   rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation (move_actor, place_actor, spawn_light, spawn_skeletal_mesh_actor, spawn_transient_actor, update_instance_transform). DirectionalLight sun angle (set_light_properties)"),
   sampleLimit: z.number().int().optional().describe("Sample labels per group (default 5, max 25)"),
   save: z.boolean().optional().describe("Save only the current level after a successful clear and compile (default false) (clear_level_script). Save the level after a committed removal (default false) (remove_components_by_class)"),
+  saveCurrent: z.boolean().optional().describe("Alias for saveFirst"),
+  saveFirst: z.boolean().optional().describe("Save the open map and its dirty external actor packages before switching (default false)"),
   scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Actor scale"),
   scaleMultiplier: z.number().optional().describe("Uniform relative-scale multiplier, greater than zero"),
   settings: z.record(z.unknown()).optional().describe("Setting name to value; each setting's bOverride flag is enabled too (set_post_process_settings). Dotted path rooted at the world partition to value (set_world_partition_settings)"),
