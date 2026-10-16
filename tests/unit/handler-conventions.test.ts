@@ -65,7 +65,8 @@ const BASELINE = {
   // 130: asset(compile_customizable_object) compiles derived data and has no inverse (#1059).
   // 131: blueprint(export_batch) writes files, which nothing can delete (#1166).
   // 132: pcg(update_level_assets) overwrites assets with a fresh export and has no inverse (#1244).
-  mutationsWithoutRollback: 132,
+  // 133: niagara(capture_sim_cache) advances the simulation, which cannot be rewound (#1394).
+  mutationsWithoutRollback: 133,
   // Zero, and held there by a flat assertion. Every mutation with no inverse
   // now says so in its own result body with the reason, which is the half a
   // caller can act on.

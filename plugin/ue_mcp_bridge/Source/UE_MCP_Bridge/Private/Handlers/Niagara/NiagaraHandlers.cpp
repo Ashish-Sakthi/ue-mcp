@@ -447,6 +447,26 @@ void FNiagaraHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Recompile even when nothing looks dirty (default true)")),
 		MCPParam::Optional(TEXT("includeGpuShaders"), EType::Boolean, TEXT("Also wait for GPU shader compilation to finish (default false)")),
 	});
+	// The actor lookup fails first on the contract values.
+	Registry.RegisterHandler(TEXT("capture_niagara_sim_cache"), &CaptureNiagaraSimCache, {
+		ActorLabelParam, ActorPathParam,
+		MCPParam::Optional(TEXT("componentName"), EType::String, TEXT("NiagaraComponent instance name when the actor holds several (default: the first)")),
+		MCPParam::Optional(TEXT("frames"), EType::Integer, TEXT("Frames to record, 1..120 (default 1). Every frame after the first advances the simulation by tickDelta")),
+		MCPParam::Optional(TEXT("advanceSimulation"), EType::Boolean, TEXT("Advance one tick before the first frame too (default false)")),
+		MCPParam::Optional(TEXT("tickDelta"), EType::Number, TEXT("Seconds per advanced tick (default 1/60)")),
+		MCPParam::Optional(TEXT("attributeCaptureMode"), EType::String, TEXT("All (default) | RenderingOnly | ExplicitAttributes")),
+		MCPParam::Optional(TEXT("explicitAttributes"), EType::Array, TEXT("With ExplicitAttributes: names written Emitter.Particles.Attribute")).Items(EType::String),
+		MCPParam::Optional(TEXT("world"), EType::String, TEXT("World scope: editor (default) | pie")),
+		MCPParam::Optional(TEXT("pieInstance"), EType::Integer, TEXT("Which PIE world when world is pie: 0 = server or primary, 1..N = clients")),
+	}, ActorChoice);
+	Registry.RegisterHandler(TEXT("read_niagara_sim_cache"), &ReadNiagaraSimCache, {
+		MCPParam::Required(TEXT("simCachePath"), EType::String, TEXT("simCachePath from capture_niagara_sim_cache, or a NiagaraSimCache asset path")),
+		MCPParam::Optional(TEXT("emitterName"), EType::String, TEXT("Emitter to read (default: the only emitter; required when there are several)")),
+		MCPParam::Optional(TEXT("attributes"), EType::Array, TEXT("Attribute names to read. Bare (Position) or qualified (Particles.Position). Omit to list the layout only")).Items(EType::String),
+		MCPParam::Optional(TEXT("frameIndex"), EType::Integer, TEXT("Frame to read (default 0)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Values returned per attribute (default 16); min/max/avg always cover every instance")),
+		MCPParam::Optional(TEXT("summarize"), EType::Boolean, TEXT("Include per-component min/max/avg (default true)")),
+	});
 }
 
 TSharedPtr<FJsonValue> FNiagaraHandlers::ListNiagaraSystems(const TSharedPtr<FJsonObject>& Params)

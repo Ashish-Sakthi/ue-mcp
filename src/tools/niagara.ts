@@ -62,6 +62,8 @@ export const niagaraTool: ToolDef = categoryTool(
     set_static_switch:   specBp("mutate", "Set static switch value on a module's function call node.", "set_niagara_static_switch"),
     create_module_from_hlsl: specBp("mutate", "Create a NiagaraScript module backed by a custom HLSL node. inputs/outputs are [{name,type}].", "create_niagara_module_from_hlsl"),
     create_scratch_module:  specBp("mutate", "Create empty Niagara scratch module. inputs/outputs are [{name,type}] (#185).", "create_scratch_module"),
+    capture_sim_cache:   specBp("mutate", "Record per-frame particle attributes off a placed actor's NiagaraComponent into an in-memory NiagaraSimCache, GPU emitters included, in the editor world or PIE. Returns simCachePath, frames, and per emitter its numInstancesPerFrame and attributeNames (bare names: Position, Velocity, Age). frames > 1 advances the simulation one tickDelta between frames. The component must be active. Read the values with read_sim_cache.", "capture_niagara_sim_cache"),
+    read_sim_cache:      specBp("read", "Read particle attributes from a captured sim cache frame. Returns numInstances for the frame and the emitter layout; per attribute found, count, components, the first `limit` values and per-component min/max/avg over every instance. Names may be bare (Age) or qualified (Particles.Age). A name not in the layout fails the call and names the readable ones; an attribute in the layout on a zero-instance frame reports count 0 with a note, so an empty frame and a wrong name never look the same.", "read_niagara_sim_cache"),
     batch: {
       kind: "handler",
       effect: "mutate",

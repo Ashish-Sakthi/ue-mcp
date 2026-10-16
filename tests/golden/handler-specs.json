@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1081,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -6891,6 +6891,85 @@
           "type": "string",
           "required": false,
           "description": "Runtime world scope: auto (default) | pie | editor"
+        }
+      ]
+    },
+    "capture_niagara_sim_cache": {
+      "category": "niagara",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the NiagaraComponent; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "NiagaraComponent instance name when the actor holds several (default: the first)"
+        },
+        {
+          "name": "frames",
+          "type": "integer",
+          "required": false,
+          "description": "Frames to record, 1..120 (default 1). Every frame after the first advances the simulation by tickDelta"
+        },
+        {
+          "name": "advanceSimulation",
+          "type": "boolean",
+          "required": false,
+          "description": "Advance one tick before the first frame too (default false)"
+        },
+        {
+          "name": "tickDelta",
+          "type": "number",
+          "required": false,
+          "description": "Seconds per advanced tick (default 1/60)"
+        },
+        {
+          "name": "attributeCaptureMode",
+          "type": "string",
+          "required": false,
+          "description": "All (default) | RenderingOnly | ExplicitAttributes"
+        },
+        {
+          "name": "explicitAttributes",
+          "type": "array",
+          "required": false,
+          "description": "With ExplicitAttributes: names written Emitter.Particles.Attribute",
+          "items": "string"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor (default) | pie"
+        },
+        {
+          "name": "pieInstance",
+          "type": "integer",
+          "required": false,
+          "description": "Which PIE world when world is pie: 0 = server or primary, 1..N = clients"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
         }
       ]
     },
@@ -23898,6 +23977,48 @@
           "aliases": [
             "path"
           ]
+        }
+      ]
+    },
+    "read_niagara_sim_cache": {
+      "category": "niagara",
+      "params": [
+        {
+          "name": "simCachePath",
+          "type": "string",
+          "required": true,
+          "description": "simCachePath from capture_niagara_sim_cache, or a NiagaraSimCache asset path"
+        },
+        {
+          "name": "emitterName",
+          "type": "string",
+          "required": false,
+          "description": "Emitter to read (default: the only emitter; required when there are several)"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Attribute names to read. Bare (Position) or qualified (Particles.Position). Omit to list the layout only",
+          "items": "string"
+        },
+        {
+          "name": "frameIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Frame to read (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Values returned per attribute (default 16); min/max/avg always cover every instance"
+        },
+        {
+          "name": "summarize",
+          "type": "boolean",
+          "required": false,
+          "description": "Include per-component min/max/avg (default true)"
         }
       ]
     },
