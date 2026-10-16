@@ -33,8 +33,11 @@
 #include "Handlers/Mass/MassHandlers.h"
 #include "Handlers/SkeletalMesh/SkeletalMeshHandlers.h"
 #include "Handlers/Fab/FabHandlers.h"
+#include "Handlers/Datasmith/DatasmithHandlers.h"
+#include "Handlers/MetaHuman/MetaHumanHandlers.h"
 #include "Handlers/Lock/LockHandlers.h"
 #include "Handlers/Diff/DiffHandlers.h"
+#include "Handlers/SourceControl/SourceControlHandlers.h"
 
 void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 {
@@ -73,6 +76,9 @@ void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 	FMassHandlers::RegisterHandlers(Registry);
 	FSkeletalMeshHandlers::RegisterHandlers(Registry);
 	FFabHandlers::RegisterHandlers(Registry);
+	FDatasmithHandlers::RegisterHandlers(Registry);
+	FMetaHumanHandlers::RegisterHandlers(Registry);
 	FLockHandlers::RegisterHandlers(Registry);
 	FDiffHandlers::RegisterHandlers(Registry);
+	FSourceControlHandlers::RegisterHandlers(Registry);
 }

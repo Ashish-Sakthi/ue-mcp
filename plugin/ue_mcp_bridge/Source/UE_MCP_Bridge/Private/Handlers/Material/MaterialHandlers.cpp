@@ -118,13 +118,41 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	{
 		return MCPParam::Optional(TEXT("expressionName"), EType::String, TEXT("Node name; an existing node of that name is reused"));
 	};
+	// #1403: the whole graph spec is declared here, so the schema documents it.
 	auto SpecGraphNodes = []()
 	{
-		return MCPParam::Required(TEXT("nodes"), EType::Array, TEXT("Graph spec: [{name,class,posX,posY,...}]")).Items(EType::Object);
+		return MCPParam::Required(TEXT("nodes"), EType::Array, TEXT("Nodes to create. Every node is created or none is")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("name"), EType::String, TEXT("Your name for the node; connections refer to it, and it becomes the node description")),
+			MCPParam::RequiredField(TEXT("class"), EType::String, TEXT("Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on")),
+			MCPParam::OptionalField(TEXT("posX"), EType::Number, TEXT("Graph X position")),
+			MCPParam::OptionalField(TEXT("posY"), EType::Number, TEXT("Graph Y position")),
+			MCPParam::OptionalField(TEXT("parameterName"), EType::String, TEXT("Parameter name on a parameter node")),
+			MCPParam::OptionalField(TEXT("group"), EType::String, TEXT("Parameter group")),
+			MCPParam::OptionalField(TEXT("sortPriority"), EType::Number, TEXT("Sort priority within the group")),
+			MCPParam::OptionalField(TEXT("defaultValue"), EType::Any, TEXT("ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]")),
+			MCPParam::OptionalField(TEXT("value"), EType::Any, TEXT("Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour")),
+			MCPParam::OptionalField(TEXT("channels"), EType::Object, TEXT("ComponentMask channels {r,g,b,a} as booleans")),
+			MCPParam::OptionalField(TEXT("texturePath"), EType::String, TEXT("Texture on a TextureSample, TextureSampleParameter2D or TextureObject node")),
+			MCPParam::OptionalField(TEXT("properties"), EType::Object, TEXT("Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}")),
+		});
+	};
+	auto SpecGraphConnections = []()
+	{
+		return MCPParam::Optional(TEXT("connections"), EType::Array, TEXT("Node-to-node wires")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("from"), EType::String, TEXT("Source node: a name from nodes, or an expression already in the material")),
+			MCPParam::OptionalField(TEXT("fromOutput"), EType::Any, TEXT("Source output by name (RGB, R, G) or index (default 0)")),
+			MCPParam::RequiredField(TEXT("to"), EType::String, TEXT("Target node, named the same way")),
+			MCPParam::OptionalField(TEXT("toInput"), EType::Any, TEXT("Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0")),
+		});
 	};
 	auto SpecPropertyConnections = []()
 	{
-		return MCPParam::Optional(TEXT("propertyConnections"), EType::Array, TEXT("[{property,from,outputIndex}]")).Items(EType::Object);
+		return MCPParam::Optional(TEXT("propertyConnections"), EType::Array, TEXT("Wires into the material's outputs")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("property"), EType::String, TEXT("BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest")),
+			MCPParam::RequiredField(TEXT("from"), EType::String, TEXT("Source node, named as in connections")),
+			MCPParam::OptionalField(TEXT("output"), EType::Any, TEXT("Source output by name or index (default 0)")),
+			MCPParam::OptionalField(TEXT("outputIndex"), EType::Integer, TEXT("Source output index, instead of output")),
+		});
 	};
 	auto SpecSourceExpression = []()
 	{
@@ -178,6 +206,7 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	};
 	const FMCPSpecRules ActorChoice = MCPSpec::ExactlyOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } });
 	const FMCPSpecRules AssetOrActorChoice = MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("actorLabel") }, { TEXT("actorPath") } });
+	const FMCPSpecRules InstanceReadChoice = MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("assetPaths") }, { TEXT("actorLabel") }, { TEXT("actorPath") } });
 	// #1131 Material Designer selectors.
 	const FMCPParamSpec SpecDesignerAssetPath = MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("A DynamicMaterialInstance, a DynamicMaterialModel, or an object path inside one"));
 	const FMCPParamSpec SpecDesignerSlot = MCPParam::Optional(TEXT("designerSlot"), EType::Number, TEXT("Material Designer slot: index, or the material property it serves (BaseColor, or its short name Base)")).Or(EType::String);
@@ -265,13 +294,15 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	// including a transient MaterialInstanceDynamic in PIE.
 	Registry.RegisterHandler(TEXT("read_material_instance"), &ReadMaterialInstance, {
 		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("MaterialInstance asset path")).Alias(TEXT("path")).Alias(TEXT("materialPath")),
+		MCPParam::Optional(TEXT("assetPaths"), EType::Array, TEXT("Several MaterialInstance asset paths, read in one call into instances[] (#1183)")).Items(EType::String),
+		MCPParam::Optional(TEXT("overridesOnly"), EType::Boolean, TEXT("Return the parent chain, overrides and static switches without the effective value of every parameter (default false)")),
 		SpecActorLabel, SpecActorPath,
 		SpecComponentName,
 		SpecSlotIndex,
 		SpecSlotName,
 		SpecWorld(TEXT("World holding the actor: editor | pie | auto (default auto: PIE when running, else editor)")),
 		SpecPieInstance,
-	}, AssetOrActorChoice);
+	}, InstanceReadChoice);
 	Registry.RegisterHandler(TEXT("read_material_parameter_collection"), &ReadMaterialParameterCollection, {
 		SpecAssetPath(TEXT("MaterialParameterCollection asset path")),
 		MCPParam::Optional(TEXT("world"), EType::String, TEXT("World whose live collection instance to read: editor, pie or auto. Omit for the stored defaults only")),
@@ -366,12 +397,18 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("import_material_graph"), &ImportMaterialGraph, {
 		SpecGraphAssetPath(),
 		SpecGraphNodes(),
+		SpecGraphConnections(),
 		SpecPropertyConnections(),
 	});
 	Registry.RegisterHandler(TEXT("build_material_graph"), &BuildMaterialGraph, {
 		SpecGraphAssetPath(),
 		SpecGraphNodes(),
+		SpecGraphConnections(),
 		SpecPropertyConnections(),
+	});
+	Registry.RegisterHandler(TEXT("delete_orphan_expressions"), &DeleteOrphanExpressions, {
+		SpecGraphAssetPath(),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("List the orphans without deleting them (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("render_material_preview"), &RenderMaterialPreview, {
 		SpecGraphAssetPath(),
@@ -386,12 +423,27 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPSpec::ContractExempt(TEXT("Commits whatever editor transaction is open")));
 
 	// #946: texture-set build with automatic virtual/UDIM sampler selection.
-	// The contract values' empty textures object is refused before anything is built.
+	// #1229: parameters, a node graph and per-piece instances in the same call.
+	// The contract values' empty textures, parameters and nodes are refused before anything is built.
+	FMCPParamSpec BuildNodes = SpecGraphNodes();
+	BuildNodes.bRequired = false;
 	Registry.RegisterHandler(TEXT("build_material"), &BuildMaterial, {
 		MCPParam::Optional(TEXT("materialPath"), EType::String, TEXT("Existing material to build into")).Alias(TEXT("assetPath")),
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Name of a new material to create and build")),
 		SpecPackagePath(TEXT("Folder for a new material (default /Game/Materials)")),
-		MCPParam::Required(TEXT("textures"), EType::Object, TEXT("{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)")),
+		MCPParam::Optional(TEXT("textures"), EType::Object, TEXT("{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it")),
+		MCPParam::Optional(TEXT("textureParameters"), EType::Boolean, TEXT("true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them")).Or(EType::Object),
+		MCPParam::Optional(TEXT("parameters"), EType::Array, TEXT("Parameter nodes to create, reused by name when present")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("name"), EType::String, TEXT("Parameter name; connections can name it too")),
+			MCPParam::RequiredField(TEXT("type"), EType::String, TEXT("scalar | vector | texture")),
+			MCPParam::OptionalField(TEXT("default"), EType::Any, TEXT("A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)")),
+			MCPParam::OptionalField(TEXT("group"), EType::String, TEXT("Parameter group")),
+		}),
+		BuildNodes,
+		SpecGraphConnections(),
+		SpecPropertyConnections(),
+		// One category key has one type, and batch_set_instances already declares instances as plain objects.
+		MCPParam::Optional(TEXT("instances"), EType::Array, TEXT("MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated")).Items(EType::Object),
 		MCPParam::Optional(TEXT("samplerTypes"), EType::Object, TEXT("Per-texture EMaterialSamplerType override, e.g. {normal: 'VirtualNormal'}; omit to let the texture decide (#946)")),
 		MCPParam::Optional(TEXT("clearExisting"), EType::Boolean, TEXT("Delete every existing expression before building (#946)")),
 		MCPParam::Optional(TEXT("assignToMesh"), EType::String, TEXT("StaticMesh or SkeletalMesh asset to put the finished material on (#946)")).Alias(TEXT("meshPath")),
@@ -1223,7 +1275,7 @@ namespace
 	}
 
 	/** Everything read_material_instance reports about one material, asset or runtime. */
-	void WriteMaterialInstanceRead(TSharedPtr<FJsonObject> Result, UMaterialInterface* Material)
+	void WriteMaterialInstanceRead(TSharedPtr<FJsonObject> Result, UMaterialInterface* Material, bool bEffectiveValues = true)
 	{
 		UMaterialInstance* Instance = Cast<UMaterialInstance>(Material);
 		if (UMaterialInstanceConstant* Constant = Cast<UMaterialInstanceConstant>(Material))
@@ -1272,7 +1324,7 @@ namespace
 		Result->SetArrayField(TEXT("textureOverrides"), TextureOverrides);
 		Result->SetArrayField(TEXT("staticSwitches"), MaterialStaticSwitchesToJson(Material));
 		// Effective values: what the material renders with, override or inherited.
-		AddMaterialInterfaceParameters(Result, Material);
+		if (bEffectiveValues) AddMaterialInterfaceParameters(Result, Material);
 	}
 }
 
@@ -1879,6 +1931,147 @@ TSharedPtr<FJsonValue> FMaterialHandlers::SetMaterialBaseColor(const TSharedPtr<
 	return MCPResult(Result);
 }
 
+void FMaterialHandlers::ApplyExpressionSpec(UMaterialExpression* Expression, const TSharedPtr<FJsonObject>& Spec)
+{
+	if (!Expression || !Spec.IsValid()) return;
+
+	FString ExpressionName;
+	if (TryGetStringParam(Spec, TEXT("name"), ExpressionName))
+	{
+		Expression->Desc = ExpressionName;
+	}
+
+	// Set parameter name for parameter expressions (#318 sub-item: previously
+	// TextureSampleParameter2D was silently dropped because the cast targeted
+	// TextureObjectParameter; route through the common UMaterialExpressionParameter
+	// base class so every Parameter subclass is covered uniformly).
+	FString ParameterName;
+	if (TryGetStringParam(Spec, TEXT("parameterName"), ParameterName))
+	{
+		if (UMaterialExpressionParameter* AsParameter = Cast<UMaterialExpressionParameter>(Expression))
+		{
+			AsParameter->ParameterName = FName(*ParameterName);
+		}
+		else if (UMaterialExpressionTextureSampleParameter* AsTextureSampleParam = Cast<UMaterialExpressionTextureSampleParameter>(Expression))
+		{
+			AsTextureSampleParam->ParameterName = FName(*ParameterName);
+		}
+		else if (UMaterialExpressionTextureObjectParameter* TexParam = Cast<UMaterialExpressionTextureObjectParameter>(Expression))
+		{
+			TexParam->ParameterName = FName(*ParameterName);
+		}
+		// If name not set via Desc, use parameterName as the description too
+		if (Expression->Desc.IsEmpty())
+		{
+			Expression->Desc = ParameterName;
+		}
+	}
+
+	// #318: Group/SortPriority on parameter expressions, default value on
+	// scalar/vector parameters, Constant on Constant3Vector, and channel
+	// flags on ComponentMask. Without these the corresponding parameter
+	// authoring workflows had to fall back to MaterialEditingLibrary.
+	FString GroupName;
+	if (TryGetStringParam(Spec, TEXT("group"), GroupName))
+	{
+		if (UMaterialExpressionParameter* AsParameter = Cast<UMaterialExpressionParameter>(Expression))
+		{
+			AsParameter->Group = FName(*GroupName);
+		}
+		else if (UMaterialExpressionTextureSampleParameter* AsTextureSampleParam = Cast<UMaterialExpressionTextureSampleParameter>(Expression))
+		{
+			AsTextureSampleParam->Group = FName(*GroupName);
+		}
+	}
+	double SortPriority = 0.0;
+	if (TryGetNumberParam(Spec, TEXT("sortPriority"), SortPriority))
+	{
+		if (UMaterialExpressionParameter* AsParameter = Cast<UMaterialExpressionParameter>(Expression))
+		{
+			AsParameter->SortPriority = static_cast<int32>(SortPriority);
+		}
+	}
+
+	if (UMaterialExpressionScalarParameter* ScalarParam = Cast<UMaterialExpressionScalarParameter>(Expression))
+	{
+		double DefaultValue = 0.0;
+		if (TryGetNumberParam(Spec, TEXT("defaultValue"), DefaultValue))
+		{
+			ScalarParam->DefaultValue = static_cast<float>(DefaultValue);
+		}
+	}
+	else if (UMaterialExpressionVectorParameter* VectorParam = Cast<UMaterialExpressionVectorParameter>(Expression))
+	{
+		FLinearColor Col = VectorParam->DefaultValue;
+		if (TryParseMaterialColorField(Spec, TEXT("defaultValue"), Col))
+		{
+			VectorParam->DefaultValue = Col;
+		}
+	}
+
+	// Constant3Vector/Constant4Vector take value, else defaultValue, in any colour
+	// shape TryParseMaterialColorField reads (#444, #952).
+	if (UMaterialExpressionConstant3Vector* Const3 = Cast<UMaterialExpressionConstant3Vector>(Expression))
+	{
+		FLinearColor Col = Const3->Constant;
+		if (TryParseMaterialColorField(Spec, TEXT("value"), Col))
+		{
+			Const3->Constant = Col;
+		}
+		else if (TryParseMaterialColorField(Spec, TEXT("defaultValue"), Col))
+		{
+			Const3->Constant = Col;
+		}
+	}
+	if (UMaterialExpressionConstant4Vector* Const4 = Cast<UMaterialExpressionConstant4Vector>(Expression))
+	{
+		FLinearColor Col = Const4->Constant;
+		if (TryParseMaterialColorField(Spec, TEXT("value"), Col))
+		{
+			Const4->Constant = Col;
+		}
+		else if (TryParseMaterialColorField(Spec, TEXT("defaultValue"), Col))
+		{
+			Const4->Constant = Col;
+		}
+	}
+	if (UMaterialExpressionConstant* Const1 = Cast<UMaterialExpressionConstant>(Expression))
+	{
+		double Scalar = 0.0;
+		if (TryGetNumberParam(Spec, TEXT("value"), Scalar))
+		{
+			Const1->R = static_cast<float>(Scalar);
+		}
+	}
+	if (UMaterialExpressionConstant2Vector* Const2 = Cast<UMaterialExpressionConstant2Vector>(Expression))
+	{
+		const TSharedPtr<FJsonObject>* Vec2 = nullptr;
+		if (TryGetObjectParam(Spec, TEXT("value"), Vec2) && Vec2 && (*Vec2).IsValid())
+		{
+			double X = 0.0, Y = 0.0;
+			(*Vec2)->TryGetNumberField(TEXT("r"), X); (*Vec2)->TryGetNumberField(TEXT("x"), X);
+			(*Vec2)->TryGetNumberField(TEXT("g"), Y); (*Vec2)->TryGetNumberField(TEXT("y"), Y);
+			Const2->R = static_cast<float>(X);
+			Const2->G = static_cast<float>(Y);
+		}
+	}
+
+	// ComponentMask: channels object {r,g,b,a} → bool flags on the node.
+	if (UMaterialExpressionComponentMask* Mask = Cast<UMaterialExpressionComponentMask>(Expression))
+	{
+		const TSharedPtr<FJsonObject>* Channels = nullptr;
+		if (TryGetObjectParam(Spec, TEXT("channels"), Channels) && Channels && (*Channels).IsValid())
+		{
+			bool BR = false, BG = false, BB = false, BA = false;
+			(*Channels)->TryGetBoolField(TEXT("r"), BR);
+			(*Channels)->TryGetBoolField(TEXT("g"), BG);
+			(*Channels)->TryGetBoolField(TEXT("b"), BB);
+			(*Channels)->TryGetBoolField(TEXT("a"), BA);
+			Mask->R = BR; Mask->G = BG; Mask->B = BB; Mask->A = BA;
+		}
+	}
+}
+
 TSharedPtr<FJsonValue> FMaterialHandlers::AddMaterialExpression(const TSharedPtr<FJsonObject>& Params)
 {
 	// 'path' and 'assetPath' are the spec's aliases, renamed to materialPath before this runs.
@@ -1908,147 +2101,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::AddMaterialExpression(const TSharedPtr
 	UMaterialExpression* NewExpression = NewObject<UMaterialExpression>(Material, ExpressionClass);
 	Material->GetExpressionCollection().AddExpression(NewExpression);
 
-	// Apply optional properties. 'expressionName' is the spec's alias for name.
-	FString ExpressionName;
-	if (TryGetStringParam(Params, TEXT("name"), ExpressionName))
-	{
-		NewExpression->Desc = ExpressionName;
-	}
-
-	// Set parameter name for parameter expressions (#318 sub-item: previously
-	// TextureSampleParameter2D was silently dropped because the cast targeted
-	// TextureObjectParameter; route through the common UMaterialExpressionParameter
-	// base class so every Parameter subclass is covered uniformly).
-	FString ParameterName;
-	if (TryGetStringParam(Params, TEXT("parameterName"), ParameterName))
-	{
-		if (UMaterialExpressionParameter* AsParameter = Cast<UMaterialExpressionParameter>(NewExpression))
-		{
-			AsParameter->ParameterName = FName(*ParameterName);
-		}
-		else if (UMaterialExpressionTextureSampleParameter* AsTextureSampleParam = Cast<UMaterialExpressionTextureSampleParameter>(NewExpression))
-		{
-			AsTextureSampleParam->ParameterName = FName(*ParameterName);
-		}
-		else if (UMaterialExpressionTextureObjectParameter* TexParam = Cast<UMaterialExpressionTextureObjectParameter>(NewExpression))
-		{
-			TexParam->ParameterName = FName(*ParameterName);
-		}
-		// If name not set via Desc, use parameterName as the description too
-		if (NewExpression->Desc.IsEmpty())
-		{
-			NewExpression->Desc = ParameterName;
-		}
-	}
-
-	// #318: Group/SortPriority on parameter expressions, default value on
-	// scalar/vector parameters, Constant on Constant3Vector, and channel
-	// flags on ComponentMask. Without these the corresponding parameter
-	// authoring workflows had to fall back to MaterialEditingLibrary.
-	FString GroupName;
-	if (TryGetStringParam(Params, TEXT("group"), GroupName))
-	{
-		if (UMaterialExpressionParameter* AsParameter = Cast<UMaterialExpressionParameter>(NewExpression))
-		{
-			AsParameter->Group = FName(*GroupName);
-		}
-		else if (UMaterialExpressionTextureSampleParameter* AsTextureSampleParam = Cast<UMaterialExpressionTextureSampleParameter>(NewExpression))
-		{
-			AsTextureSampleParam->Group = FName(*GroupName);
-		}
-	}
-	double SortPriority = 0.0;
-	if (TryGetNumberParam(Params, TEXT("sortPriority"), SortPriority))
-	{
-		if (UMaterialExpressionParameter* AsParameter = Cast<UMaterialExpressionParameter>(NewExpression))
-		{
-			AsParameter->SortPriority = static_cast<int32>(SortPriority);
-		}
-	}
-
-	if (UMaterialExpressionScalarParameter* ScalarParam = Cast<UMaterialExpressionScalarParameter>(NewExpression))
-	{
-		double DefaultValue = 0.0;
-		if (TryGetNumberParam(Params, TEXT("defaultValue"), DefaultValue))
-		{
-			ScalarParam->DefaultValue = static_cast<float>(DefaultValue);
-		}
-	}
-	else if (UMaterialExpressionVectorParameter* VectorParam = Cast<UMaterialExpressionVectorParameter>(NewExpression))
-	{
-		const TSharedPtr<FJsonObject>* DefaultColorObj = nullptr;
-		if (TryGetObjectParam(Params, TEXT("defaultValue"), DefaultColorObj) && DefaultColorObj && (*DefaultColorObj).IsValid())
-		{
-			double R = 0.0, G = 0.0, B = 0.0, A = 1.0;
-			(*DefaultColorObj)->TryGetNumberField(TEXT("r"), R);
-			(*DefaultColorObj)->TryGetNumberField(TEXT("g"), G);
-			(*DefaultColorObj)->TryGetNumberField(TEXT("b"), B);
-			(*DefaultColorObj)->TryGetNumberField(TEXT("a"), A);
-			VectorParam->DefaultValue = FLinearColor((float)R, (float)G, (float)B, (float)A);
-		}
-	}
-
-	// Constant3Vector/Constant4Vector take value, else defaultValue, in any colour
-	// shape TryParseMaterialColorField reads (#444, #952).
-	if (UMaterialExpressionConstant3Vector* Const3 = Cast<UMaterialExpressionConstant3Vector>(NewExpression))
-	{
-		FLinearColor Col = Const3->Constant;
-		if (TryParseMaterialColorField(Params, TEXT("value"), Col))
-		{
-			Const3->Constant = Col;
-		}
-		else if (TryParseMaterialColorField(Params, TEXT("defaultValue"), Col))
-		{
-			Const3->Constant = Col;
-		}
-	}
-	if (UMaterialExpressionConstant4Vector* Const4 = Cast<UMaterialExpressionConstant4Vector>(NewExpression))
-	{
-		FLinearColor Col = Const4->Constant;
-		if (TryParseMaterialColorField(Params, TEXT("value"), Col))
-		{
-			Const4->Constant = Col;
-		}
-		else if (TryParseMaterialColorField(Params, TEXT("defaultValue"), Col))
-		{
-			Const4->Constant = Col;
-		}
-	}
-	if (UMaterialExpressionConstant* Const1 = Cast<UMaterialExpressionConstant>(NewExpression))
-	{
-		double Scalar = 0.0;
-		if (TryGetNumberParam(Params, TEXT("value"), Scalar))
-		{
-			Const1->R = static_cast<float>(Scalar);
-		}
-	}
-	if (UMaterialExpressionConstant2Vector* Const2 = Cast<UMaterialExpressionConstant2Vector>(NewExpression))
-	{
-		const TSharedPtr<FJsonObject>* Vec2 = nullptr;
-		if (TryGetObjectParam(Params, TEXT("value"), Vec2) && Vec2 && (*Vec2).IsValid())
-		{
-			double X = 0.0, Y = 0.0;
-			(*Vec2)->TryGetNumberField(TEXT("r"), X); (*Vec2)->TryGetNumberField(TEXT("x"), X);
-			(*Vec2)->TryGetNumberField(TEXT("g"), Y); (*Vec2)->TryGetNumberField(TEXT("y"), Y);
-			Const2->R = static_cast<float>(X);
-			Const2->G = static_cast<float>(Y);
-		}
-	}
-
-	// ComponentMask: channels object {r,g,b,a} → bool flags on the node.
-	if (UMaterialExpressionComponentMask* Mask = Cast<UMaterialExpressionComponentMask>(NewExpression))
-	{
-		const TSharedPtr<FJsonObject>* Channels = nullptr;
-		if (TryGetObjectParam(Params, TEXT("channels"), Channels) && Channels && (*Channels).IsValid())
-		{
-			bool BR = false, BG = false, BB = false, BA = false;
-			(*Channels)->TryGetBoolField(TEXT("r"), BR);
-			(*Channels)->TryGetBoolField(TEXT("g"), BG);
-			(*Channels)->TryGetBoolField(TEXT("b"), BB);
-			(*Channels)->TryGetBoolField(TEXT("a"), BA);
-			Mask->R = BR; Mask->G = BG; Mask->B = BB; Mask->A = BA;
-		}
-	}
+	ApplyExpressionSpec(NewExpression, Params);
 
 	// Set position
 	double PosX = 0, PosY = 0;
@@ -2730,9 +2783,59 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ReadMaterialInstance(const TSharedPtr<
 {
 	// 'path' and 'materialPath' are the spec's aliases, renamed to assetPath before this runs.
 	const FString AssetPath = OptionalString(Params, TEXT("assetPath"));
+	const bool bOverridesOnly = OptionalBool(Params, TEXT("overridesOnly"), false);
 	// Read by the component path, after the actor lookup.
 	MCPReadParamsAhead(Params, { TEXT("actorLabel"), TEXT("actorPath"), TEXT("world"), TEXT("pieInstance"),
 		TEXT("componentName"), TEXT("slotIndex"), TEXT("slotName") });
+
+	// #1183: several instances in one call, each with its parent chain and overrides.
+	const TArray<TSharedPtr<FJsonValue>>* AssetPaths = nullptr;
+	if (TryGetArrayParam(Params, TEXT("assetPaths"), AssetPaths) && AssetPaths)
+	{
+		if (AssetPaths->Num() == 0) return MCPError(TEXT("assetPaths is empty"));
+		TArray<TSharedPtr<FJsonValue>> Rows;
+		TArray<FString> Failed;
+		for (const TSharedPtr<FJsonValue>& PathValue : *AssetPaths)
+		{
+			FString Path;
+			TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+			if (!PathValue.IsValid() || !PathValue->TryGetString(Path) || Path.IsEmpty())
+			{
+				Row->SetBoolField(TEXT("success"), false);
+				Row->SetStringField(TEXT("error"), TEXT("assetPaths entries must be asset path strings"));
+				Failed.Add(TEXT("(not a string)"));
+				Rows.Add(MakeShared<FJsonValueObject>(Row));
+				continue;
+			}
+			UMaterialInterface* Material = LoadAssetByPath<UMaterialInterface>(Path);
+			if (!Cast<UMaterialInstance>(Material))
+			{
+				Row->SetStringField(TEXT("requestedPath"), Path);
+				Row->SetBoolField(TEXT("success"), false);
+				Row->SetStringField(TEXT("error"), Material
+					? FString::Printf(TEXT("'%s' is a %s, not a MaterialInstance"), *Path, *Material->GetClass()->GetName())
+					: FString::Printf(TEXT("No MaterialInstance at '%s'"), *Path));
+				Failed.Add(Path);
+				Rows.Add(MakeShared<FJsonValueObject>(Row));
+				continue;
+			}
+			Row->SetStringField(TEXT("requestedPath"), Path);
+			Row->SetBoolField(TEXT("success"), true);
+			WriteMaterialInstanceRead(Row, Material, !bOverridesOnly);
+			Rows.Add(MakeShared<FJsonValueObject>(Row));
+		}
+		auto Result = MCPSuccess();
+		Result->SetArrayField(TEXT("instances"), Rows);
+		Result->SetNumberField(TEXT("count"), Rows.Num());
+		Result->SetNumberField(TEXT("failedCount"), Failed.Num());
+		if (Failed.Num() > 0)
+		{
+			Result->SetBoolField(TEXT("success"), false);
+			Result->SetStringField(TEXT("error"), FString::Printf(TEXT("%d of %d path(s) did not load as a MaterialInstance: %s. The rest are read under instances."),
+				Failed.Num(), Rows.Num(), *FString::Join(Failed, TEXT(", "))));
+		}
+		return MCPResult(Result);
+	}
 
 	// #1114: a material on a placed component, including a transient
 	// MaterialInstanceDynamic created at runtime in PIE.
@@ -2752,7 +2855,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ReadMaterialInstance(const TSharedPtr<
 	}
 
 	auto Result = MCPSuccess();
-	WriteMaterialInstanceRead(Result, Material);
+	WriteMaterialInstanceRead(Result, Material, !bOverridesOnly);
 	return MCPResult(Result);
 }
 

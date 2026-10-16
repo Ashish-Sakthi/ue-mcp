@@ -339,7 +339,9 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	};
 	Registry.RegisterHandler(TEXT("run_python_file"), &RunPythonFile, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Absolute path to the .py file")).Alias(TEXT("path")),
-		MCPParam::Optional(TEXT("entryPoint"), EType::String, TEXT("Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result")),
+		MCPParam::Optional(TEXT("entryPoint"), EType::String, TEXT("Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result")),
+		MCPParam::Optional(TEXT("runName"), EType::String, TEXT("Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire")),
+		MCPParam::Optional(TEXT("asMain"), EType::Boolean, TEXT("Shorthand for runName __main__ (default false)")),
 		MCPParam::Optional(TEXT("args"), EType::Any,
 			TEXT("Positional arguments, as sys.argv[1:] or, with entryPoint, the call's arguments: a list of strings, a JSON array string, or one string. A parameter map is refused")).OneOfForms(ArgForms),
 		MCPParam::Optional(TEXT("kwargs"), EType::Object, TEXT("Keyword arguments for the entryPoint call")),
@@ -1233,17 +1235,49 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	// the named function is called from a module that really was loaded rather
 	// than from a re-exec of the source.
 	const FString EntryPoint = OptionalString(Params, TEXT("entryPoint"));
+	// runName runs the file through runpy under that module name; "__main__"
+	// (or asMain) makes an `if __name__ == '__main__':` guard fire (#1361).
+	FString RunName = OptionalString(Params, TEXT("runName"));
+	if (OptionalBool(Params, TEXT("asMain"), false))
+	{
+		if (!RunName.IsEmpty() && RunName != TEXT("__main__"))
+		{
+			return MCPError(FString::Printf(TEXT("asMain=true and runName='%s' disagree; pass one"), *RunName));
+		}
+		RunName = TEXT("__main__");
+	}
 
 	FPythonCommandEx PythonCommand;
 	PythonCommand.ExecutionMode = EPythonCommandExecutionMode::ExecuteFile;
 	PythonCommand.FileExecutionScope = EPythonFileExecutionScope::Public;
-	if (EntryPoint.IsEmpty())
+	if (EntryPoint.IsEmpty() && RunName.IsEmpty())
 	{
 		PythonCommand.Command = FilePath;
 		for (const FString& A : ExtraArgs)
 		{
 			PythonCommand.Command += TEXT(" ") + A;
 		}
+	}
+	else if (EntryPoint.IsEmpty())
+	{
+		// sys.argv is the file plus args for the run, and the module's globals are
+		// copied into the console scope afterwards so resultVariable can read them.
+		TArray<TSharedPtr<FJsonValue>> ArgValues;
+		for (const FString& A : ExtraArgs) ArgValues.Add(MakeShared<FJsonValueString>(A));
+		FString ArgsJson;
+		const TSharedRef<TJsonWriter<>> ArgsWriter = TJsonWriterFactory<>::Create(&ArgsJson);
+		FJsonSerializer::Serialize(ArgValues, ArgsWriter);
+		PythonCommand.Command = FString::Printf(
+			TEXT("import runpy as _uemcp_runpy, sys as _uemcp_sys, json as _uemcp_json\n")
+			TEXT("_uemcp_path = %s\n")
+			TEXT("_uemcp_saved_argv = _uemcp_sys.argv\n")
+			TEXT("_uemcp_sys.argv = [_uemcp_path] + _uemcp_json.loads(%s)\n")
+			TEXT("try:\n")
+			TEXT("    _uemcp_ns = _uemcp_runpy.run_path(_uemcp_path, run_name=%s)\n")
+			TEXT("finally:\n")
+			TEXT("    _uemcp_sys.argv = _uemcp_saved_argv\n")
+			TEXT("globals().update({_k: _v for _k, _v in _uemcp_ns.items() if not (_k.startswith('__') and _k.endswith('__'))})\n"),
+			*PythonStringLiteral(FilePath), *PythonStringLiteral(ArgsJson), *PythonStringLiteral(RunName));
 	}
 	else
 	{
@@ -1270,12 +1304,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 			TEXT("import runpy as _uemcp_runpy, json as _uemcp_json\n")
 			TEXT("_uemcp_path = %s\n")
 			TEXT("_uemcp_entry = %s\n")
-			TEXT("_uemcp_ns = _uemcp_runpy.run_path(_uemcp_path, run_name='ue_mcp_entry')\n")
+			TEXT("_uemcp_ns = _uemcp_runpy.run_path(_uemcp_path, run_name=%s)\n")
 			TEXT("_uemcp_fn = _uemcp_ns.get(_uemcp_entry)\n")
 			TEXT("if not callable(_uemcp_fn):\n")
 			TEXT("    raise NameError('run_python_file: {!r} is not a callable defined by {}'.format(_uemcp_entry, _uemcp_path))\n")
 			TEXT("result = _uemcp_fn(*_uemcp_json.loads(%s), **_uemcp_json.loads(%s))\n"),
 			*PythonStringLiteral(FilePath), *PythonStringLiteral(EntryPoint),
+			*PythonStringLiteral(RunName.IsEmpty() ? FString(TEXT("ue_mcp_entry")) : RunName),
 			*PythonStringLiteral(ArgsJson), *PythonStringLiteral(KwargsJson));
 	}
 
@@ -1319,6 +1354,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	Result->SetBoolField(TEXT("success"), bSuccess);
 	Result->SetStringField(TEXT("path"), FilePath);
 	if (!EntryPoint.IsEmpty()) Result->SetStringField(TEXT("entryPoint"), EntryPoint);
+	if (!RunName.IsEmpty()) Result->SetStringField(TEXT("runName"), RunName);
 	Result->SetStringField(TEXT("result"), ResultText);
 	if (!ResultVariable.IsEmpty())
 	{
@@ -2907,6 +2943,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScreenshot(const TSharedPtr<FJson
 	Result->SetStringField(TEXT("filename"), FullPath);
 	Result->SetStringField(TEXT("target"), TEXT("editor"));
 	Result->SetStringField(TEXT("note"), TEXT("Screenshot queued. The file will be written asynchronously by the renderer."));
+	if (TSharedPtr<FJsonObject> Lock = DescribeViewportCameraLock(ViewportClient))
+	{
+		Result->SetObjectField(TEXT("cameraLock"), Lock);
+		Result->SetStringField(TEXT("warning"), FString::Printf(TEXT("Captured from '%s', not from a pose set_viewport wrote. %s"),
+			*Lock->GetStringField(TEXT("actorLabel")), *Lock->GetStringField(TEXT("note"))));
+	}
 	Result->SetBoolField(TEXT("overwrote"), bOverwrote);
 	// The request was queued; a capture never finds work already done and
 	// skips it. The write itself happens after this response is sent.
@@ -2919,6 +2961,24 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScreenshot(const TSharedPtr<FJson
 		? TEXT("No bridge call deletes a file from disk, and a file was already at that path when the request was queued. Capture to a fresh path when a flow may need to roll back.")
 		: TEXT("No bridge call deletes a file from disk, so the captured image cannot be removed again. The renderer also writes it after this response is sent, so there is nothing to act on at rollback time."));
 	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonObject> FEditorHandlers::DescribeViewportCameraLock(FLevelEditorViewportClient* ViewportClient)
+{
+	if (!ViewportClient) return nullptr;
+	const bool bCinematic = ViewportClient->GetCinematicActorLock().HasValidLockedActor();
+	AActor* Locked = ViewportClient->GetActiveActorLock().Get();
+	if (!Locked) return nullptr;
+
+	TSharedPtr<FJsonObject> Lock = MakeShared<FJsonObject>();
+	Lock->SetStringField(TEXT("kind"), bCinematic ? TEXT("cinematic") : TEXT("pilot"));
+	Lock->SetStringField(TEXT("actorLabel"), Locked->GetActorLabel());
+	Lock->SetStringField(TEXT("actorPath"), Locked->GetPathName());
+	Lock->SetStringField(TEXT("actorClass"), Locked->GetClass()->GetName());
+	Lock->SetStringField(TEXT("note"), bCinematic
+		? TEXT("The viewport is locked to this actor by Sequencer, so it renders from that camera and a set pose does not hold. Release the cinematic lock (close the sequence or unlock its camera cut) first.")
+		: TEXT("The viewport is piloting this actor, so it renders from that actor and a set pose snaps back on the next tick. Eject the pilot (viewport menu: Stop Piloting) first."));
+	return Lock;
 }
 
 TSharedPtr<FJsonValue> FEditorHandlers::SetViewportCamera(const TSharedPtr<FJsonObject>& Params)
@@ -3088,6 +3148,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetViewportCamera(const TSharedPtr<FJson
 				!CurrentLocation.Equals(PreviousLocation) || !CurrentRotation.Equals(PreviousRotation)
 				|| ViewportClient->GetViewportType() != PreviousViewportType
 				|| !FMath::IsNearlyEqual(ViewportClient->GetOrthoZoom(), PreviousOrthoZoom));
+		if (TSharedPtr<FJsonObject> Lock = DescribeViewportCameraLock(ViewportClient))
+		{
+			Result->SetObjectField(TEXT("cameraLock"), Lock);
+			Result->SetStringField(TEXT("warning"), Lock->GetStringField(TEXT("note")));
+		}
 		Result->SetStringField(TEXT("projection"), ViewportTypeName(ViewportClient->GetViewportType()));
 		Result->SetStringField(TEXT("viewportType"), ViewportTypeName(ViewportClient->GetViewportType()));
 		Result->SetNumberField(TEXT("orthoZoom"), ViewportClient->GetOrthoZoom());
@@ -3769,10 +3834,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 		return LevelResult;
 	}
 
-	UObject* Asset = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath);
+	// The shared resolver checks the path's shape before loading: StaticLoadObject on a malformed
+	// path such as "not/a/real//path" is a fatal error in CreatePackage, not a null (#1223).
+	TSharedPtr<FJsonValue> LoadError;
+	UObject* Asset = MCPRequireAssetObject(AssetPath, LoadError);
 	if (!Asset)
 	{
-		return MCPError(FString::Printf(TEXT("Failed to load asset at '%s'"), *AssetPath));
+		return LoadError;
 	}
 
 	if (!GEditor)

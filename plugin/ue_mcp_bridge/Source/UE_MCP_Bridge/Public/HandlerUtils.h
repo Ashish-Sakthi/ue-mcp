@@ -52,3 +52,4 @@
 #include "HandlerClassResolve.h"
 #include "HandlerPackageSave.h"
 #include "HandlerObjectUtils.h"
+#include "HandlerLogCapture.h"

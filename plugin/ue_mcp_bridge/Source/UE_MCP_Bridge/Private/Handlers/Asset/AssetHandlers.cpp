@@ -604,14 +604,15 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
 	});
 	Registry.RegisterHandler(TEXT("import_animation"), &ImportAnimation, {
-		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
-		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("Source FBX on disk; exclusive with filePaths")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("filePaths"), EType::Array, TEXT("Batch: up to 200 FBX files imported into one folder with the same settings")).Items(EType::String),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name for a single filePath (default: the file name)")).Alias(TEXT("assetName")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Animations)")).Alias(TEXT("destinationPath")),
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("Skeleton the animation targets")),
 		MCPParam::Optional(TEXT("importCustomAttribute"), EType::Boolean, TEXT("Import FBX custom attributes as curves (default true)")),
 		MCPParam::Optional(TEXT("removeRedundantKeys"), EType::Boolean, TEXT("Strip keys that do not change the value (default true)")),
 		MCPParam::Optional(TEXT("importSettings"), EType::Object, TEXT("FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path")),
-	});
+	}, MCPSpec::ExactlyOne({ { TEXT("filePath") }, { TEXT("filePaths") } }));
 	Registry.RegisterHandler(TEXT("import_file"), &ImportFile, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Required(TEXT("packagePath"), EType::String, TEXT("Destination folder")).Alias(TEXT("destinationPath")),
@@ -624,6 +625,22 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 
 	// Texture handlers
+	Registry.RegisterHandler(TEXT("import_font"), &ImportFont, {
+		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Font file on disk: .ttf, .otf, .ttc or .otc")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("FontFace asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Fonts)")).Alias(TEXT("destinationPath")),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the face exists: skip (default, report it) | error | replace (reimport its bytes)")),
+		MCPParam::Optional(TEXT("hinting"), EType::String, TEXT("Default (default) | Auto | AutoLight | Monochrome | None")),
+		MCPParam::Optional(TEXT("loadingPolicy"), EType::String, TEXT("LazyLoad (default) | Stream | Inline")),
+		MCPParam::Optional(TEXT("createFont"), EType::Boolean, TEXT("Also create <name>_Font, a runtime Font whose Default typeface is this face (default false)")),
+	});
+	Registry.RegisterHandler(TEXT("create_font"), &CreateCompositeFont, {
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("Font asset name")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Folder for the font (default /Game/Fonts)")),
+		MCPParam::Required(TEXT("fontFaces"), EType::Array, TEXT("FontFace asset paths, one typeface entry each")).Items(EType::String),
+		MCPParam::Optional(TEXT("typefaceNames"), EType::Array, TEXT("Typeface entry names in fontFaces order, e.g. Regular, Bold, Italic (default: Default, then each face's asset name)")).Items(EType::String),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the font exists: skip (default, report it) | error | update (rewrite its default typeface)")),
+	});
 	Registry.RegisterHandler(TEXT("import_texture"), &ImportTexture, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
@@ -969,6 +986,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("list_skeleton_bones"), &ListSkeletonBones, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("SkeletalMesh or Skeleton asset path")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("includeTransforms"), EType::Boolean, TEXT("Include rest-pose transforms (default true)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Bones per page (default every bone)")),
+		MCPParam::Optional(TEXT("offset"), EType::Number, TEXT("First bone index of the page (default 0)")),
+		MCPParam::Optional(TEXT("includeBones"), EType::Boolean, TEXT("false returns only scaleSummary and boneCount, with no bones (default true)")),
 	});
 	// #595: Chaos cloth read/write.
 	Registry.RegisterHandler(TEXT("read_cloth_data"), &ReadClothData, {
@@ -2804,6 +2824,21 @@ namespace
 	}
 }
 
+namespace
+{
+	/** The editor asset library answers "does not exist" and refuses every delete while PIE runs, so a delete
+	 *  then would report alreadyDeleted for an asset that is still there. Refused up front instead. */
+	TSharedPtr<FJsonValue> DeleteDuringPlayError()
+	{
+		TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+		Out->SetBoolField(TEXT("success"), false);
+		Out->SetStringField(TEXT("reason"), TEXT("play_in_editor"));
+		Out->SetStringField(TEXT("error"), TEXT("Assets cannot be deleted while a play-in-editor session is running; nothing was deleted. ")
+			TEXT("Stop it with editor(play_in_editor, pieAction=stop) and delete again."));
+		return MCPResult(Out);
+	}
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -2811,6 +2846,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 	const bool bForce = OptionalBool(Params, TEXT("force"), false);
 
 	if (MCPIsProtectedAssetPath(AssetPath)) return MCPProtectedPathError(AssetPath);
+	if (MCPIsPlayInEditorActive()) return DeleteDuringPlayError();
 
 	// Idempotent: if the asset doesn't exist, treat as already-deleted.
 	if (!UEditorAssetLibrary::DoesAssetExist(AssetPath))
@@ -2857,6 +2893,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 
 	if (!bSuccess)
 	{
+		// A delete that did not happen is a failed call, not a success carrying deleted=false (#1223).
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("'%s' was not deleted; the asset is still at this path. reason and the fields beside it say why."), *AssetPath));
 		ApplyDiagnosticsToJson(Result, DiagnoseDeleteFailure(AssetPath));
 	}
 
@@ -2897,6 +2937,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAssetBatch(const TSharedPtr<FJsonOb
 	int32 Refused = 0;
 	int32 ClosedEditors = 0;
 
+	if (MCPIsPlayInEditorActive()) return DeleteDuringPlayError();
 	int32 Protected = 0;
 	for (const TSharedPtr<FJsonValue>& V : *PathsArr)
 	{
@@ -3787,6 +3828,35 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAsset(const TSharedPtr<FJsonObject>& 
 			bSuccess = UEditorLoadingAndSavingUtils::SavePackages(Packages, /*bOnlyDirty=*/false);
 			Result->SetStringField(TEXT("package"), Package->GetName());
 			DescribeOnDisk(Result, Package->GetName());
+		}
+		else if (GEditor && GEditor->PlayWorld && PreSavePackage)
+		{
+			// UEditorAssetLibrary::SaveAsset refuses every call while Play In Editor runs and only says so in
+			// the log. An asset package saves through the editor's own path; a map does not save during PIE,
+			// and the caller is told that instead of a bare false (#1232).
+			Result->SetBoolField(TEXT("playInEditorActive"), true);
+			Result->SetStringField(TEXT("package"), PreSavePackage->GetName());
+			if (PreSavePackage->ContainsMap())
+			{
+				Result->SetBoolField(TEXT("success"), false);
+				Result->SetStringField(TEXT("reason"), TEXT("play_in_editor_active"));
+				Result->SetStringField(TEXT("error"), FString::Printf(
+					TEXT("'%s' is a map, and the editor does not save a map while Play In Editor runs. Stop PIE with editor(action=\"play_in_editor\", pieAction=\"stop\"), then save again."),
+					*PreSavePackage->GetName()));
+				Result->SetBoolField(TEXT("rollbackPossible"), false);
+				return MCPResult(Result);
+			}
+			TArray<UPackage*> Packages{ PreSavePackage };
+			bSuccess = UEditorLoadingAndSavingUtils::SavePackages(Packages, /*bOnlyDirty=*/false);
+			Result->SetBoolField(TEXT("stillDirty"), PreSavePackage->IsDirty());
+			DescribeOnDisk(Result, PreSavePackage->GetName());
+			if (!bSuccess)
+			{
+				Result->SetStringField(TEXT("reason"), TEXT("play_in_editor_active"));
+				Result->SetStringField(TEXT("error"), FString::Printf(
+					TEXT("The editor did not save '%s' while Play In Editor runs. Stop PIE with editor(action=\"play_in_editor\", pieAction=\"stop\"), then save again."),
+					*PreSavePackage->GetName()));
+			}
 		}
 		else
 		{

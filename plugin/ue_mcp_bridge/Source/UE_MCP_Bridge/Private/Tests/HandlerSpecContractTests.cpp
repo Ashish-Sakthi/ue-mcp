@@ -28,6 +28,8 @@
 #include "Handlers/Animation/AnimationHandlers.h"
 #include "Handlers/Audio/AudioHandlers.h"
 #include "Handlers/Fab/FabHandlers.h"
+#include "Handlers/Datasmith/DatasmithHandlers.h"
+#include "Handlers/MetaHuman/MetaHumanHandlers.h"
 #include "Handlers/Networking/NetworkingHandlers.h"
 #include "Handlers/Project/ProjectHandlers.h"
 #include "Handlers/StateTree/StateTreeHandlers.h"
@@ -50,6 +52,7 @@
 #include "Handlers/SkeletalMesh/SkeletalMeshHandlers.h"
 #include "Handlers/Lock/LockHandlers.h"
 #include "Handlers/Diff/DiffHandlers.h"
+#include "Handlers/SourceControl/SourceControlHandlers.h"
 #include "Handlers/Blueprint/BlueprintHandlers.h"
 #include "Handlers/Blueprint/BlueprintHandlers_Collision.h"
 #include "Handlers/Chooser/ChooserHandlers.h"
@@ -196,6 +199,8 @@ bool FMCPHandlerSpecContractTest::RunTest(const FString& Parameters)
 	FAudioHandlers::RegisterHandlers(Registry);
 	FNetworkingHandlers::RegisterHandlers(Registry);
 	FFabHandlers::RegisterHandlers(Registry);
+	FDatasmithHandlers::RegisterHandlers(Registry);
+	FMetaHumanHandlers::RegisterHandlers(Registry);
 	FProjectHandlers::RegisterHandlers(Registry);
 	FStateTreeHandlers::RegisterHandlers(Registry);
 	FGameplayHandlers::RegisterHandlers(Registry);
@@ -221,6 +226,7 @@ bool FMCPHandlerSpecContractTest::RunTest(const FString& Parameters)
 	FSkeletalMeshHandlers::RegisterHandlers(Registry);
 	FLockHandlers::RegisterHandlers(Registry);
 	FDiffHandlers::RegisterHandlers(Registry);
+	FSourceControlHandlers::RegisterHandlers(Registry);
 	FBlueprintHandlers::RegisterHandlers(Registry);
 	FCollisionQueryHandlers::RegisterHandlers(Registry);
 	FChooserHandlers::RegisterHandlers(Registry);

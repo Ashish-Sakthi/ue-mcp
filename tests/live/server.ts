@@ -151,7 +151,14 @@ export class LiveServer {
       }
     }
     if (fs.existsSync(daemons)) await new Promise((r) => setTimeout(r, 500));
-    fs.rmSync(this.sandbox, { recursive: true, force: true });
+    try {
+      fs.rmSync(this.sandbox, { recursive: true, force: true });
+    } catch (err) {
+      // An editor this server started inherits the sandbox as its profile, and its crash reporter
+      // keeps a log open there while it runs. That is the OS temp folder, so it is left behind.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EBUSY" && code !== "EPERM") throw err;
+    }
   }
 }
 
