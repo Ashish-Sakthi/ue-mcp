@@ -286,6 +286,32 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "build_tree": {
+    "category": "widget",
+    "params": [
+      {
+        "name": "assetPath",
+        "type": "string",
+        "required": true,
+        "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+        "aliases": [
+          "path"
+        ]
+      },
+      {
+        "name": "tree",
+        "type": "object",
+        "required": true,
+        "description": "One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values"
+      },
+      {
+        "name": "parentWidgetName",
+        "type": "string",
+        "required": false,
+        "description": "Panel to build under (default: the root panel, or the tree root when there is none)"
+      }
+    ]
+  },
   "bulk_set_widget_properties": {
     "category": "widget",
     "params": [
@@ -304,6 +330,20 @@ export const handlerSpecs: HandlerSpecs = {
         "required": true,
         "description": "[{widgetName, propertyName, value}] (#563)",
         "items": "object"
+      }
+    ]
+  },
+  "check_widget_structure": {
+    "category": "widget",
+    "params": [
+      {
+        "name": "assetPath",
+        "type": "string",
+        "required": true,
+        "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+        "aliases": [
+          "path"
+        ]
       }
     ]
   },
@@ -1571,7 +1611,9 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   audit_widget_accessibility: "Params: assetPath (or path), minFontSize?, minHitSize?",
   audit_widget_focus_chain: "Params: assetPath (or path)",
   bind_widget_animation_event: "Params: assetPath (or path), animationName, event?, userTag?",
+  build_tree: "Params: assetPath (or path), tree, parentWidgetName?",
   bulk_set_widget_properties: "Params: assetPath (or path), properties",
+  check_widget_structure: "Params: assetPath (or path)",
   clear_widget_binding: "Params: assetPath (or path), widgetName, propertyName?",
   clear_widget_navigation: "Params: assetPath (or path), widgetName, direction?",
   create_editor_utility_blueprint: "Params: at least one of assetPath (or path)/name, packagePath?, onConflict?",
@@ -1616,7 +1658,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
 /** Every key the spec'd widget handlers declare, aliases included. */
 export const schema: Record<string, z.ZodType> = {
   animationName: z.string().optional().describe("The UWidgetAnimation's object name or display label"),
-  assetPath: z.string().optional().describe("Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798) (add_to_viewport, add_widget, add_widget_animation_event_key, add_widget_animation_key, add_widget_animation_track, audit_widget_accessibility, audit_widget_focus_chain, bind_widget_animation_event, bulk_set_widget_properties, clear_widget_binding, clear_widget_navigation, create_widget_animation, delete_widget_animation, get_widget_animation, get_widget_details, get_widget_properties, list_widget_bindings, move_widget, read_widget_animations, read_widget_tree, remove_widget, remove_widget_animation_event_key, remove_widget_animation_key, remove_widget_animation_track, reorder_child, restore_widget_navigation, run_editor_utility_blueprint, run_editor_utility_widget, set_root_widget, set_widget_navigation, set_widget_property, set_widget_style, unbind_widget_animation_event, wrap_root_widget). Widget Blueprint whose CommonUI wiring to check as well (audit_commonui). Full destination, e.g. /Game/UI/WBP_Example; wins over name + packagePath (create_editor_utility_blueprint, create_editor_utility_widget, create_widget_blueprint). Widget Blueprint whose parent's contract to read and whose tree to check against it (get_bind_widget_contract)"),
+  assetPath: z.string().optional().describe("Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798) (add_to_viewport, add_widget, add_widget_animation_event_key, add_widget_animation_key, add_widget_animation_track, audit_widget_accessibility, audit_widget_focus_chain, bind_widget_animation_event, build_tree, bulk_set_widget_properties, check_widget_structure, clear_widget_binding, clear_widget_navigation, create_widget_animation, delete_widget_animation, get_widget_animation, get_widget_details, get_widget_properties, list_widget_bindings, move_widget, read_widget_animations, read_widget_tree, remove_widget, remove_widget_animation_event_key, remove_widget_animation_key, remove_widget_animation_track, reorder_child, restore_widget_navigation, run_editor_utility_blueprint, run_editor_utility_widget, set_root_widget, set_widget_navigation, set_widget_property, set_widget_style, unbind_widget_animation_event, wrap_root_widget). Widget Blueprint whose CommonUI wiring to check as well (audit_commonui). Full destination, e.g. /Game/UI/WBP_Example; wins over name + packagePath (create_editor_utility_blueprint, create_editor_utility_widget, create_widget_blueprint). Widget Blueprint whose parent's contract to read and whose tree to check against it (get_bind_widget_contract)"),
   channel: z.string().optional().describe("Channel by name (R/G/B/A, Left/Top/Right/Bottom, Translation.X); a miss lists the section's real channels"),
   channelIndex: z.number().int().optional().describe("Channel by index, used when channel is not given (default 0)"),
   childClassFilter: z.string().optional().describe("Class substring filter for subtree nodes (implies includeSubtree)"),
@@ -1658,7 +1700,7 @@ export const schema: Record<string, z.ZodType> = {
   onConflict: z.string().optional().describe("When the asset exists: skip (default, report it) | error"),
   packagePath: z.string().optional().describe("Folder for name (default /Game/EditorUtilities) (create_editor_utility_blueprint, create_editor_utility_widget). Folder for name (default /Game/UI/Widgets) (create_widget_blueprint)"),
   parentClass: z.string().optional().describe("UUserWidget subclass: a short name or a class path (default UserWidget)"),
-  parentWidgetName: z.string().optional().describe("Name of the parent panel widget (#798) (add_widget). Alias for newParentWidgetName (move_widget)"),
+  parentWidgetName: z.string().optional().describe("Name of the parent panel widget (#798) (add_widget). Panel to build under (default: the root panel, or the tree root when there is none) (build_tree). Alias for newParentWidgetName (move_widget)"),
   path: z.string().optional().describe("Alias for assetPath"),
   pieInstance: z.number().int().optional().describe("PIE instance id for multi-client sessions"),
   previous: z.array(z.record(z.unknown())).optional().describe("The captured navigation snapshot set_navigation / clear_navigation return in their rollback payload"),
@@ -1674,6 +1716,7 @@ export const schema: Record<string, z.ZodType> = {
   sourceWidgetName: z.string().optional().describe("Widget in the source that becomes the extracted root"),
   time: z.number().optional().describe("Key time in SECONDS, converted to frames on the animation's tick resolution"),
   trackName: z.string().optional().describe("Event track display name (default Events)"),
+  tree: z.record(z.unknown()).optional().describe("One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values"),
   typeName: z.string().optional().describe("Alias for widgetClass"),
   userIndex: z.number().int().optional().describe("Local player user index (default 0)"),
   userTag: z.string().optional().describe("User tag scoping a Started binding"),

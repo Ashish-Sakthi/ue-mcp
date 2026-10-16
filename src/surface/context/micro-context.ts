@@ -19,7 +19,7 @@ import { takeTimeout } from "../../dispatch/call-pipeline.js";
 import { McpError, ErrorCode } from "../../core/errors.js";
 import { actionSchema } from "../action-schema.js";
 import { takeFieldSelection } from "./field-select.js";
-import { flatValidationMessage } from "./call-envelope.js";
+import { coerceJsonStringArgs, flatValidationMessage } from "./call-envelope.js";
 import { describeCategory, discoveryResults, readOffset, splitDescription } from "./lean-context.js";
 
 /**
@@ -93,13 +93,15 @@ export function resolveMicroCall(tools: ToolDef[], params: Record<string, unknow
  * the task unchecked, and micro is now the default route.
  *
  * Only the refusal is shared. The parameters go on as the caller sent them,
- * which is what this route has always forwarded, so a key the shape does not
- * declare still reaches the target and is reported there as not read.
+ * apart from a JSON-encoded object or array the shape declares (#1370), so a
+ * key the shape does not declare still reaches the target and is reported
+ * there as not read.
  */
 function validatedMicroParams(tool: ToolDef, method: string, params: Record<string, unknown>): Record<string, unknown> {
-  const { message } = flatValidationMessage(tool, { ...params, action: method });
+  const coerced = coerceJsonStringArgs(tool, params);
+  const { message } = flatValidationMessage(tool, { ...coerced, action: method });
   if (message !== undefined) throw new McpError(ErrorCode.INVALID_PARAMS, message);
-  return params;
+  return coerced;
 }
 
 /** The categories each gateway was built to reach: the enabled set, never a

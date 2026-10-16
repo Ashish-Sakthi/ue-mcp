@@ -111,6 +111,7 @@ private:
 	static TSharedPtr<FJsonValue> ListWidgetBlueprints(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CreateWidgetBlueprint(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadWidgetTree(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CheckStructure(const TSharedPtr<FJsonObject>& Params);
 	// Extract an authored designer subtree into a new or empty WidgetBlueprint.
 	// The implementation uses UMG's clipboard serializer so editable widget
 	// properties, hierarchy, and internal panel slot data stay intact.
@@ -132,6 +133,7 @@ private:
 	static TSharedPtr<FJsonValue> RunEditorUtilityWidget(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RunEditorUtilityBlueprint(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AddWidget(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> BuildTree(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RemoveWidget(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> MoveWidget(const TSharedPtr<FJsonObject>& Params);
 	// #365: root-widget swap + "Wrap With" container insertion. Required to

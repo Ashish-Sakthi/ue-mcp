@@ -130,6 +130,49 @@ export function flatValidationMessage(tool: ToolDef, flat: Record<string, unknow
   return { message: `Input validation error: Invalid arguments for tool ${tool.name}: ${getParseErrorMessage(parsed.error)}` };
 }
 
+/** "object" or "array" when a schema only takes that structured shape, else null. A schema that also takes a string, or any value, is left alone. */
+function structuredShape(schema: z.ZodTypeAny | undefined, depth = 0): "object" | "array" | null {
+  if (!schema || depth > 8) return null;
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) return structuredShape(schema.unwrap(), depth + 1);
+  if (schema instanceof z.ZodDefault) return structuredShape(schema._def.innerType, depth + 1);
+  if (schema instanceof z.ZodEffects) return structuredShape(schema.innerType(), depth + 1);
+  if (schema instanceof z.ZodObject || schema instanceof z.ZodRecord) return "object";
+  if (schema instanceof z.ZodArray || schema instanceof z.ZodTuple) return "array";
+  if (schema instanceof z.ZodUnion) {
+    const shapes = (schema.options as z.ZodTypeAny[]).map((o) => structuredShape(o, depth + 1));
+    return shapes.every((x) => x === shapes[0]) ? shapes[0] : null;
+  }
+  return null;
+}
+
+/**
+ * Some clients send an object or array argument JSON-encoded as a string
+ * (#1370: place_actor's location arrived as "{\"x\":0,...}"). Where the
+ * declared shape only takes an object or array and the string parses to one,
+ * the parsed value is used. Anything else is left for validation to refuse.
+ */
+export function coerceJsonStringArgs(tool: ToolDef, flat: Record<string, unknown>): Record<string, unknown> {
+  let out: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(flat)) {
+    if (typeof value !== "string") continue;
+    const shape = structuredShape(tool.schema[key] as z.ZodTypeAny | undefined);
+    if (!shape) continue;
+    const trimmed = value.trim();
+    if (!(shape === "object" ? trimmed.startsWith("{") : trimmed.startsWith("["))) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const matches = shape === "array" ? Array.isArray(parsed) : isPlainObject(parsed);
+    if (!matches) continue;
+    out ??= { ...flat };
+    out[key] = parsed;
+  }
+  return out ?? flat;
+}
+
 /**
  * Validate a flat bag against the category's declared shape, exactly as the
  * MCP layer did when that shape was the advertised one: same zod object, same
@@ -137,7 +180,7 @@ export function flatValidationMessage(tool: ToolDef, flat: Record<string, unknow
  * its InvalidParams code. Returns the parsed bag.
  */
 export function validateCategoryParams(tool: ToolDef, flat: Record<string, unknown>): Record<string, unknown> {
-  const result = flatValidationMessage(tool, flat);
+  const result = flatValidationMessage(tool, coerceJsonStringArgs(tool, flat));
   if (result.message !== undefined) throw new SdkMcpError(SdkErrorCode.InvalidParams, result.message);
   return result.data!;
 }

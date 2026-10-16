@@ -1694,7 +1694,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetProperty(const TSharedPtr<FJsonObject
 	// asset-path strings (FObjectProperty), and nested structs all apply
 	// without callers having to pre-format UE text.
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(Property, PropertyValue, ValueJsonRef, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(Property, PropertyValue, ValueJsonRef, LeafOwner ? LeafOwner : Asset, SetErr))
 	{
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
 	}

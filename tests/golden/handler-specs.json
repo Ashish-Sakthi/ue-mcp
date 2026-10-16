@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1091,
+  "handlerCount": 1094,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -3219,6 +3219,24 @@
           "type": "string",
           "required": false,
           "description": "skip (default) reports the existing entry; error refuses"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "Category shown in My Blueprint and the details panel"
+        },
+        {
+          "name": "tooltip",
+          "type": "string",
+          "required": false,
+          "description": "Tooltip"
+        },
+        {
+          "name": "instanceEditable",
+          "type": "boolean",
+          "required": false,
+          "description": "true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default"
         }
       ]
     },
@@ -6405,6 +6423,32 @@
         }
       ]
     },
+    "build_tree": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "tree",
+          "type": "object",
+          "required": true,
+          "description": "One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values"
+        },
+        {
+          "name": "parentWidgetName",
+          "type": "string",
+          "required": false,
+          "description": "Panel to build under (default: the root panel, or the tree root when there is none)"
+        }
+      ]
+    },
     "bulk_line_trace": {
       "category": "level",
       "params": [
@@ -7150,6 +7194,20 @@
           "type": "number",
           "required": false,
           "description": "Raster resolution for the overlap estimate (default 512)"
+        }
+      ]
+    },
+    "check_widget_structure": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
         }
       ]
     },
@@ -11604,7 +11662,7 @@
               "name": "type",
               "type": "string",
               "required": false,
-              "description": "MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor"
+              "description": "Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>"
             }
           ]
         },
@@ -12970,7 +13028,7 @@
           "name": "type",
           "type": "string",
           "required": false,
-          "description": "MakePinType string for add_field (default bool) and set_field_type"
+          "description": "Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips"
         }
       ]
     },
@@ -14880,7 +14938,13 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "Variable name"
+          "description": "Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects"
+        },
+        {
+          "name": "includeChildren",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)"
         }
       ]
     },
@@ -20408,6 +20472,35 @@
           "type": "integer",
           "required": false,
           "description": "Rows to return on this page (default 200, max 5000)"
+        }
+      ]
+    },
+    "list_subclasses": {
+      "category": "blueprint",
+      "params": [
+        {
+          "name": "className",
+          "type": "string",
+          "required": true,
+          "description": "Base class: a native name or path such as Character, or a Blueprint asset path"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it"
+        },
+        {
+          "name": "includeTransitive",
+          "type": "boolean",
+          "required": false,
+          "description": "Include indirect subclasses (default true); false lists direct children only"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Rows to return (default 2000, max 20000); count stays complete"
         }
       ]
     },
@@ -30439,7 +30532,7 @@
           "name": "propertyName",
           "type": "string",
           "required": true,
-          "description": "Property name"
+          "description": "Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius"
         },
         {
           "name": "value",
@@ -36205,6 +36298,12 @@
           "type": "any",
           "required": true,
           "description": "New default value, as a string"
+        },
+        {
+          "name": "propagateToInstances",
+          "type": "boolean",
+          "required": false,
+          "description": "Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"
         }
       ]
     },

@@ -1066,7 +1066,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game)")),
 		MCPParam::Optional(TEXT("structFields"), EType::Array, TEXT("Initial members; with none the struct keeps its one default member")).Items(EType::Object).WithFields({
 			MCPParam::RequiredField(TEXT("name"), EType::String, TEXT("Member display name")),
-			MCPParam::OptionalField(TEXT("type"), EType::String, TEXT("MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor")),
+			MCPParam::OptionalField(TEXT("type"), EType::String, TEXT("Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>")),
 		}),
 		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("skip (default) returns an existing struct; error refuses")),
 	}, MCPSpec::ContractExempt(TEXT("Creates and saves a struct package from the contract name before anything fails")));
@@ -1079,7 +1079,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("fieldName"), EType::String, TEXT("Member by friendly or internal name; add_field names the new member with it")),
 		MCPParam::Optional(TEXT("fieldGuid"), EType::String, TEXT("Member by GUID, stable across renames; wins over fieldName")),
 		MCPParam::Optional(TEXT("newDisplayName"), EType::String, TEXT("New display name for rename_field; add_field falls back to it for the name")),
-		MCPParam::Optional(TEXT("type"), EType::String, TEXT("MakePinType string for add_field (default bool) and set_field_type")),
+		MCPParam::Optional(TEXT("type"), EType::String, TEXT("Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips")),
 	});
 	// rename_struct_field: edit_user_defined_struct with op=rename_field.
 	Registry.RegisterHandler(TEXT("rename_struct_field"), &RenameStructField, {
@@ -4945,7 +4945,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	Asset->Modify();
 	if (LeafOwner && LeafOwner != Asset) LeafOwner->Modify();
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(FinalProp, ValuePtr, ValueField, LeafOwner ? LeafOwner : Asset, SetErr))
 	{
 		Transaction.Cancel();
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s%s"), *PropertyName, *SetErr, *AssetSocketPropertyHint(Asset, PropertyName)));
