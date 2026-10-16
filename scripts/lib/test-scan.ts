@@ -128,17 +128,22 @@ export function tsAsserts(source: string, masked: string, spans: Span[]): boolea
   return false;
 }
 
-/** Every titled block a callee opens (`it`, `test`, `describe`): its title and its argument span. */
+/**
+ * Every titled block a callee opens (`it`, `test`, `describe`): its title and its argument span. A block marked
+ * `.skip` or `.todo` never runs, so it is left out and credits nothing.
+ */
 export function tsTitledBlocks(source: string, masked: string, callee: RegExp): Array<{ title: string; span: Span }> {
   const out: Array<{ title: string; span: Span }> = [];
   for (const m of masked.matchAll(callee)) {
     let i = m.index! + m[0].length;
-    // Skip modifiers: .only, .skip, .skipIf(cond), .runIf(cond), .concurrent.
+    let neverRuns = false;
+    // Modifiers: .only, .skip, .todo, .skipIf(cond), .runIf(cond), .concurrent.
     for (;;) {
       while (/\s/.test(masked[i] ?? "")) i++;
       if (masked[i] === ".") {
         const word = /^\.\s*(\w+)/.exec(masked.slice(i));
         if (!word) break;
+        if (word[1] === "skip" || word[1] === "todo") neverRuns = true;
         i += word[0].length;
         continue;
       }
@@ -153,7 +158,7 @@ export function tsTitledBlocks(source: string, masked: string, callee: RegExp): 
       }
       break;
     }
-    if (masked[i] !== "(") continue;
+    if (neverRuns || masked[i] !== "(") continue;
     let j = i + 1;
     while (/\s/.test(masked[j] ?? "")) j++;
     const quote = source[j];
