@@ -97,6 +97,15 @@ The merge style follows the commit count, and writing five commits only to squas
 - The gap list is the backlog grandfathered when the gate landed. It only shrinks: the unit test fails on an entry that has gained a test (`npm run coverage:behavioural -- --shrink-ratchet`), and the `behavioural-coverage` release gate fails on any entry the merge base did not have.
 - Registration, preflight and refusal suites, file-level fixtures and `expect(x.ok)` do not count. Read the header of `scripts/behavioural-coverage.ts` for the rule.
 
+### Integration coverage gate
+
+Everything a user drives that is not a bridge action (CLI commands, server startup per strategy and mode, the gateway, flows, plugins, the daemon, feedback, auth, config) is listed by id in `tests/coverage/integration-surfaces.json`. `npm run test:integration` runs `tests/integration`: the real CLI, server and daemon spawned in hermetic sandboxes (`tests/integration/harness.ts`) with local fakes for the bridge, npm, the registry, the feedback service and GitHub. It runs in CI.
+
+- A test claims a surface with `covers("<id>")` from `tests/helpers/covers.ts`, and is credited when it asserts on what the process did. `npm run coverage:integration` regenerates `tests/coverage/integration-coverage.json`; `tests/unit/integration-coverage.test.ts` fails when it is stale, a surface is unexplained, or a test claims an id the manifest lacks.
+- A new surface goes into the manifest with its test, or with a reasoned exemption in `tests/coverage/integration-exemptions.json`. `tests/coverage/integration-gaps.json` only shrinks, enforced by the `integration-coverage` release gate.
+- A surface that needs a live editor gets its test in `tests/live`, which the inventory also reads.
+- Never point a test at a real service or the developer's home: start from `Sandbox.env()`, which closes every service origin and redirects every per-user file.
+
 ### Clean plugin rebuild recipe
 
 If new handlers return `"Unknown method"` at runtime even though source + build reported success:
@@ -222,8 +231,10 @@ npm run test:live       # Live tests against a running editor (tests/ue_mcp only
 npm run test:automation # The plugin's C++ UE.MCP.* suite, through the bridge
 npm run golden:record   # Re-record tests/golden/editor-down.json (review the diff)
 npm run coverage:behavioural # Regenerate the behavioural-coverage inventory
+npm run coverage:integration # Regenerate the integration-coverage inventory
+npm run test:integration     # Spawned CLI, server and daemon in sandboxes (no editor)
 npm run release:notes   # Compose cumulative stable notes from a version's prereleases
-npm test                # Unit + multi-editor suites (no editor needed)
+npm test                # Unit, multi-editor and integration suites (no editor needed)
 npm run test:suites     # Vitest smoke suites (tests/ue_mcp only)
 node scripts/deploy.mjs # Sync plugin/ → tests/ue_mcp/Plugins/
 ```
