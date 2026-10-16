@@ -12,8 +12,8 @@
  *   create <name> [--dir path]         scaffold a new plugin (superset of every
  *                                      extension shape: inject, provides, flows,
  *                                      and a dormant native C++ module)
- *   publish [dir] [--private|--public] push a listing (incl. its README) to the
- *                                      registry; merges over curated fields
+ *   publish [dir] [--dry-run]          push the registry listing; derives
+ *                                      provides/ueVersions, keeps the slug
  *   record-specs [dir] --project <p>   record the native module's handler
  *                                      contracts from a running editor (#1282);
  *                                      --check fails when the file differs
@@ -68,6 +68,7 @@ import { packageVersion } from "../core/package-root.js";
 import { deriveDefaultPrefix, deriveUePluginName, writeScaffold } from "../extensions/plugin-scaffold.js";
 import { ProjectContext } from "../config/project.js";
 import { registryBase } from "../extensions/registry-catalog.js";
+import { chooseListing, derivedListingFields, listingDiff } from "../extensions/publish-listing.js";
 import { findUProject, projectDirOf } from "../config/uproject-path.js";
 
 const RESTART_NOTE =
@@ -704,15 +705,6 @@ async function fetchCatalog(base: string): Promise<RegistryRow[]> {
 }
 
 /**
- * `ue-mcp plugin publish [dir] [--slug s] [--private|--public] [--token t] [--dry-run]`
- *
- * Reads the package at [dir] (default cwd): its README.md becomes the listing's
- * README (npm model - the docs travel with the package), and package.json fills
- * packageName / repoUrl / author. Curated marketplace fields (category, pricing,
- * tagline, tags, featured) are preserved by merging over the existing registry
- * row, so a re-publish only refreshes what the package owns.
- */
-/**
  * Record a native module's handler contracts from the editor that has it
  * loaded (#1282). The module registers each handler with its C++ spec; the
  * bridge publishes them in get_bridge_capabilities.pluginHandlerSpecs, and
@@ -770,6 +762,15 @@ async function cmdRecordSpecs(args: string[]): Promise<void> {
   note(`recorded ${declared.length} handler contracts to ${native.specs}${current === text ? " (unchanged)" : ""}`);
 }
 
+/**
+ * `ue-mcp plugin publish [dir]`: push the package's registry listing.
+ *
+ * A row already listing this package keeps its slug unless --slug and
+ * --rename say otherwise. Facts the package declares (provides, ueVersions)
+ * are derived on every publish; curated text comes from the manifest's
+ * `registry:` block or flags, and anything else is kept from the row.
+ * --dry-run prints the field-by-field change instead of posting.
+ */
 async function cmdPublish(args: string[]): Promise<void> {
   let dir = process.cwd();
   let slugFlag: string | undefined;
@@ -777,15 +778,29 @@ async function cmdPublish(args: string[]): Promise<void> {
   let tokenFlag: string | undefined;
   let privacy: boolean | undefined;
   let dryRun = false;
+  let rename = false;
+  let readmeMode: "snapshot" | "live" = "snapshot";
+  let tagsFromKeywords = false;
+  const curated: { tagline?: string; description?: string; category?: string } = {};
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--slug") slugFlag = args[++i];
+    else if (a === "--rename") rename = true;
     else if (a === "--repo") repoFlag = args[++i];
     else if (a === "--token") tokenFlag = args[++i];
     else if (a === "--private") privacy = true;
     else if (a === "--public") privacy = false;
     else if (a === "--dry-run" || a === "--dry") dryRun = true;
-    else if (!a.startsWith("--")) dir = path.resolve(a);
+    else if (a === "--tagline") curated.tagline = args[++i];
+    else if (a === "--description") curated.description = args[++i];
+    else if (a === "--category") curated.category = args[++i];
+    else if (a === "--tags-from-keywords") tagsFromKeywords = true;
+    else if (a === "--readme") {
+      const mode = args[++i];
+      if (mode !== "snapshot" && mode !== "live") fail(`--readme must be snapshot or live, not '${mode}'`);
+      readmeMode = mode;
+    } else if (a.startsWith("-")) fail(`unknown flag ${a} for plugin publish`);
+    else dir = path.resolve(a);
   }
 
   const pkgPath = path.join(dir, "package.json");
@@ -803,8 +818,20 @@ async function cmdPublish(args: string[]): Promise<void> {
   const readmePath = ["README.md", "readme.md", "Readme.md"]
     .map((f) => path.join(dir, f))
     .find((f) => fs.existsSync(f));
-  const readme = readmePath ? fs.readFileSync(readmePath, "utf-8").trim() : "";
-  if (!readme) note(`WARNING: no README.md in ${dir}; publishing with an empty README.`);
+  // An empty stored readme is rendered live from the public repo; a snapshot
+  // is what the listing shows until the next publish.
+  const readme = readmeMode === "live" ? "" : readmePath ? fs.readFileSync(readmePath, "utf-8").trim() : "";
+  if (readmeMode === "snapshot" && !readme) {
+    note(`WARNING: no README.md in ${dir}; the listing falls back to the repo's README, if the repo is public.`);
+  }
+
+  // The listing fields the package itself declares.
+  let pluginManifest: PluginManifest | undefined;
+  try {
+    pluginManifest = loadManifest(dir).manifest;
+  } catch (e) {
+    note(`WARNING: no usable ue-mcp.plugin.yml (${(e as Error).message}); provides is taken from skills/ only.`);
+  }
 
   const base = registryBase();
   // Precedence: --token, then env (CI), then the token cached by `ue-mcp login`.
@@ -817,11 +844,11 @@ async function cmdPublish(args: string[]): Promise<void> {
     );
   }
 
-  // Default slug: the package name minus the conventional `ue-mcp-` prefix.
-  const slug = slugFlag ?? pkg.name.replace(/^ue-mcp-/, "");
-
   const catalog = await fetchCatalog(base);
-  const existing = catalog.find((r) => r.slug === slug || r.packageName === pkg.name);
+  const choice = chooseListing(catalog, pkg.name, slugFlag, rename);
+  if (!choice.ok) fail(choice.error);
+  const { slug, existing } = choice;
+  if (choice.renamed) note(`renaming listing '${choice.renamed}' -> '${slug}'`);
 
   const authorName =
     typeof pkg.author === "string"
@@ -845,6 +872,21 @@ async function cmdPublish(args: string[]): Promise<void> {
   manifest.repoUrl = repoFlag ?? repoUrlFromPkg(pkg) ?? manifest.repoUrl;
   if (privacy !== undefined) manifest.repoPrivate = privacy;
 
+  // Facts the package declares replace hand-curated copies on every publish.
+  const derived = derivedListingFields(
+    pluginManifest,
+    listSkills(path.join(dir, "skills")).length > 0,
+    Array.isArray(existing?.provides) ? (existing.provides as string[]) : [],
+  );
+  manifest.provides = derived.provides;
+  if (derived.ueVersions) manifest.ueVersions = derived.ueVersions;
+  // Curated fields: ue-mcp.plugin.yml `registry:`, then flags.
+  const own = { ...(pluginManifest?.registry ?? {}), ...Object.fromEntries(Object.entries(curated).filter(([, v]) => v !== undefined)) };
+  for (const [k, v] of Object.entries(own)) if (v !== undefined) manifest[k] = v;
+  if (tagsFromKeywords && Array.isArray(pkg.keywords)) {
+    manifest.tags = pkg.keywords.filter((k) => k !== "ue-mcp-plugin").slice(0, 12);
+  }
+
   if (!existing) {
     // New listing: fill the required marketplace fields with sane defaults so
     // the publish validates; the owner can refine category/pricing on the site.
@@ -860,9 +902,9 @@ async function cmdPublish(args: string[]): Promise<void> {
   }
 
   if (dryRun) {
-    note(`dry run - would POST to ${base}/api/publish:`);
-    const preview = { ...manifest, readme: `<${readme.length} chars>` };
-    console.log(JSON.stringify(preview, null, 2));
+    const changes = listingDiff(existing, manifest);
+    note(`dry run - nothing posted. ${existing ? `Changes to listing '${existing.slug}'` : `New listing '${slug}'`} at ${base}:`);
+    console.log(changes.length > 0 ? changes.join("\n") : "  (no changes)");
     return;
   }
 
@@ -1022,7 +1064,8 @@ export const usage: CliUsage = {
     "  ue-mcp plugin check-skills [dir]",
     "  ue-mcp plugin config <name> [--enable a,b] [--disable c,d] [--list-groups] [--local|--project]",
     "  ue-mcp plugin create <name> [--dir path]",
-    "  ue-mcp plugin publish [dir] [--slug s] [--private|--public] [--dry-run]",
+    "  ue-mcp plugin publish [dir] [--slug s [--rename]] [--private|--public] [--readme snapshot|live]",
+    "                        [--tagline t] [--description d] [--category c] [--tags-from-keywords] [--dry-run]",
     "  ue-mcp plugin record-specs [dir] --project <path.uproject> [--check]",
   ].join("\n"),
   summary: "Install, create and publish plugins.",

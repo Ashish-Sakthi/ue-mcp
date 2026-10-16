@@ -260,3 +260,33 @@ ue-mcp plugin install <your-package-name>
 ```
 
 Before publishing, confirm your plugin passes every [validation rule](plugins-troubleshooting.md#validation-rules).
+
+### The registry listing
+
+`ue-mcp plugin publish [dir]` creates or updates your listing on the plugin registry. Log in once with `ue-mcp login`.
+
+- **Slug.** A listing that already names your package keeps its slug. `--slug` creates a new listing's slug; changing an existing one also needs `--rename`.
+- **Derived on every publish.** `provides` comes from `ue-mcp.plugin.yml`: `tools` for a native module, `inject:` or `provides:`, `flows` for a non-empty `flows:`, and `skills` when `skills/` has a skill. `ueVersions` comes from `nativeModule.supportedEngineVersions`.
+- **Curated text.** Put it in the manifest so it moves with the code, or pass it as flags (`--tagline`, `--description`, `--category`). `--tags-from-keywords` sets the tags from `package.json` `keywords`. Anything you set neither way keeps the listing's current value.
+
+  ```yaml
+  registry:
+    tagline: Voxel terrain authoring for ue-mcp
+    description: Create, stamp and query voxel terrain from the editor.
+    category: landscape
+    tags: [voxel, terrain]
+  ```
+
+- **README.** `--readme snapshot` (the default) stores your README.md, and the listing shows that copy until the next publish. `--readme live` stores none, and the listing renders the README from your public repository each time it is viewed.
+- **`--dry-run`** prints each field the publish would change, the slug first, and posts nothing.
+
+In CI, publish the listing right after the package:
+
+```yaml
+- run: npm publish
+- run: npx ue-mcp plugin publish .
+  env:
+    UE_MCP_PUBLISH_TOKEN: ${{ secrets.UE_MCP_PUBLISH_TOKEN }}
+```
+
+Mint the token on the registry's account page.
