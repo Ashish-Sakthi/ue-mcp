@@ -29,6 +29,7 @@
 #include "Elements/PCGStaticMeshSpawner.h"
 #include "MeshSelectors/PCGMeshSelectorWeighted.h"
 #include "InstanceDataPackers/PCGInstanceDataPackerBase.h"
+#include "Metadata/PCGAttributePropertySelector.h"
 #include "UObject/UObjectIterator.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/Brush.h"
@@ -191,6 +192,110 @@ namespace
 			}
 			OutRecreated.AddUnique(TEXT("InstanceDataPackerParameters"));
 		}
+	}
+
+	// FPCGAttributePropertySelector and its Input/Output subclasses, matched by name so no struct export is assumed.
+	static bool IsPCGSelectorStruct(const UStruct* Struct)
+	{
+		for (const UStruct* S = Struct; S; S = S->GetSuperStruct())
+		{
+			if (S->GetFName() == FName(TEXT("PCGAttributePropertySelector"))) return true;
+		}
+		return false;
+	}
+
+	static const FStructProperty* AsSelectorProp(const FProperty* Prop)
+	{
+		const FStructProperty* SP = CastField<FStructProperty>(Prop);
+		return SP && IsPCGSelectorStruct(SP->Struct) ? SP : nullptr;
+	}
+
+	/** The selector at Addr in editor syntax: "$Position.Z", "@Last", "MyAttr". */
+	static FString PCGSelectorText(const void* Addr)
+	{
+		return static_cast<const FPCGAttributePropertySelector*>(Addr)->GetDisplayText().ToString();
+	}
+
+	/**
+	 * Writes Value over the whole selector at Addr (#1275). A string in editor syntax goes through the selector's
+	 * own parser. Export text ("PCGBegin(...)PCGEnd" or "(...)") imports as any other struct text.
+	 */
+	static bool SetPCGSelectorFromJson(const FStructProperty* Prop, void* Addr, const TSharedPtr<FJsonValue>& Value, FString& OutError)
+	{
+		UScriptStruct* Struct = Prop->Struct;
+		FString Text;
+		const bool bString = Value.IsValid() && Value->TryGetString(Text);
+		Text.TrimStartAndEndInline();
+		if (!(bString && !Text.StartsWith(TEXT("PCGBegin")) && !Text.StartsWith(TEXT("("))))
+		{
+			return MCPJsonProperty::SetJsonOnProperty(const_cast<FStructProperty*>(Prop), Addr, Value, OutError);
+		}
+		TArray<uint8> Scratch;
+		Scratch.SetNumZeroed(Struct->GetStructureSize());
+		Struct->InitializeStruct(Scratch.GetData());
+		const bool bOk = static_cast<FPCGAttributePropertySelector*>(static_cast<void*>(Scratch.GetData()))->Update(Text);
+		if (!bOk) OutError = FString::Printf(TEXT("'%s' is not a selector the PCG editor accepts (MyAttr, $Density, @Last, $Position.Z)"), *Text);
+		if (bOk) Struct->CopyScriptStruct(Addr, Scratch.GetData());
+		Struct->DestroyStruct(Scratch.GetData());
+		return bOk;
+	}
+
+	/** Whether Value writes a selector anywhere under Prop: the selector itself, an array of them, or a struct object holding one. */
+	static bool WritesPCGSelector(const FProperty* Prop, const TSharedPtr<FJsonValue>& Value)
+	{
+		if (!Prop || !Value.IsValid()) return false;
+		if (AsSelectorProp(Prop)) return true;
+		if (const FArrayProperty* AP = CastField<FArrayProperty>(Prop)) return Value->Type == EJson::Array && AsSelectorProp(AP->Inner);
+		const FStructProperty* SP = CastField<FStructProperty>(Prop);
+		if (!SP || Value->Type != EJson::Object) return false;
+		for (const auto& Pair : Value->AsObject()->Values)
+		{
+			if (WritesPCGSelector(SP->Struct->FindPropertyByName(FName(*Pair.Key)), Pair.Value)) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * The settings write every PCG handler uses: SetDottedPropertyFromJson, except that selectors (alone, in an
+	 * array, or inside a struct object) are written whole through SetPCGSelectorFromJson.
+	 */
+	static bool SetPCGSettingFromJson(UObject* Settings, const FString& Key, const TSharedPtr<FJsonValue>& Value, FString& OutError)
+	{
+		FProperty* Leaf = nullptr;
+		void* LeafAddr = nullptr;
+		UObject* LeafOwner = nullptr;
+		FString ResolveErr;
+		if (!MCPJsonProperty::ResolveDottedPath(Settings, Key, Leaf, LeafAddr, LeafOwner, ResolveErr) || !Leaf || !LeafAddr
+			|| !WritesPCGSelector(Leaf, Value))
+		{
+			return MCPJsonProperty::SetDottedPropertyFromJson(Settings, Key, Value, OutError);
+		}
+		if (const FStructProperty* Selector = AsSelectorProp(Leaf)) return SetPCGSelectorFromJson(Selector, LeafAddr, Value, OutError);
+		if (const FArrayProperty* AP = CastField<FArrayProperty>(Leaf))
+		{
+			const TArray<TSharedPtr<FJsonValue>>& Items = Value->AsArray();
+			FScriptArrayHelper Helper(AP, LeafAddr);
+			Helper.Resize(Items.Num());
+			for (int32 i = 0; i < Items.Num(); ++i)
+			{
+				FString ItemErr;
+				if (!SetPCGSelectorFromJson(AsSelectorProp(AP->Inner), Helper.GetRawPtr(i), Items[i], ItemErr))
+				{
+					OutError = FString::Printf(TEXT("[%d]: %s"), i, *ItemErr);
+					return false;
+				}
+			}
+			return true;
+		}
+		// A struct object holding a selector: each field is written on its own, the same merge a struct object gets.
+		TArray<FString> Problems;
+		for (const auto& Pair : Value->AsObject()->Values)
+		{
+			FString FieldErr;
+			if (!SetPCGSettingFromJson(Settings, Key + TEXT(".") + FString(*Pair.Key), Pair.Value, FieldErr)) Problems.Add(FieldErr);
+		}
+		OutError = FString::Join(Problems, TEXT("; "));
+		return Problems.Num() == 0;
 	}
 
 	static bool IsSpawnerInstancedTypeKey(const FString& Key)
@@ -1359,7 +1464,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 	for (const auto& Prop : PropertiesToSet)
 	{
 		FString SubErr;
-		if (MCPJsonProperty::SetDottedPropertyFromJson(Settings, Prop.Key, Prop.Value, SubErr))
+		if (SetPCGSettingFromJson(Settings, Prop.Key, Prop.Value, SubErr))
 		{
 			FinishPCGSettingWrite(Settings, Prop.Key, Recreated, AppliedKeys);
 			SetResults->SetField(Prop.Key, Prop.Value);
@@ -2534,7 +2639,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			{
 				const FString& SettingName = Pair.Key;
 				FString SubErr;
-				if (MCPJsonProperty::SetDottedPropertyFromJson(DefaultSettings, SettingName, Pair.Value, SubErr))
+				if (SetPCGSettingFromJson(DefaultSettings, SettingName, Pair.Value, SubErr))
 				{
 					++SettingsApplied;
 					FinishPCGSettingWrite(DefaultSettings, SettingName, Recreated, AppliedKeys);
