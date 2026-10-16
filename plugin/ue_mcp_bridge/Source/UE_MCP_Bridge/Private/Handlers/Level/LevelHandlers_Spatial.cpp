@@ -462,6 +462,11 @@ TSharedPtr<FJsonValue> FLevelHandlers::NudgeComponent(const TSharedPtr<FJsonObje
 	}
 	RollbackPayload->SetObjectField(TEXT("relativeTransform"), TransformToJson(PreviousRelative));
 	MCPSetRollback(Result, TEXT("restore_component_relative_transform"), RollbackPayload);
+	// Last, because a construction script rerun can replace Component: OnActorMoved fires as after a drag (#1315).
+	if (!bRuntimeWorld)
+	{
+		Actor->PostEditMove(true);
+	}
 	return MCPResult(Result);
 }
 
@@ -572,6 +577,11 @@ TSharedPtr<FJsonValue> FLevelHandlers::RestoreComponentRelativeTransform(const T
 	}
 	RollbackPayload->SetObjectField(TEXT("relativeTransform"), TransformToJson(PreviousRelative));
 	MCPSetRollback(Result, TEXT("restore_component_relative_transform"), RollbackPayload);
+	// Last, because a construction script rerun can replace Component: OnActorMoved fires as after a drag (#1315).
+	if (!bRuntimeWorld)
+	{
+		Actor->PostEditMove(true);
+	}
 	return MCPResult(Result);
 }
 

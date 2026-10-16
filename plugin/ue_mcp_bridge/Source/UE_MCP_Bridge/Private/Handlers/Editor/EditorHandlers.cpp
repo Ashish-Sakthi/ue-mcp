@@ -69,6 +69,7 @@
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "FileHelpers.h"
+#include "Engine/Level.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Misc/DateTime.h"
 #include "HAL/FileManager.h"
@@ -191,9 +192,10 @@ namespace
 		}
 		FString SaveError;
 		bool bSaved = false;
-		if (Package && Package->ContainsMap())
+		// A level's actors and components are not assets: save the map or external actor package itself (#1315).
+		if (Package && (Package->ContainsMap() || Asset->GetTypedOuter<ULevel>() != nullptr))
 		{
-			bSaved = !MCPPackageWriteBlocked(Asset, SaveError) && UEditorAssetLibrary::SaveLoadedAsset(Asset, /*bOnlyIfIsDirty=*/true);
+			bSaved = !MCPPackageWriteBlocked(Asset, SaveError) && UEditorLoadingAndSavingUtils::SavePackages({ Package }, /*bOnlyDirty=*/true);
 			if (!bSaved && SaveError.IsEmpty())
 			{
 				SaveError = TEXT("The editor refused to save the level package. The output log carries the reason.");
@@ -383,7 +385,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("get_editor_performance_stats"), &GetEditorPerformanceStats, NoParams);
 	Registry.RegisterHandler(TEXT("get_output_log"), &GetOutputLog, {
-		MCPParam::Optional(TEXT("maxLines"), EType::Integer, TEXT("How far back into the ring buffer to read (default 100)")),
+		MCPParam::Optional(TEXT("maxLines"), EType::Integer, TEXT("How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)")),
 		MCPParam::Optional(TEXT("filter"), EType::String, TEXT("Case-insensitive substring the message must contain")),
 		MCPParam::Optional(TEXT("category"), EType::String, TEXT("Case-insensitive substring the log category must contain")),
 		CursorParam(),
@@ -2263,9 +2265,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetEditorPerformanceStats(const TSharedP
 
 TSharedPtr<FJsonValue> FEditorHandlers::GetOutputLog(const TSharedPtr<FJsonObject>& Params)
 {
-	int32 MaxLines = OptionalInt(Params, TEXT("maxLines"), 100);
 	FString Filter = OptionalString(Params, TEXT("filter"));
 	FString Category = OptionalString(Params, TEXT("category"));
+	// A filtered read searches the whole buffer by default; a 100-line window missed older matches (#1315).
+	const bool bFiltered = !Filter.IsEmpty() || !Category.IsEmpty();
+	int32 MaxLines = OptionalInt(Params, TEXT("maxLines"), bFiltered ? 4096 : 100);
 
 	// T3: paged. `maxLines` still selects the recency WINDOW read out of the
 	// ring buffer, so the default call returns what it always did. What it no

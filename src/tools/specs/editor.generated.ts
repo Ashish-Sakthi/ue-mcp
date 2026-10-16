@@ -746,7 +746,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "maxLines",
         "type": "integer",
         "required": false,
-        "description": "How far back into the ring buffer to read (default 100)"
+        "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
       },
       {
         "name": "filter",
@@ -3001,7 +3001,7 @@ export const schema: Record<string, z.ZodType> = {
   maxDistance: z.number().optional().describe("Max ray length in cm (default 200000)"),
   maxEntries: z.number().optional().describe("Cap on entries returned (default 50)"),
   maxFrames: z.number().optional().describe("Refuse a range with more frames than this (default 300, max 5000)"),
-  maxLines: z.number().int().optional().describe("Messages to return (default 200) (get_message_log). How far back into the ring buffer to read (default 100) (get_output_log)"),
+  maxLines: z.number().int().optional().describe("Messages to return (default 200) (get_message_log). How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given) (get_output_log)"),
   maxLogChars: z.number().optional().describe("Keep only the last N characters of logged output"),
   maxResults: z.number().int().optional().describe("Cap on matching lines collected out of the 4096-line ring buffer (default 4096)"),
   maxTargets: z.number().int().optional().describe("Upper bound on resolved actor and component targets; a larger set is refused rather than truncated"),

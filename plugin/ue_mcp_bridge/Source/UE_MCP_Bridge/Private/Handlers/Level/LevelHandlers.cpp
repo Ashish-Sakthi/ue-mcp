@@ -1957,6 +1957,11 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 	Payload->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(PreviousScale));
 	MCPSetRollback(Result, TEXT("move_actor"), Payload);
 
+	// Last, because it can rerun construction scripts: listeners on OnActorMoved (PCG, splines) see the move (#1315).
+	if (bEditorWorld)
+	{
+		Actor->PostEditMove(true);
+	}
 	return MCPResult(Result);
 }
 
