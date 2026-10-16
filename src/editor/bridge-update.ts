@@ -44,7 +44,11 @@ import { removeLegacyPythonContent } from "./legacy-python.js";
 /** Minimal fetch, injected so the release lookups can be tested without a network. */
 export type ReleaseFetcher = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
 
-export const NPM_PACKAGE_URL = "https://registry.npmjs.org/ue-mcp";
+/** The ue-mcp package document on the npm registry: UE_MCP_NPM_REGISTRY, else the public one. */
+export function npmPackageUrl(): string {
+  return `${(readEnv("npmRegistry") || "https://registry.npmjs.org").replace(/\/+$/, "")}/ue-mcp`;
+}
+
 export const PENDING_UPDATE_NAME = ".ue-mcp-update-pending.json";
 
 export interface UpdateCheck {
@@ -86,7 +90,7 @@ function binariesBase(): string {
 
 /** The newest version on `channel`, and on `latest` when that is newer, from the npm registry's dist-tags. */
 async function newestOnChannel(channel: string, fetcher: ReleaseFetcher): Promise<string | null> {
-  const res = await fetcher(NPM_PACKAGE_URL);
+  const res = await fetcher(npmPackageUrl());
   if (!res.ok) throw new Error(`npm registry answered ${res.status}`);
   const tags = ((await res.json()) as { "dist-tags"?: Record<string, string> })["dist-tags"] ?? {};
   const onChannel = tags[channel] ?? null;

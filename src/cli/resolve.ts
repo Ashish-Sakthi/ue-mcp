@@ -36,7 +36,7 @@ function sh(cmd: string): string {
 
 /* ── Main ────────────────────────────────────────────────────────── */
 
-async function resolve(argv: string[]) {
+async function resolve(argv: string[]): Promise<number> {
   // --editor picks which of this server's editors the workflow runs in. Every
   // git and gh call below inherits the process cwd, so the target is applied
   // by moving there once, before any of them run.
@@ -45,7 +45,7 @@ async function resolve(argv: string[]) {
     target = takeEditorTarget(argv);
   } catch (e) {
     fail(e instanceof EditorFlagError ? e.message : String(e));
-    return;
+    return 1;
   }
   if (target.projectPath) {
     const dir = projectDirOf(target.projectPath);
@@ -86,7 +86,7 @@ async function resolve(argv: string[]) {
   try {
     const remote = sh("git remote get-url origin");
     const match = remote.match(/[/:]([^/]+\/[^/.]+?)(?:\.git)?$/);
-    if (match) {
+    if (match && /^[\w.-]+\/[\w.-]+$/.test(match[1])) {
       repo = match[1];
     } else {
       console.error(`  ${YELLOW}!${RESET} origin remote '${remote.trim()}' did not match owner/repo pattern - falling back to db-lyon/ue-mcp`);
@@ -110,7 +110,7 @@ async function resolve(argv: string[]) {
     issue = JSON.parse(raw);
   } catch {
     fail(`Could not fetch issue #${issueNum} from ${repo}`);
-    return; // unreachable, but satisfies TS
+    return 1; // unreachable, but satisfies TS
   }
 
   ok(`Issue #${issueNum}: ${issue.title}`);
@@ -159,10 +159,6 @@ async function resolve(argv: string[]) {
     `5. Do NOT push, create PRs, or make unrelated changes`,
   ].join("\n");
 
-  // Write prompt to a temp file so shell escaping can't mangle it
-  const promptFile = path.join(os.tmpdir(), `ue-mcp-resolve-${issueNum}.md`);
-  fs.writeFileSync(promptFile, prompt);
-
   const claudeArgs = ["--print", "--dangerously-skip-permissions"];
 
   console.log(`  ${DIM}Launching Claude Code${ciMode ? " (CI mode)" : ""}...${RESET}`);
@@ -180,15 +176,12 @@ async function resolve(argv: string[]) {
     child.on("error", () => resolve(1));
   });
 
-  // Clean up
-  try { fs.unlinkSync(promptFile); } catch { /* ignore */ }
-
   console.log("");
 
   if (exitCode !== 0) {
     console.log(`  ${DIM}Claude exited with code ${exitCode}. Branch ${branch} preserved.${RESET}`);
     console.log("");
-    return;
+    return exitCode ?? 1;
   }
 
   // Check if there are commits on this branch beyond main
@@ -203,7 +196,7 @@ async function resolve(argv: string[]) {
   if (commitCount === 0) {
     console.log(`  ${DIM}No commits on ${branch}. Nothing to push.${RESET}`);
     console.log("");
-    return;
+    return 0;
   }
 
   ok(`${commitCount} commit(s) ready`);
@@ -225,18 +218,26 @@ async function resolve(argv: string[]) {
       `*Automated with \`npx ue-mcp resolve ${issueNum}\`*`,
     ].join("\n");
 
-    const prUrl = sh(
-      `gh pr create --title "${prTitle.replace(/"/g, '\\"')}" --body "${prBody.replace(/"/g, '\\"')}" --repo ${repo} --head ${branch}`,
-    );
+    // The title is issue text, so it travels in a file: nothing a shell parses carries it.
+    const requestFile = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "ue-mcp-resolve-")), "pr.json");
+    fs.writeFileSync(requestFile, JSON.stringify({ title: prTitle, body: prBody, head: branch, base: "main" }));
+    let prUrl: string;
+    try {
+      prUrl = sh(`gh api repos/${repo}/pulls --method POST --input "${requestFile}" --jq .html_url`);
+    } finally {
+      fs.rmSync(path.dirname(requestFile), { recursive: true, force: true });
+    }
     console.log("");
     ok(`PR created: ${prUrl}`);
   } catch {
-    // PR creation might fail if they don't have push access to upstream
-    // In that case, they can create the PR manually
-    console.log(`  ${DIM}Tip: create a PR manually if you're working from a fork${RESET}`);
+    // Without access to open a PR on origin (a fork, say), the branch is pushed and waits.
+    console.log(`  ${RED}✗${RESET} Could not open the pull request. ${branch} is pushed; open it manually.`);
+    console.log("");
+    return 1;
   }
 
   console.log("");
+  return 0;
 }
 
 export const usage: CliUsage = {
@@ -252,7 +253,7 @@ export const usage: CliUsage = {
 /** Entry point for `ue-mcp resolve <issue-number> [--ci]`. */
 export async function run(argv: string[]): Promise<number | void> {
   try {
-    await resolve(argv);
+    return await resolve(argv);
   } catch (e) {
     console.error(`\n  ${RED}Fatal: ${e instanceof Error ? e.message : e}${RESET}\n`);
     return 1;

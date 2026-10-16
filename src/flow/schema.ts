@@ -15,7 +15,8 @@ import { GuardsSchema } from "./guard-schema.js";
  *     http: { enabled: false, port: 7723 }
  */
 export const FlowVersionSchema = z.object({
-  version: z.literal(1),
+  // Absent reads as 1, so a layer that only sets preferences still loads.
+  version: z.literal(1).default(1),
   contentRoots: z.array(z.string()).optional(),
   disable: z.array(z.string()).optional(),
   http: z

@@ -13,6 +13,7 @@ import { startDaemon, type Daemon } from "../../src/daemon/daemon.js";
 import { signBundle } from "../../src/daemon/ui-bundles.js";
 import { DAEMON_API_VERSION } from "../../src/daemon/discovery.js";
 import { restoreEnv } from "../helpers/env.js";
+import { userSandboxEnv } from "../helpers/user-sandbox.js";
 
 let sandbox: string;
 let daemon: Daemon;
@@ -36,8 +37,7 @@ beforeAll(async () => {
   sandbox = fs.mkdtempSync(path.join(os.tmpdir(), "ue-mcp-ext-"));
   for (const k of Object.keys(process.env)) if (k.startsWith("UE_MCP_")) delete process.env[k];
   process.env.UE_MCP_PORT = "1";
-  process.env.UE_MCP_STATE_DIR = path.join(sandbox, "state");
-  process.env.UE_MCP_CONFIG_DIR = path.join(sandbox, "config");
+  Object.assign(process.env, userSandboxEnv(sandbox));
   process.env.HOME = sandbox;
   process.env.USERPROFILE = sandbox;
   // Named explicitly: HOME does not reach os.homedir() once an earlier file replaced process.env.

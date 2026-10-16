@@ -20,9 +20,13 @@ import type { CliUsage } from "./cli-main.js";
 
 const USAGE = "usage: ue-mcp extension <install <zip|url> [--sha256 <hex>] | remove <name> | list> [project] [--json]";
 
+/** A value flag's value, written `--name value` or `--name=value`. */
 function flag(argv: string[], name: string): string | undefined {
-  const i = argv.indexOf(name);
-  return i >= 0 ? argv[i + 1] : undefined;
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === name) return argv[i + 1];
+    if (argv[i].startsWith(`${name}=`)) return argv[i].slice(name.length + 1);
+  }
+  return undefined;
 }
 
 /** Stop the project's daemon and start a new one, so it loads the current extensions. */

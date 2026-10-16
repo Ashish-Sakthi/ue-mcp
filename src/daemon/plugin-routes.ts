@@ -16,7 +16,6 @@
 import { spawn } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { loadManifest } from "../extensions/manifest.js";
 import { findInstalledPackage } from "../extensions/resolver.js";
 import { readPluginsList } from "../extensions/plugins-list.js";
@@ -65,12 +64,12 @@ const CATALOG_TTL_MS = 10 * 60_000;
 const NAME = /^(@[a-z0-9][\w.-]*\/)?[a-z0-9][\w.-]*$/i;
 const VERSION = /^[\w.^~<>=*+-]+$/;
 
-/** The CLI this daemon was started from: dist/index.js beside dist/daemon/. */
-const cliEntry = (): string => path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "index.js");
+/** The CLI this daemon was started from, with the same node flags, so a source checkout under tsx runs its own source. */
+const cliArgs = (): string[] => [...process.execArgv, process.argv[1]];
 
 export const runPluginCommand: PluginCommandRunner = (args, cwd) =>
   new Promise((resolve) => {
-    const child = spawn(process.execPath, [cliEntry(), "plugin", ...args], { cwd, windowsHide: true, env: process.env });
+    const child = spawn(process.execPath, [...cliArgs(), "plugin", ...args], { cwd, windowsHide: true, env: process.env });
     let output = "";
     const take = (b: Buffer) => {
       output = (output + b.toString()).slice(-64 * 1024);
