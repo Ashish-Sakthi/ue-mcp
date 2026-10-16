@@ -693,6 +693,9 @@ FString FMCPBridgeServer::ProcessMessage(const FString& Message)
 		TEXT("get_dialog_policy"),
 		TEXT("set_dialog_policy"),
 		TEXT("clear_dialog_policy"),
+		TEXT("list_windows"),
+		TEXT("press_window_button"),
+		TEXT("close_window"),
 	};
 	const bool bModalSafe = ModalSafeMethods.Contains(Method);
 

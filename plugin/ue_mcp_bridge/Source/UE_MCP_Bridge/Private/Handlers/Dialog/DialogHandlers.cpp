@@ -43,8 +43,12 @@
 #include "HAL/PlatformTime.h"
 #include "HAL/PlatformMisc.h"
 #include "Framework/Application/SlateApplication.h"
+#include "Framework/Docking/TabManager.h"
 #include "Widgets/SWindow.h"
+#include "Widgets/IToolTip.h"
+#include "Widgets/SToolTip.h"
 #include "Widgets/Text/STextBlock.h"
+#include "Widgets/Text/SRichTextBlock.h"
 #include "Widgets/Input/SButton.h"
 #include "Widgets/Input/SCheckBox.h"
 
@@ -297,6 +301,24 @@ void FDialogHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		}),
 	}, MCPSpec::AtLeastOne({ { TEXT("buttonLabel") }, { TEXT("buttonIndex") }, { TEXT("dialogAction") } })
 		.ContractExempt(TEXT("presses a button on the active modal dialog")));
+
+	// #1231: every open modal and floating window, not only the one the gate
+	// describes, addressed by the windowId list_windows reports.
+	Registry.RegisterHandler(TEXT("list_windows"), &ListWindows, {
+		MCPParam::Optional(TEXT("windowId"), EType::Integer, TEXT("Describe only this window, by the id list_windows or list_dialogs reported")),
+		MCPParam::Optional(TEXT("maxTexts"), EType::Integer, TEXT("Texts reported per window (default 200)")),
+		MCPParam::Optional(TEXT("maxTextChars"), EType::Integer, TEXT("Characters kept per text (default 2000)")),
+		MCPParam::Optional(TEXT("maxButtons"), EType::Integer, TEXT("Buttons reported per window (default 200)")),
+	});
+	Registry.RegisterHandler(TEXT("press_window_button"), &PressWindowButton, {
+		MCPParam::Required(TEXT("windowId"), EType::Integer, TEXT("Window to press a button on, by the id list_windows reported")),
+		MCPParam::Optional(TEXT("buttonLabel"), EType::String, TEXT("Label of the button to press, matched exactly first, then as a substring; refused when ambiguous")),
+		MCPParam::Optional(TEXT("buttonIndex"), EType::Number, TEXT("Index of the button to press, in the order list_windows reports")),
+	}, MCPSpec::ExactlyOne({ { TEXT("buttonLabel") }, { TEXT("buttonIndex") } })
+		.ContractExempt(TEXT("presses a button on an open editor window")));
+	Registry.RegisterHandler(TEXT("close_window"), &CloseWindowById, {
+		MCPParam::Required(TEXT("windowId"), EType::Integer, TEXT("Window to close, by the id list_windows reported")),
+	}, MCPSpec::ContractExempt(TEXT("closes an open editor window")));
 }
 
 void FDialogHandlers::InstallDialogHook()
@@ -944,6 +966,394 @@ namespace MCPDialogWindows
 	}
 }
 
+// Window control (#1231): every open modal and floating window, addressed by
+// an id, acted on only where Slate would route a person's input. A NAMED
+// namespace, for the unity-build reason MCPDialogPolicy gives.
+namespace MCPWindowControl
+{
+	/** Weak, so a record never keeps a closed window alive; ids are never reused. */
+	struct FTrackedWindow
+	{
+		int32 Id = 0;
+		TWeakPtr<SWindow> Window;
+	};
+
+	static TArray<FTrackedWindow> TrackedWindows;
+	static int32 NextWindowId = 1;
+
+	static int32 IdForWindow(const TSharedRef<SWindow>& Window)
+	{
+		TrackedWindows.RemoveAll([](const FTrackedWindow& Entry) { return !Entry.Window.IsValid(); });
+		for (const FTrackedWindow& Entry : TrackedWindows)
+		{
+			if (Entry.Window.HasSameObject(&Window.Get()))
+			{
+				return Entry.Id;
+			}
+		}
+		FTrackedWindow NewEntry;
+		NewEntry.Id = NextWindowId++;
+		NewEntry.Window = Window;
+		TrackedWindows.Add(NewEntry);
+		return NewEntry.Id;
+	}
+
+	static void GatherOpenWindows(const TArray<TSharedRef<SWindow>>& Windows, const SWindow* MainWindow, TArray<TSharedRef<SWindow>>& Out)
+	{
+		for (const TSharedRef<SWindow>& Window : Windows)
+		{
+			if (Window->IsRegularWindow() && &Window.Get() != MainWindow)
+			{
+				Out.AddUnique(Window);
+			}
+			GatherOpenWindows(Window->GetChildWindows(), MainWindow, Out);
+		}
+	}
+
+	/**
+	 * Every regular window except the main editor window. GetTopLevelWindows,
+	 * because GetInteractiveTopLevelWindows returns only the modal while one is
+	 * up and would hide the windows behind it.
+	 */
+	static TArray<TSharedRef<SWindow>> OpenWindows()
+	{
+		TArray<TSharedRef<SWindow>> Out;
+		if (!FSlateApplication::IsInitialized())
+		{
+			return Out;
+		}
+		const TSharedPtr<SWindow> MainWindow = FGlobalTabmanager::Get()->GetRootWindow();
+		GatherOpenWindows(FSlateApplication::Get().GetTopLevelWindows(), MainWindow.Get(), Out);
+		return Out;
+	}
+
+	static TSharedPtr<SWindow> FindOpenWindow(int32 WindowId)
+	{
+		const FTrackedWindow* Entry = TrackedWindows.FindByPredicate(
+			[WindowId](const FTrackedWindow& Candidate) { return Candidate.Id == WindowId; });
+		const TSharedPtr<SWindow> Tracked = Entry ? Entry->Window.Pin() : nullptr;
+		if (!Tracked.IsValid())
+		{
+			return nullptr;
+		}
+		// Destruction is queued for the next Slate tick, so alive is not open.
+		for (const TSharedRef<SWindow>& Window : OpenWindows())
+		{
+			if (&Window.Get() == Tracked.Get())
+			{
+				return Tracked;
+			}
+		}
+		return nullptr;
+	}
+
+	/** FSlateApplication::ShouldProcessUserInputMessages, asked of one window. */
+	static bool ReceivesInput(const TSharedRef<SWindow>& Window)
+	{
+		const TSharedPtr<SWindow> ActiveModal = FSlateApplication::Get().GetActiveModalWindow();
+		return !ActiveModal.IsValid() || ActiveModal.Get() == &Window.Get() || Window->IsDescendantOf(ActiveModal);
+	}
+
+	/**
+	 * SButton and the public classes derived from it. Slate has no is-a test
+	 * without RTTI, so the cast to SButton is valid only for a type named here.
+	 */
+	static bool IsButton(const TSharedRef<SWidget>& Widget)
+	{
+		static const FName ButtonType(TEXT("SButton"));
+		static const FName HyperlinkType(TEXT("SHyperlink"));
+		static const FName PrimaryButtonType(TEXT("SPrimaryButton"));
+		static const FName SimpleButtonType(TEXT("SSimpleButton"));
+		const FName Type = Widget->GetType();
+		return Type == ButtonType || Type == HyperlinkType || Type == PrimaryButtonType || Type == SimpleButtonType;
+	}
+
+	/** The text a label widget shows. Editable fields are never read. */
+	static bool ReadDisplayedText(const TSharedRef<SWidget>& Widget, FString& OutText)
+	{
+		static const FName TextBlockType(TEXT("STextBlock"));
+		const FName Type = Widget->GetType();
+		if (Type == TextBlockType)
+		{
+			OutText = StaticCastSharedRef<STextBlock>(Widget)->GetText().ToString();
+			return true;
+		}
+#if WITH_FANCY_TEXT
+		static const FName RichTextBlockType(TEXT("SRichTextBlock"));
+		if (Type == RichTextBlockType)
+		{
+			OutText = StaticCastSharedRef<SRichTextBlock>(Widget)->GetText().ToString();
+			return true;
+		}
+#endif
+		return false;
+	}
+
+	/** A plain tooltip's text, which is how an icon-only button says what it does. */
+	static FString ReadToolTipText(const TSharedRef<SWidget>& Widget)
+	{
+		const TSharedPtr<IToolTip> ToolTip = Widget->GetToolTip();
+		if (!ToolTip.IsValid())
+		{
+			return FString();
+		}
+		const TSharedRef<SWidget> ToolTipWidget = ToolTip->AsWidget();
+		static const FName ToolTipType(TEXT("SToolTip"));
+		if (ToolTipWidget->GetType() != ToolTipType)
+		{
+			return FString();
+		}
+		return StaticCastSharedRef<SToolTip>(ToolTipWidget)->GetTextTooltip().ToString();
+	}
+
+	/** SButton::SimulateClick runs even on a disabled button, so enablement is checked up the tree. */
+	static bool IsEffectivelyEnabled(const TSharedRef<SWidget>& Widget)
+	{
+		for (TSharedPtr<SWidget> Current = Widget; Current.IsValid(); Current = Current->GetParentWidget())
+		{
+			if (!Current->IsEnabled())
+			{
+				return false;
+			}
+		}
+		return true;
+	}
+
+	struct FWindowButton
+	{
+		TSharedPtr<SButton> Button;
+		FString Label;
+		FString ToolTip;
+		bool bEnabled = true;
+	};
+
+	struct FWindowContent
+	{
+		TArray<FString> Texts;
+		TArray<FWindowButton> Buttons;
+	};
+
+	/**
+	 * Depth first over visible widgets. A button's label is the first text
+	 * inside it, and text inside a button belongs to that button.
+	 */
+	static void WalkWindowContent(const TSharedRef<SWidget>& Widget, int32 EnclosingButton, FWindowContent& Out)
+	{
+		if (!Widget->GetVisibility().IsVisible())
+		{
+			return;
+		}
+
+		int32 ButtonIndex = EnclosingButton;
+		if (IsButton(Widget))
+		{
+			FWindowButton Entry;
+			Entry.Button = StaticCastSharedRef<SButton>(Widget);
+			Entry.bEnabled = IsEffectivelyEnabled(Widget);
+			ButtonIndex = Out.Buttons.Add(Entry);
+		}
+
+		FString Text;
+		if (ReadDisplayedText(Widget, Text) && !Text.IsEmpty())
+		{
+			if (ButtonIndex == INDEX_NONE)
+			{
+				Out.Texts.Add(Text);
+			}
+			else if (Out.Buttons[ButtonIndex].Label.IsEmpty())
+			{
+				Out.Buttons[ButtonIndex].Label = Text;
+			}
+		}
+
+		if (FChildren* Children = Widget->GetChildren())
+		{
+			for (int32 Index = 0; Index < Children->Num(); ++Index)
+			{
+				WalkWindowContent(Children->GetChildAt(Index), ButtonIndex, Out);
+			}
+		}
+	}
+
+	static FWindowContent CollectWindowContent(const TSharedRef<SWindow>& Window)
+	{
+		FWindowContent Content;
+		WalkWindowContent(Window, INDEX_NONE, Content);
+
+		const FString Title = Window->GetTitle().ToString();
+		Content.Texts.RemoveAll([&Title](const FString& Text) { return Text == Title; });
+
+		for (FWindowButton& Button : Content.Buttons)
+		{
+			if (Button.Label.IsEmpty() && Button.Button.IsValid())
+			{
+				Button.ToolTip = ReadToolTipText(Button.Button.ToSharedRef());
+			}
+		}
+		return Content;
+	}
+
+	static TSharedPtr<FJsonObject> DescribeWindow(const TSharedRef<SWindow>& Window, const TSharedPtr<SWindow>& GatingWindow)
+	{
+		const TSharedPtr<SWindow> ActiveModal = FSlateApplication::Get().GetActiveModalWindow();
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetNumberField(TEXT("windowId"), IdForWindow(Window));
+		Obj->SetStringField(TEXT("title"), Window->GetTitle().ToString());
+		Obj->SetBoolField(TEXT("isModal"), Window->IsModalWindow());
+		Obj->SetBoolField(TEXT("isActiveModal"), ActiveModal.Get() == &Window.Get());
+		Obj->SetBoolField(TEXT("receivesInput"), ReceivesInput(Window));
+		Obj->SetBoolField(TEXT("hasParentWindow"), Window->GetParentWindow().IsValid());
+		Obj->SetBoolField(TEXT("hostsDockTabs"), MCPDialogWindows::HostsDockedTabs(Window));
+		Obj->SetBoolField(TEXT("isVisible"), Window->IsVisible());
+		Obj->SetBoolField(TEXT("gatesBridge"), GatingWindow.Get() == &Window.Get());
+		return Obj;
+	}
+
+	static TArray<TSharedPtr<FJsonValue>> DescribeOpenWindows(const TSharedPtr<SWindow>& GatingWindow)
+	{
+		TArray<TSharedPtr<FJsonValue>> Out;
+		for (const TSharedRef<SWindow>& Window : OpenWindows())
+		{
+			Out.Add(MakeShared<FJsonValueObject>(DescribeWindow(Window, GatingWindow)));
+		}
+		return Out;
+	}
+
+	static TSharedPtr<FJsonObject> DescribeButton(const FWindowContent& Content, int32 Index)
+	{
+		const FWindowButton& Button = Content.Buttons[Index];
+		TSharedPtr<FJsonObject> ButtonObj = MakeShared<FJsonObject>();
+		ButtonObj->SetNumberField(TEXT("index"), Index);
+		ButtonObj->SetStringField(TEXT("label"), Button.Label);
+		ButtonObj->SetStringField(TEXT("toolTip"), Button.ToolTip);
+		ButtonObj->SetBoolField(TEXT("enabled"), Button.bEnabled);
+		return ButtonObj;
+	}
+
+	static void AddWindowContent(const TSharedPtr<FJsonObject>& Obj, const FWindowContent& Content, int32 MaxTexts, int32 MaxTextChars, int32 MaxButtons)
+	{
+		bool bTextsTruncated = false;
+		TArray<TSharedPtr<FJsonValue>> TextsJson;
+		for (const FString& Text : Content.Texts)
+		{
+			if (TextsJson.Num() >= MaxTexts)
+			{
+				bTextsTruncated = true;
+				break;
+			}
+			if (Text.Len() > MaxTextChars)
+			{
+				bTextsTruncated = true;
+			}
+			TextsJson.Add(MakeShared<FJsonValueString>(Text.Left(MaxTextChars)));
+		}
+		Obj->SetArrayField(TEXT("texts"), TextsJson);
+		Obj->SetNumberField(TEXT("textCount"), Content.Texts.Num());
+		Obj->SetBoolField(TEXT("textsTruncated"), bTextsTruncated);
+
+		// Every button keeps its own index, labelled or not, because that index
+		// is what press_window_button takes.
+		TArray<TSharedPtr<FJsonValue>> ButtonsJson;
+		for (int32 Index = 0; Index < Content.Buttons.Num() && Index < MaxButtons; ++Index)
+		{
+			ButtonsJson.Add(MakeShared<FJsonValueObject>(DescribeButton(Content, Index)));
+		}
+		Obj->SetArrayField(TEXT("buttons"), ButtonsJson);
+		Obj->SetNumberField(TEXT("buttonCount"), Content.Buttons.Num());
+		Obj->SetBoolField(TEXT("buttonsTruncated"), Content.Buttons.Num() > MaxButtons);
+	}
+
+	static TArray<TSharedPtr<FJsonValue>> BriefWindowList()
+	{
+		TArray<TSharedPtr<FJsonValue>> Out;
+		for (const TSharedRef<SWindow>& Window : OpenWindows())
+		{
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetNumberField(TEXT("windowId"), IdForWindow(Window));
+			Entry->SetStringField(TEXT("title"), Window->GetTitle().ToString());
+			Out.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		return Out;
+	}
+
+	/** A window id that names nothing open, which is what a closed window's id becomes. */
+	static TSharedPtr<FJsonValue> WindowGoneRefusal(int32 WindowId)
+	{
+		TSharedPtr<FJsonObject> Gone = MakeShared<FJsonObject>();
+		Gone->SetBoolField(TEXT("success"), false);
+		Gone->SetBoolField(TEXT("windowGone"), true);
+		Gone->SetBoolField(TEXT("alreadyClosed"), true);
+		Gone->SetNumberField(TEXT("windowId"), WindowId);
+		Gone->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("Window %d is not open: it has closed, or this editor session never issued that id. Nothing was done. openWindows lists what is open now."),
+			WindowId));
+		Gone->SetArrayField(TEXT("openWindows"), BriefWindowList());
+		return MCPResult(Gone);
+	}
+
+	/**
+	 * The open window a call names, or null with the refusal to return. A
+	 * window Slate would not route input to is refused, so nothing is pressed
+	 * or closed behind an active modal.
+	 */
+	static TSharedPtr<SWindow> ResolveTargetWindow(bool bHasWindowId, int32 WindowId, const TCHAR* Method, TSharedPtr<FJsonValue>& OutRefusal)
+	{
+		if (!bHasWindowId)
+		{
+			OutRefusal = MCPError(FString::Printf(
+				TEXT("%s needs 'windowId'. editor(list_windows) and editor(list_dialogs) report one for every open window."),
+				Method));
+			return nullptr;
+		}
+
+		const TSharedPtr<SWindow> Window = FindOpenWindow(WindowId);
+		if (!Window.IsValid())
+		{
+			OutRefusal = WindowGoneRefusal(WindowId);
+			return nullptr;
+		}
+
+		if (!ReceivesInput(Window.ToSharedRef()))
+		{
+			const TSharedPtr<SWindow> ActiveModal = FSlateApplication::Get().GetActiveModalWindow();
+			const FString ModalTitle = ActiveModal.IsValid() ? ActiveModal->GetTitle().ToString() : FString();
+			TSharedPtr<FJsonObject> Blocked = MakeShared<FJsonObject>();
+			Blocked->SetBoolField(TEXT("success"), false);
+			Blocked->SetBoolField(TEXT("receivesInput"), false);
+			Blocked->SetNumberField(TEXT("windowId"), WindowId);
+			if (ActiveModal.IsValid())
+			{
+				Blocked->SetNumberField(TEXT("activeModalWindowId"), IdForWindow(ActiveModal.ToSharedRef()));
+				Blocked->SetStringField(TEXT("activeModalTitle"), ModalTitle);
+			}
+			Blocked->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("Window %d does not receive input: the modal '%s' is up, and until it closes Slate routes input only to it and its child windows. Nothing was done. Answer or close that modal first."),
+				WindowId, *ModalTitle));
+			OutRefusal = MCPResult(Blocked);
+			return nullptr;
+		}
+
+		return Window;
+	}
+
+	/** A press that did not happen, with the buttons the caller can choose from. */
+	static TSharedPtr<FJsonValue> ButtonRefusal(int32 WindowId, const FString& WindowTitle, const FString& Error, const FWindowContent& Content, const TArray<int32>& Listed)
+	{
+		TArray<TSharedPtr<FJsonValue>> ButtonsJson;
+		for (const int32 Index : Listed)
+		{
+			ButtonsJson.Add(MakeShared<FJsonValueObject>(DescribeButton(Content, Index)));
+		}
+		TSharedPtr<FJsonObject> Refusal = MakeShared<FJsonObject>();
+		Refusal->SetBoolField(TEXT("success"), false);
+		Refusal->SetNumberField(TEXT("windowId"), WindowId);
+		Refusal->SetStringField(TEXT("windowTitle"), WindowTitle);
+		Refusal->SetStringField(TEXT("error"), Error);
+		Refusal->SetArrayField(TEXT("buttons"), ButtonsJson);
+		return MCPResult(Refusal);
+	}
+}
+
 bool FDialogHandlers::IsBlockingWindow(const TSharedRef<SWindow>& Window, FString* OutSkipReason)
 {
 	return ClassifyWindow(Window, OutSkipReason) != EMCPPromptKind::NotAPrompt;
@@ -1146,7 +1556,13 @@ TSharedPtr<FJsonValue> FDialogHandlers::ListDialogs(const TSharedPtr<FJsonObject
 	TArray<FModalButton> Buttons;
 	TArray<FModalItem> Items;
 	EMCPPromptKind Kind = EMCPPromptKind::NotAPrompt;
-	if (CollectActiveModal(Title, Message, Buttons, &Items, &Kind).IsValid())
+	const bool bHasDialog = CollectActiveModal(Title, Message, Buttons, &Items, &Kind).IsValid();
+
+	// Every open modal and floating window, as the ids the window actions take,
+	// read here too because this is the call a refused client can still make.
+	Result->SetArrayField(TEXT("windows"), MCPWindowControl::DescribeOpenWindows(FindGatingWindow()));
+
+	if (bHasDialog)
 	{
 		TSharedPtr<FJsonObject> DialogObj = MakeShared<FJsonObject>();
 		DialogObj->SetStringField(TEXT("title"), Title);
@@ -1429,6 +1845,241 @@ TSharedPtr<FJsonValue> FDialogHandlers::RespondToDialog(const TSharedPtr<FJsonOb
 		}
 	}
 
+	return MCPResult(Result);
+}
+
+TSharedPtr<SWindow> FDialogHandlers::FindGatingWindow()
+{
+	FString Title;
+	FString Message;
+	TArray<FModalButton> Buttons;
+	EMCPPromptKind Kind = EMCPPromptKind::NotAPrompt;
+	const TSharedPtr<SWindow> Blocking = CollectActiveModal(Title, Message, Buttons, nullptr, &Kind);
+	// The rule the dialog gate applies: a modal, titled or with a labelled button.
+	const bool bDescribesAPrompt = !Title.IsEmpty()
+		|| Buttons.ContainsByPredicate([](const FModalButton& Button) { return !Button.Label.IsEmpty(); });
+	if (!Blocking.IsValid() || Kind != EMCPPromptKind::Modal || !bDescribesAPrompt)
+	{
+		return nullptr;
+	}
+	return Blocking;
+}
+
+TSharedPtr<FJsonValue> FDialogHandlers::ListWindows(const TSharedPtr<FJsonObject>& Params)
+{
+	using namespace MCPWindowControl;
+
+	int32 RequestedId = 0;
+	const bool bHasWindowId = TryGetNumberParam(Params, TEXT("windowId"), RequestedId);
+	const int32 MaxTexts = FMath::Clamp(OptionalInt(Params, TEXT("maxTexts"), 200), 1, 5000);
+	const int32 MaxTextChars = FMath::Clamp(OptionalInt(Params, TEXT("maxTextChars"), 2000), 16, 100000);
+	const int32 MaxButtons = FMath::Clamp(OptionalInt(Params, TEXT("maxButtons"), 200), 1, 5000);
+
+	if (!FSlateApplication::IsInitialized())
+	{
+		return MCPError(TEXT("Slate not initialized"));
+	}
+
+	TArray<TSharedRef<SWindow>> Windows = OpenWindows();
+	if (bHasWindowId)
+	{
+		const TSharedPtr<SWindow> Requested = FindOpenWindow(RequestedId);
+		if (!Requested.IsValid())
+		{
+			return WindowGoneRefusal(RequestedId);
+		}
+		Windows.Reset();
+		Windows.Add(Requested.ToSharedRef());
+	}
+
+	const TSharedPtr<SWindow> GatingWindow = FindGatingWindow();
+	TArray<TSharedPtr<FJsonValue>> WindowsJson;
+	for (const TSharedRef<SWindow>& Window : Windows)
+	{
+		const TSharedPtr<FJsonObject> Entry = DescribeWindow(Window, GatingWindow);
+		AddWindowContent(Entry, CollectWindowContent(Window), MaxTexts, MaxTextChars, MaxButtons);
+		WindowsJson.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetArrayField(TEXT("windows"), WindowsJson);
+	Result->SetNumberField(TEXT("count"), WindowsJson.Num());
+	if (GatingWindow.IsValid())
+	{
+		Result->SetNumberField(TEXT("gatingWindowId"), IdForWindow(GatingWindow.ToSharedRef()));
+	}
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FDialogHandlers::PressWindowButton(const TSharedPtr<FJsonObject>& Params)
+{
+	using namespace MCPWindowControl;
+
+	int32 WindowIdParam = 0;
+	const bool bHasWindowId = TryGetNumberParam(Params, TEXT("windowId"), WindowIdParam);
+	const FString ButtonLabel = OptionalString(Params, TEXT("buttonLabel")).TrimStartAndEnd();
+	int32 RequestedIndex = INDEX_NONE;
+	const bool bHasIndex = TryGetNumberParam(Params, TEXT("buttonIndex"), RequestedIndex);
+
+	if (!FSlateApplication::IsInitialized())
+	{
+		return MCPError(TEXT("Slate not initialized"));
+	}
+
+	TSharedPtr<FJsonValue> Refusal;
+	const TSharedPtr<SWindow> Window = ResolveTargetWindow(bHasWindowId, WindowIdParam, TEXT("press_window_button"), Refusal);
+	if (!Window.IsValid())
+	{
+		return Refusal;
+	}
+
+	const int32 WindowId = IdForWindow(Window.ToSharedRef());
+	const FString WindowTitle = Window->GetTitle().ToString();
+	const FWindowContent Content = CollectWindowContent(Window.ToSharedRef());
+
+	TArray<int32> AllButtons;
+	for (int32 Index = 0; Index < Content.Buttons.Num(); ++Index)
+	{
+		AllButtons.Add(Index);
+	}
+
+	if (ButtonLabel.IsEmpty() == !bHasIndex)
+	{
+		return ButtonRefusal(WindowId, WindowTitle,
+			TEXT("Name the button with buttonLabel or with buttonIndex, exactly one of the two. buttons lists this window's buttons."),
+			Content, AllButtons);
+	}
+
+	int32 Target = INDEX_NONE;
+	if (bHasIndex)
+	{
+		if (!Content.Buttons.IsValidIndex(RequestedIndex))
+		{
+			return ButtonRefusal(WindowId, WindowTitle, FString::Printf(
+				TEXT("Window %d has %d button(s), so there is no button %d. Nothing was pressed."),
+				WindowId, Content.Buttons.Num(), RequestedIndex),
+				Content, AllButtons);
+		}
+		Target = RequestedIndex;
+	}
+	else
+	{
+		// Exact before substring, and never a pick between two: "Save" is a
+		// substring of "Don't Save", and a press cannot be taken back.
+		const FString Wanted = MCPDialogPolicy::Normalise(ButtonLabel);
+		TArray<int32> Exact;
+		TArray<int32> Partial;
+		for (int32 Index = 0; Index < Content.Buttons.Num(); ++Index)
+		{
+			const FString Offered = MCPDialogPolicy::Normalise(Content.Buttons[Index].Label);
+			if (Offered.IsEmpty())
+			{
+				continue;
+			}
+			if (Offered == Wanted)
+			{
+				Exact.Add(Index);
+			}
+			else if (Offered.Contains(Wanted))
+			{
+				Partial.Add(Index);
+			}
+		}
+		const TArray<int32>& Candidates = Exact.Num() > 0 ? Exact : Partial;
+		if (Candidates.Num() == 0)
+		{
+			return ButtonRefusal(WindowId, WindowTitle, FString::Printf(
+				TEXT("No button of window %d '%s' is labelled '%s'. Nothing was pressed. An icon-only button has no label: press it by buttonIndex."),
+				WindowId, *WindowTitle, *ButtonLabel),
+				Content, AllButtons);
+		}
+		if (Candidates.Num() > 1)
+		{
+			return ButtonRefusal(WindowId, WindowTitle, FString::Printf(
+				TEXT("'%s' matches %d buttons of window %d. Nothing was pressed. Pass the buttonIndex of the one to press."),
+				*ButtonLabel, Candidates.Num(), WindowId),
+				Content, Candidates);
+		}
+		Target = Candidates[0];
+	}
+
+	const FWindowButton& Chosen = Content.Buttons[Target];
+	if (!Chosen.bEnabled)
+	{
+		return ButtonRefusal(WindowId, WindowTitle, FString::Printf(
+			TEXT("Button %d ('%s') of window %d is disabled, so it was not pressed. A person could not press it either."),
+			Target, *Chosen.Label, WindowId),
+			Content, { Target });
+	}
+
+	const FString ClickedLabel = Chosen.Label;
+	const TSharedPtr<SButton> ClickedButton = Chosen.Button;
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Window %d '%s': pressing button %d '%s' as requested."),
+		WindowId, *WindowTitle, Target, *ClickedLabel);
+
+	// SimulateClick, for the reason respond_to_dialog gives: synthetic mouse
+	// events miss the capture bookkeeping SButton decides a click with.
+	ClickedButton->SimulateClick();
+
+	auto Result = MCPSuccess();
+	Result->SetNumberField(TEXT("windowId"), WindowId);
+	Result->SetStringField(TEXT("windowTitle"), WindowTitle);
+	Result->SetStringField(TEXT("clickedButton"), ClickedLabel);
+	Result->SetNumberField(TEXT("buttonIndex"), Target);
+	// A retry of a press that landed finds the window gone (windowGone) or presses again.
+	Result->SetBoolField(TEXT("alreadyClosed"), false);
+	MCPSetNoRollback(Result, FString::Printf(
+		TEXT("Pressed button %d '%s' of window %d '%s'. The editor code behind that button has already run and this call captured none of what it did, so there is nothing to restore."),
+		Target, *ClickedLabel, WindowId, *WindowTitle));
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FDialogHandlers::CloseWindowById(const TSharedPtr<FJsonObject>& Params)
+{
+	using namespace MCPWindowControl;
+
+	int32 WindowIdParam = 0;
+	const bool bHasWindowId = TryGetNumberParam(Params, TEXT("windowId"), WindowIdParam);
+
+	if (!FSlateApplication::IsInitialized())
+	{
+		return MCPError(TEXT("Slate not initialized"));
+	}
+
+	TSharedPtr<FJsonValue> Refusal;
+	const TSharedPtr<SWindow> Window = ResolveTargetWindow(bHasWindowId, WindowIdParam, TEXT("close_window"), Refusal);
+	if (!Window.IsValid())
+	{
+		return Refusal;
+	}
+
+	const int32 WindowId = IdForWindow(Window.ToSharedRef());
+	const FString WindowTitle = Window->GetTitle().ToString();
+	const bool bWasModal = Window->IsModalWindow();
+	const bool bHostedDockTabs = MCPDialogWindows::HostsDockedTabs(Window.ToSharedRef());
+
+	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Window %d '%s': close requested."), WindowId, *WindowTitle);
+
+	// What the window's own close box does: a floating dock area asks each of
+	// its tabs CanCloseTab first, and a modal ends its loop without an answer.
+	Window->RequestDestroyWindow();
+
+	auto Result = MCPSuccess();
+	Result->SetNumberField(TEXT("windowId"), WindowId);
+	Result->SetStringField(TEXT("windowTitle"), WindowTitle);
+	Result->SetBoolField(TEXT("closeRequested"), true);
+	Result->SetBoolField(TEXT("alreadyClosed"), false);
+	Result->SetBoolField(TEXT("wasModal"), bWasModal);
+	Result->SetBoolField(TEXT("hostsDockTabs"), bHostedDockTabs);
+	Result->SetStringField(TEXT("note"),
+		TEXT("Destruction is queued for the next Slate tick, and a floating dock area stays open when one of its tabs refuses to close. Read editor(list_windows) again to confirm the window is gone."));
+	MCPSetNoRollback(Result, bWasModal
+		? FString::Printf(
+			TEXT("Asked the modal window %d '%s' to close without pressing any of its buttons. The editor resumes on its unanswered-prompt path, and no action re-raises a destroyed modal."),
+			WindowId, *WindowTitle)
+		: FString::Printf(
+			TEXT("Asked window %d '%s' to close. No action reopens a window; reopen it from the editor's own menus."),
+			WindowId, *WindowTitle));
 	return MCPResult(Result);
 }
 

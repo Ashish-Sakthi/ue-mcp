@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1082,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -7602,6 +7602,18 @@
       "category": "editor",
       "params": [],
       "contractExempt": "closes the open Sequencer"
+    },
+    "close_window": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to close, by the id list_windows reported"
+        }
+      ],
+      "contractExempt": "closes an open editor window"
     },
     "commit_skeleton_edit": {
       "category": "animation",
@@ -20301,6 +20313,35 @@
         }
       ]
     },
+    "list_windows": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": false,
+          "description": "Describe only this window, by the id list_windows or list_dialogs reported"
+        },
+        {
+          "name": "maxTexts",
+          "type": "integer",
+          "required": false,
+          "description": "Texts reported per window (default 200)"
+        },
+        {
+          "name": "maxTextChars",
+          "type": "integer",
+          "required": false,
+          "description": "Characters kept per text (default 2000)"
+        },
+        {
+          "name": "maxButtons",
+          "type": "integer",
+          "required": false,
+          "description": "Buttons reported per window (default 200)"
+        }
+      ]
+    },
     "live_coding_compile": {
       "category": "project",
       "params": [
@@ -22448,6 +22489,43 @@
           "description": "Clear the existing samples first (default true)"
         }
       ]
+    },
+    "press_window_button": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to press a button on, by the id list_windows reported"
+        },
+        {
+          "name": "buttonLabel",
+          "type": "string",
+          "required": false,
+          "description": "Label of the button to press, matched exactly first, then as a substring; refused when ambiguous"
+        },
+        {
+          "name": "buttonIndex",
+          "type": "number",
+          "required": false,
+          "description": "Index of the button to press, in the order list_windows reports"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "buttonLabel"
+            ],
+            [
+              "buttonIndex"
+            ]
+          ]
+        }
+      ],
+      "contractExempt": "presses a button on an open editor window"
     },
     "preview_animation": {
       "category": "animation",

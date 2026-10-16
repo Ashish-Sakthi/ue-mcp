@@ -171,6 +171,15 @@ private:
 	static TSharedPtr<FJsonValue> ListDialogs(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RespondToDialog(const TSharedPtr<FJsonObject>& Params);
 
+	// Window control (#1231): every open modal and floating window, addressed
+	// by the windowId list_windows and list_dialogs report.
+	static TSharedPtr<FJsonValue> ListWindows(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PressWindowButton(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CloseWindowById(const TSharedPtr<FJsonObject>& Params);
+
+	/** The window the dialog gate refuses calls for, or null when it is open. */
+	static TSharedPtr<SWindow> FindGatingWindow();
+
 	// The hooked dialog handler
 	static EAppReturnType::Type HandleModalDialog(EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
 	// FCoreDelegates::ModalMessageDialog (UE 5.7) signature includes an EAppMsgCategory.
