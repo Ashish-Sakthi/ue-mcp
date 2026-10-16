@@ -750,7 +750,7 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	// #1244: PCG Assemblies.
 	Registry.RegisterHandler(TEXT("export_level_to_pcg_asset"), &ExportLevelToAsset, {
 		MCPParam::Required(TEXT("levelPath"), EType::String, TEXT("Saved level (.umap) to export, package or object path")),
-		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("Content folder for the PCG data asset (default: the level's folder)")),
+		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder)")),
 		MCPParam::Optional(TEXT("assetName"), EType::String, TEXT("Asset name (default: <LevelName>_PCG)")),
 		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the asset after export (default true)")),
 	});
