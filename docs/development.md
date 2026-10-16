@@ -208,6 +208,13 @@ smoke runner, it drives `tests/ue_mcp` and refuses every other project.
   environment to include them; without it they skip and the runner says so.
 - `tests/live/matrix.ts` records, case by case, where each assertion lives, and
   `tests/live/coverage.test.ts` checks every reference still resolves.
+- **Crash-class inputs** (`tests/live/crash-class-inputs.test.ts`) drive the
+  calls that have taken the editor down: the loaded map, an asset open in its
+  editor, an asset during PIE, and null, empty, whitespace and malformed
+  references. Every call is followed by a liveness probe, so a crash fails the
+  case that caused it.
+- **Editor lifecycle** cases stop, crash, restart and rebuild the test editor,
+  so they run only with `npm run test:live -- --lifecycle`.
 
 ### Test Suites
 
