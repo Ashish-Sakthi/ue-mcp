@@ -1302,8 +1302,40 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "renames",
         "type": "array",
         "required": true,
-        "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-        "items": "object"
+        "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+        "items": "object",
+        "fields": [
+          {
+            "name": "sourcePath",
+            "type": "string",
+            "required": false,
+            "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+          },
+          {
+            "name": "destinationPath",
+            "type": "string",
+            "required": false,
+            "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+          },
+          {
+            "name": "assetPath",
+            "type": "string",
+            "required": false,
+            "description": "Asset to rename in place, with newName"
+          },
+          {
+            "name": "newPackagePath",
+            "type": "string",
+            "required": false,
+            "description": "Destination folder, with sourcePath and newName"
+          },
+          {
+            "name": "newName",
+            "type": "string",
+            "required": false,
+            "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+          }
+        ]
       }
     ]
   },
@@ -6023,7 +6055,7 @@ export const schema: Record<string, z.ZodType> = {
   removeDegenerates: z.boolean().optional().describe("Drop degenerate triangles when writing back into an existing mesh (default false)"),
   removeFullyContainedShapes: z.boolean().optional().describe("Drop shapes entirely inside another (default true)"),
   removeRedundantKeys: z.boolean().optional().describe("Strip keys that do not change the value (default true)"),
-  renames: z.array(z.record(z.unknown())).optional().describe("Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}"),
+  renames: z.array(z.object({ sourcePath: z.string().optional().describe("Asset to move, with destinationPath or with newPackagePath + newName"), destinationPath: z.string().optional().describe("Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"), assetPath: z.string().optional().describe("Asset to rename in place, with newName"), newPackagePath: z.string().optional().describe("Destination folder, with sourcePath and newName"), newName: z.string().optional().describe("New asset name, with assetPath or with sourcePath + newPackagePath") })).optional().describe("Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused"),
   replaceExisting: z.boolean().optional().describe("Replace an asset already at the destination (default true) (import_file, import_skeletal_mesh). Remove entries the CSV does not carry (default false) (import_stringtable_csv)"),
   reprojectToInputMesh: z.boolean().optional().describe("Pull new vertices back onto the original surface each pass (default true)"),
   requireExactKeys: z.boolean().optional().describe("Also fail when the CSV carries keys expectedKeys does not list (default false)"),

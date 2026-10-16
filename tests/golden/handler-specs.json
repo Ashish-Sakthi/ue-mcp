@@ -6602,8 +6602,40 @@
           "name": "renames",
           "type": "array",
           "required": true,
-          "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-          "items": "object"
+          "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourcePath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+            },
+            {
+              "name": "destinationPath",
+              "type": "string",
+              "required": false,
+              "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+            },
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to rename in place, with newName"
+            },
+            {
+              "name": "newPackagePath",
+              "type": "string",
+              "required": false,
+              "description": "Destination folder, with sourcePath and newName"
+            },
+            {
+              "name": "newName",
+              "type": "string",
+              "required": false,
+              "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+            }
+          ]
         }
       ]
     },
