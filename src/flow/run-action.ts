@@ -8,6 +8,7 @@ import { liftRollback } from "./rollback.js";
 import { applyHandlerOutcome } from "./handler-outcome.js";
 import { ensureGuard } from "../editor/dialog-guard.js";
 import { paramMapperOf } from "../surface/epic-input.js";
+import { actionAccepts } from "../surface/action-schema.js";
 import type { IBridge } from "../bridge/bridge.js";
 
 /**
@@ -58,6 +59,7 @@ export function actionPreparation(
     paramContract: spec.paramSpec
       ? { params: spec.paramSpec, choices: spec.paramChoices, strict: spec.strictParams }
       : undefined,
+    accepts: actionAccepts(spec),
   };
 }
 

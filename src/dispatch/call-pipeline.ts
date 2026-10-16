@@ -41,6 +41,7 @@ import { mapTracked } from "../surface/param-forwarding.js";
 import { isDirectiveResponse } from "../core/directive.js";
 import { McpError, ErrorCode } from "../core/errors.js";
 import { contractViolation, type ParamContract } from "../surface/handler-spec.js";
+import { ROUTING_PARAMS, undeclaredMessage, type ActionAccepts } from "../surface/action-schema.js";
 
 /**
  * Separate the per-call timeout budget from the action's own parameters.
@@ -94,6 +95,8 @@ export interface CallPreparation {
    * after folding, and refused before anything is sent.
    */
   paramContract?: ParamContract;
+  /** The keys the action reads; any other key is refused before sending (#1336). */
+  accepts?: ActionAccepts;
 }
 
 /** What the inbound half decided, carried to the outbound half. */
@@ -205,6 +208,7 @@ export function prepareCall(
       );
     }
   }
+  refuseUndeclared(prep, folded);
   return {
     params: folded,
     repairs: repaired.repairs,
@@ -213,6 +217,22 @@ export function prepareCall(
     supplied: Object.keys(outerSelection.rest),
     paramGroups: prep.paramGroups,
   };
+}
+
+/**
+ * Refuse a key the action does not read, naming what it does take (#1336).
+ * Routing names are the dispatcher's and always pass.
+ */
+export function refuseUndeclared(prep: CallPreparation, params: Record<string, unknown>): void {
+  const accepts = prep.accepts;
+  if (!accepts) return;
+  // A category spelling of an accepted parameter (a paramGroups member) is the same parameter.
+  const grouped = (k: string): boolean =>
+    (prep.paramGroups ?? []).some((group) => group.includes(k) && group.some((m) => accepts.keys.has(m)));
+  const unknown = Object.keys(params).filter((k) =>
+    params[k] !== undefined && !accepts.keys.has(k) && !ROUTING_PARAMS.has(k) && !grouped(k));
+  if (unknown.length === 0) return;
+  throw new McpError(ErrorCode.INVALID_PARAMS, undeclaredMessage(prep.action ?? "This action", unknown, accepts));
 }
 
 /** Set to 1 to refuse a call instead of warning when a parameter is not forwarded (#1057). */

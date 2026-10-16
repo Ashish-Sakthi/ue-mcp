@@ -741,6 +741,78 @@ export function forwardedParams(spec: ActionSpec): string[] {
   return [...names];
 }
 
+/** The keys one action accepts, and the names its refusal lists. */
+export interface ActionAccepts {
+  keys: ReadonlySet<string>;
+  takes: readonly string[];
+}
+
+/** The refusal for keys an action does not read. */
+export function undeclaredMessage(action: string, unknown: readonly string[], accepts: ActionAccepts): string {
+  return `${action} does not take ${unknown.join(", ")}; it takes `
+    + `${accepts.takes.length ? accepts.takes.join(", ") : "no parameters"}, so the call was not sent. `
+    + `project(action="describe_action") lists what it takes.`;
+}
+
+const acceptsCache = new WeakMap<ActionSpec, ActionAccepts | null>();
+
+/**
+ * The keys an action reads, when they can be known, so an undeclared one is
+ * refused instead of dropped (#1336). A spec'd action's names and aliases; a
+ * wrapped engine tool's schema; an in-process handler's Params clause plus
+ * the keys it reads, unless its bag escapes to code that cannot be scanned.
+ */
+export function actionAccepts(spec: ActionSpec): ActionAccepts | undefined {
+  if (acceptsCache.has(spec)) return acceptsCache.get(spec) ?? undefined;
+  const found = computeAccepts(spec);
+  acceptsCache.set(spec, found ?? null);
+  return found;
+}
+
+function computeAccepts(spec: ActionSpec): ActionAccepts | undefined {
+  if (spec.paramSpec) {
+    const takes = spec.paramSpec.map((p) => p.name);
+    return { keys: new Set([...takes, ...spec.paramSpec.flatMap((p) => p.aliases ?? [])]), takes };
+  }
+  if (spec.kind === "bridge" && spec.epicTool) {
+    const takes = epicForwardedParams(spec.epicSchema);
+    return { keys: new Set([...takes, "input", "inputJson", "assetPath", "path"]), takes };
+  }
+  if (spec.kind !== "handler" || handlerBagEscapes(spec.handler)) return undefined;
+  const takes = [...new Set([
+    ...parseParams(spec.description ?? "").params.map((p) => p.name),
+    ...forwardedParams(spec),
+  ])];
+  return { keys: new Set(takes), takes };
+}
+
+/**
+ * Whether a handler hands its parameter bag to code a source scan cannot
+ * follow (a spread, a call, a rest pattern, a function declaration), so the
+ * keys it reads are not knowable from here.
+ */
+function handlerBagEscapes(fn: (...args: never[]) => unknown): boolean {
+  let src: string;
+  try {
+    src = fn.toString();
+  } catch {
+    return true;
+  }
+  const arrow = /^\s*(?:async\s*)?\(([^)]*)\)\s*=>/.exec(src) ?? /^\s*(?:async\s+)?([A-Za-z_$][\w$]*)\s*=>/.exec(src);
+  if (!arrow) return true;
+  const args = arrow[1].split(",").map((s) => s.trim()).filter(Boolean);
+  if (args.length < 2) return false;
+  const bag = args[1];
+  if (bag.startsWith("{")) return bag.includes("...");
+  if (!/^[A-Za-z_$][\w$]*$/.test(bag)) return true;
+  const body = src.slice(arrow[0].length);
+  const name = bag.replace(/\$/g, "\\$");
+  const uses = [...body.matchAll(new RegExp(`(?<![\\w$])${name}(?![\\w$])`, "g"))]
+    // `other.p` is another object's property; `...p` is a spread, which escapes.
+    .filter((m) => !(body[m.index! - 1] === "." && body.slice(m.index! - 3, m.index!) !== "..."));
+  return uses.some((m) => !/^\s*(?:\?\.|\.|\[\s*["'])/.test(body.slice(m.index! + m[0].length)));
+}
+
 /* ── the schema itself ─────────────────────────────────────────────── */
 
 /** Routing instructions the dispatcher consumes and strips before a handler
