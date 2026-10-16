@@ -335,6 +335,34 @@ namespace
 		return Problems.Num() == 0;
 	}
 
+	/**
+	 * The stored value of Key as export text (#1299). For struct text, also whether the same text imported into a
+	 * default value reads differently: struct import keeps fields the text leaves out, so a difference means old values survived.
+	 */
+	static bool ReadBackSetting(UObject* Settings, const FString& Key, const TSharedPtr<FJsonValue>& Requested, FString& OutStored, bool& bOutMerged)
+	{
+		bOutMerged = false;
+		FProperty* Leaf = nullptr;
+		void* Addr = nullptr;
+		UObject* Owner = nullptr;
+		FString Err;
+		if (!MCPJsonProperty::ResolveDottedPath(Settings, Key, Leaf, Addr, Owner, Err) || !Leaf || !Addr) return false;
+		Leaf->ExportTextItem_Direct(OutStored, Addr, nullptr, Owner, PPF_None);
+		FString Text;
+		if (!CastField<FStructProperty>(Leaf) || AsSelectorProp(Leaf) || !Requested.IsValid() || !Requested->TryGetString(Text)) return true;
+		void* Scratch = FMemory::Malloc(Leaf->GetSize(), Leaf->GetMinAlignment());
+		Leaf->InitializeValue(Scratch);
+		if (Leaf->ImportText_Direct(*Text, Scratch, Owner, PPF_None))
+		{
+			FString Fresh;
+			Leaf->ExportTextItem_Direct(Fresh, Scratch, nullptr, Owner, PPF_None);
+			bOutMerged = Fresh != OutStored;
+		}
+		Leaf->DestroyValue(Scratch);
+		FMemory::Free(Scratch);
+		return true;
+	}
+
 	static bool IsSpawnerInstancedTypeKey(const FString& Key)
 	{
 		const FName Name(*Key);
@@ -1560,6 +1588,21 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 	const TArray<TSharedPtr<FJsonValue>> RemovedEdges = MCPPCG::DroppedEdges(EdgesBefore, MCPPCG::CollectNodeEdges(FoundNode));
 	Result->SetArrayField(TEXT("removedEdges"), RemovedEdges);
 	TArray<TSharedPtr<FJsonValue>> Warnings;
+	TSharedPtr<FJsonObject> ReadBack = MakeShared<FJsonObject>();
+	for (const auto& Pair : SetResults->Values)
+	{
+		FString Stored;
+		bool bMerged = false;
+		if (!ReadBackSetting(Settings, FString(*Pair.Key), Pair.Value, Stored, bMerged)) continue;
+		ReadBack->SetStringField(FString(*Pair.Key), Stored);
+		if (bMerged)
+		{
+			Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(
+				TEXT("'%s': the stored value differs from the text given, because fields the text left out kept their previous values. readBack has what is stored; name those fields explicitly to clear them."),
+				*FString(*Pair.Key))));
+		}
+	}
+	Result->SetObjectField(TEXT("readBack"), ReadBack);
 	if (RemovedEdges.Num() > 0)
 	{
 		Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(

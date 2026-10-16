@@ -234,4 +234,40 @@ bool FMCPPCGSelectorReplaceTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGSettingsReadBackTest,
+	"UE.MCP.PCG.Authoring.SettingsReadBack",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGSettingsReadBackTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	const FString Node = GraphPath.IsEmpty() ? FString() : AddNode(Registry, GraphPath, TEXT("PCGTransformPointsSettings"));
+	if (!TestFalse(TEXT("a transform node is added"), Node.IsEmpty())) return false;
+
+	auto Settings = MakeShared<FJsonObject>();
+	Settings->SetStringField(TEXT("OffsetMin"), TEXT("(X=1,Y=2,Z=3)"));
+	const TSharedPtr<FJsonObject> Full = WriteSettings(Registry, GraphPath, Node, Settings);
+	TestTrue(TEXT("full struct text is written"), Ok(Full));
+	TestFalse(TEXT("a complete text raises no warning"), Full->HasField(TEXT("warnings")));
+	const TSharedPtr<FJsonObject>* ReadBack = nullptr;
+	TestTrue(TEXT("readBack carries the stored value"), Full->TryGetObjectField(TEXT("readBack"), ReadBack) && (*ReadBack)->HasField(TEXT("OffsetMin")));
+
+	// Text that omits Y and Z keeps their old values: the call says so instead of reporting a clean write.
+	Settings = MakeShared<FJsonObject>();
+	Settings->SetStringField(TEXT("OffsetMin"), TEXT("(X=5)"));
+	const TSharedPtr<FJsonObject> Partial = WriteSettings(Registry, GraphPath, Node, Settings);
+	TestTrue(TEXT("partial text is written"), Ok(Partial));
+	const TArray<TSharedPtr<FJsonValue>>* Warnings = nullptr;
+	TestTrue(TEXT("a warning names the merged fields"), Partial->TryGetArrayField(TEXT("warnings"), Warnings) && Warnings->Num() == 1
+		&& (*Warnings)[0]->AsString().Contains(TEXT("OffsetMin")));
+	TestTrue(TEXT("readBack shows Y survived"), Partial->TryGetObjectField(TEXT("readBack"), ReadBack)
+		&& (*ReadBack)->GetStringField(TEXT("OffsetMin")).Contains(TEXT("Y=2")));
+	return true;
+}
+
 #endif
