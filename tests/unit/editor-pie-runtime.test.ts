@@ -31,7 +31,13 @@ describe("PIE pause (#1215)", () => {
 });
 
 describe("runtime target propertyPath (#1215)", () => {
-  it.each(["invoke_object_function", "get_object_properties", "set_object_property"])(
+  // Each action gets only the keys it reads, so a stray key is never what the test exercises.
+  const own: Record<string, Record<string, unknown>> = {
+    invoke_object_function: { functionName: "SetSomeOption" },
+    get_object_properties: { propertyNames: ["bEnabled"] },
+    set_object_property: { propertyName: "bEnabled", value: true },
+  };
+  it.each(Object.keys(own))(
     "%s forwards propertyPath",
     async (action) => {
       const { call, ctx } = mockContext();
@@ -39,9 +45,7 @@ describe("runtime target propertyPath (#1215)", () => {
         action,
         target: "gameinstance",
         propertyPath: "GameSettings.Game Settings",
-        functionName: "SetSomeOption",
-        propertyName: "bEnabled",
-        value: true,
+        ...own[action],
       });
       expect(forwarded(call, action).propertyPath).toBe("GameSettings.Game Settings");
     },
