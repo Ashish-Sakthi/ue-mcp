@@ -2290,7 +2290,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "fields",
         "type": "array",
         "required": false,
-        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health",
+        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics",
         "items": "string"
       },
       {
@@ -5124,7 +5124,7 @@ export const schema: Record<string, z.ZodType> = {
   exactClass: z.boolean().optional().describe("Require classFilter to be the exact class (default true) (convert_brushes_to_static_mesh). Require classFilter to be the exact class name (get_world_outliner)"),
   exposure: z.number().optional().describe("Fixed adaptation brightness, written to both min and max"),
   extent: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Query extent (default 100, 100, 100) (nav_project_point). Half extent of the cube brush (default 100, 100, 100) (spawn_volume)"),
-  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health"),
+  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics"),
   filePath: z.string().optional().describe("Alias for outputPath"),
   filter: z.string().optional().describe("Case-insensitive substring over label, name, class and path"),
   floorOffset: z.number().optional().describe("Vertical offset added to the impact Z"),

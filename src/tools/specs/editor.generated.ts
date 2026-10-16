@@ -712,7 +712,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "propertyNames",
         "type": "array",
         "required": false,
-        "description": "Only these properties. The Details-panel spelling is accepted",
+        "description": "Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components",
         "items": "string"
       },
       {
@@ -3098,7 +3098,7 @@ export const schema: Record<string, z.ZodType> = {
   projection: z.string().optional().describe("perspective | top | bottom | left | right | front | back | orthoFreelook. Switched before the pose is applied"),
   propagateToChildren: z.boolean().optional().describe("Also take each matched component's descendants (default true)"),
   propertyName: z.string().optional().describe("Property name; dotted and indexed paths reach component and struct fields"),
-  propertyNames: z.array(z.string()).optional().describe("Dotted or indexed property paths to report instead of every property (describe_object). Only these properties. The Details-panel spelling is accepted (get_object_properties)"),
+  propertyNames: z.array(z.string()).optional().describe("Dotted or indexed property paths to report instead of every property (describe_object). Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components (get_object_properties)"),
   propertyPath: z.string().optional().describe("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"),
   quality: z.string().optional().describe("Preview (default) | Medium | High | Production"),
   query: z.string().optional().describe("Case-insensitive substring to search the captured log for"),

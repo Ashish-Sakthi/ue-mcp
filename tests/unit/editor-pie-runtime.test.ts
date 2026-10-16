@@ -54,3 +54,28 @@ describe("runtime target propertyPath (#1215)", () => {
     expect(parsed.success).toBe(true);
   });
 });
+
+describe("runtime property paths and physics reads (#1212)", () => {
+  it("get_object_properties forwards dotted and indexed paths untouched", async () => {
+    const { call, ctx } = mockContext();
+    await editorTool.handler(ctx, {
+      action: "get_object_properties",
+      target: "gamemode",
+      propertyNames: ["StashWorld.KickRadiusCm", "Items[0].Count", "bIsActive"],
+    });
+    expect(forwarded(call, "get_object_properties").propertyNames).toEqual([
+      "StashWorld.KickRadiusCm",
+      "Items[0].Count",
+      "bIsActive",
+    ]);
+  });
+
+  it("query_components forwards the physics field group against the PIE world", async () => {
+    const { levelTool } = await import("../../src/tools/level.js");
+    const { call, ctx } = mockContext();
+    await levelTool.handler(ctx, { action: "query_components", actorClass: "StaticMeshActor", fields: ["physics"], world: "pie" });
+    const bag = forwarded(call, "query_components");
+    expect(bag.fields).toEqual(["physics"]);
+    expect(bag.world).toBe("pie");
+  });
+});

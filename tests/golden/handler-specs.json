@@ -16119,7 +16119,7 @@
           "name": "propertyNames",
           "type": "array",
           "required": false,
-          "description": "Only these properties. The Details-panel spelling is accepted",
+          "description": "Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components",
           "items": "string"
         },
         {
@@ -22616,7 +22616,7 @@
           "name": "fields",
           "type": "array",
           "required": false,
-          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health",
+          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics",
           "items": "string"
         },
         {

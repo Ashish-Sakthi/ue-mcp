@@ -82,6 +82,71 @@ namespace
 	}
 
 	/**
+	 * #802: rewrite the leading token of a dotted property path to the reflected
+	 * name when the caller used the Details-panel spelling. Only the leading
+	 * token needs it: that is the one an agent copies out of the editor UI, and
+	 * the rest of the path is typed against what this handler reports back.
+	 */
+	FString CanonicalizeLeadingToken(UStruct* Owner, const FString& PropertyPath)
+	{
+		if (!Owner) return PropertyPath;
+
+		FString Head = PropertyPath;
+		FString Tail;
+		int32 DotPos = INDEX_NONE;
+		if (PropertyPath.FindChar(TEXT('.'), DotPos))
+		{
+			Head = PropertyPath.Left(DotPos);
+			Tail = PropertyPath.RightChop(DotPos);
+		}
+
+		FString Bare = Head;
+		FString IndexSuffix;
+		int32 BracketPos = INDEX_NONE;
+		if (Bare.FindChar(TEXT('['), BracketPos))
+		{
+			IndexSuffix = Bare.RightChop(BracketPos);
+			Bare = Bare.Left(BracketPos);
+		}
+
+		if (Owner->FindPropertyByName(FName(*Bare))) return PropertyPath;
+		for (TFieldIterator<FProperty> It(Owner, EFieldIteratorFlags::IncludeSuper); It; ++It)
+		{
+			if (PropertyNameMatches(*It, Bare))
+			{
+				return It->GetName() + IndexSuffix + Tail;
+			}
+		}
+		return PropertyPath;
+	}
+
+	/**
+	 * #1212: resolve a dotted or indexed property path on a live object. The
+	 * leading token takes the Details-panel spelling, and on an actor it may
+	 * name a component instance when no property of that name exists.
+	 */
+	bool ResolveRuntimePropertyPath(UObject* Target, const FString& Path,
+		FProperty*& OutProp, void*& OutValueAddr, UObject*& OutOwner, FString& OutError)
+	{
+		const FString Canonical = CanonicalizeLeadingToken(Target->GetClass(), Path);
+		if (MCPJsonProperty::ResolveDottedPath(Target, Canonical, OutProp, OutValueAddr, OutOwner, OutError)) return true;
+
+		int32 DotPos = INDEX_NONE;
+		AActor* AsActor = Cast<AActor>(Target);
+		if (!AsActor || !Path.FindChar(TEXT('.'), DotPos)) return false;
+		const FString Head = Path.Left(DotPos);
+		for (UActorComponent* Comp : AsActor->GetComponents())
+		{
+			if (Comp && Comp->GetName().Equals(Head, ESearchCase::IgnoreCase))
+			{
+				const FString Rest = CanonicalizeLeadingToken(Comp->GetClass(), Path.RightChop(DotPos + 1));
+				return MCPJsonProperty::ResolveDottedPath(Comp, Rest, OutProp, OutValueAddr, OutOwner, OutError);
+			}
+		}
+		return false;
+	}
+
+	/**
 	 * #1215: follow a dotted chain of object-reference properties from Root,
 	 * e.g. "GameSettings.Game Settings". A segment may index an array of object
 	 * references ("Items[2]") or, on an actor, name a component instance.
@@ -755,14 +820,19 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunctions(const TSharedPtr<F
 TSharedPtr<FJsonValue> FEditorHandlers::GetObjectProperties(const TSharedPtr<FJsonObject>& Params)
 {
 	// Every parameter is read before the target is resolved (#1057).
+	// #1212: an entry with a dot or an index is a path into a struct or
+	// subobject, read on its own; plain names filter the top-level properties.
 	TArray<FString> Wanted;
+	TArray<FString> WantedPaths;
 	const TArray<TSharedPtr<FJsonValue>>* NameValues = nullptr;
 	if (TryGetArrayParam(Params, TEXT("propertyNames"), NameValues) && NameValues)
 	{
 		for (const TSharedPtr<FJsonValue>& V : *NameValues)
 		{
 			FString N;
-			if (V.IsValid() && V->TryGetString(N) && !N.IsEmpty()) Wanted.Add(N);
+			if (!V.IsValid() || !V->TryGetString(N) || N.IsEmpty()) continue;
+			if (N.Contains(TEXT(".")) || N.Contains(TEXT("["))) WantedPaths.Add(N);
+			else Wanted.Add(N);
 		}
 	}
 	// Bound the response. Exporting every reflected property of something like
@@ -795,7 +865,33 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetObjectProperties(const TSharedPtr<FJs
 	int32 Count = 0;
 	int32 Skipped = 0;
 	int32 TruncatedValues = 0;
-	for (TFieldIterator<FProperty> It(Target->GetClass(), EFieldIteratorFlags::IncludeSuper); It; ++It)
+	TSharedPtr<FJsonObject> PathErrors = MakeShared<FJsonObject>();
+	for (const FString& Path : WantedPaths)
+	{
+		FProperty* LeafProp = nullptr;
+		void* LeafAddr = nullptr;
+		UObject* LeafOwner = nullptr;
+		FString PathError;
+		if (!ResolveRuntimePropertyPath(Target, Path, LeafProp, LeafAddr, LeafOwner, PathError))
+		{
+			Missing.Add(MakeShared<FJsonValueString>(Path));
+			PathErrors->SetStringField(Path, PathError);
+			continue;
+		}
+		FString S;
+		LeafProp->ExportTextItem_Direct(S, LeafAddr, nullptr, LeafOwner ? LeafOwner : Target, PPF_None);
+		if (S.Len() > MaxValueChars)
+		{
+			S = S.Left(MaxValueChars) + FString::Printf(TEXT("... [truncated, %d chars]"), S.Len());
+			++TruncatedValues;
+		}
+		Props->SetStringField(Path, S);
+		StructuredValues->SetField(Path, FMCPJsonSerializer::SerializeValue(LeafAddr, LeafProp));
+		++Count;
+	}
+	// Only path entries were asked for: the top-level walk would match nothing.
+	const bool bWalkTopLevel = Wanted.Num() > 0 || WantedPaths.Num() == 0;
+	for (TFieldIterator<FProperty> It(Target->GetClass(), EFieldIteratorFlags::IncludeSuper); bWalkTopLevel && It; ++It)
 	{
 		FProperty* P = *It;
 		if (!P) continue;
@@ -869,6 +965,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetObjectProperties(const TSharedPtr<FJs
 		Result->SetArrayField(TEXT("valuesOmitted"), OversizedValues);
 	}
 	Result->SetArrayField(TEXT("missingProperties"), Missing);
+	if (PathErrors->Values.Num() > 0)
+	{
+		Result->SetObjectField(TEXT("pathErrors"), PathErrors);
+	}
 	if (Skipped > 0)
 	{
 		Result->SetStringField(TEXT("note"), FString::Printf(
@@ -1619,47 +1719,6 @@ TSharedPtr<FJsonValue> FEditorHandlers::FindLiveObjects(const TSharedPtr<FJsonOb
 	return MCPResult(Result);
 }
 
-namespace
-{
-	/**
-	 * #802: rewrite the leading token of a dotted property path to the reflected
-	 * name when the caller used the Details-panel spelling. Only the leading
-	 * token needs it: that is the one an agent copies out of the editor UI, and
-	 * the rest of the path is typed against what this handler reports back.
-	 */
-	FString CanonicalizeLeadingToken(UStruct* Owner, const FString& PropertyPath)
-	{
-		if (!Owner) return PropertyPath;
-
-		FString Head = PropertyPath;
-		FString Tail;
-		int32 DotPos = INDEX_NONE;
-		if (PropertyPath.FindChar(TEXT('.'), DotPos))
-		{
-			Head = PropertyPath.Left(DotPos);
-			Tail = PropertyPath.RightChop(DotPos);
-		}
-
-		FString Bare = Head;
-		FString IndexSuffix;
-		int32 BracketPos = INDEX_NONE;
-		if (Bare.FindChar(TEXT('['), BracketPos))
-		{
-			IndexSuffix = Bare.RightChop(BracketPos);
-			Bare = Bare.Left(BracketPos);
-		}
-
-		if (Owner->FindPropertyByName(FName(*Bare))) return PropertyPath;
-		for (TFieldIterator<FProperty> It(Owner, EFieldIteratorFlags::IncludeSuper); It; ++It)
-		{
-			if (PropertyNameMatches(*It, Bare))
-			{
-				return It->GetName() + IndexSuffix + Tail;
-			}
-		}
-		return PropertyPath;
-	}
-}
 
 // #802: write a reflected property on a live UObject instance, with the same
 // targeting as invoke_object_function. editor(set_property) is the asset path:

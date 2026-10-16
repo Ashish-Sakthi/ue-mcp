@@ -570,7 +570,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	{
 		TArray<FMCPParamSpec> Spec = RuntimeTargetParams();
 		Spec.Append({
-			MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these properties. The Details-panel spelling is accepted")).Items(EType::String),
+			MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components")).Items(EType::String),
 			WorldParam(),
 			PieInstanceParam(),
 			LimitParam(TEXT("Max properties returned (default 200)")),

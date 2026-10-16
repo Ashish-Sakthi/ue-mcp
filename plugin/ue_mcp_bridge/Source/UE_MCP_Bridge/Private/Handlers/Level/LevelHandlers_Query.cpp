@@ -49,6 +49,8 @@
 #include "GameFramework/Actor.h"
 #include "GameFramework/Pawn.h"
 #include "Materials/MaterialInterface.h"
+#include "PhysicalMaterials/PhysicalMaterial.h"
+#include "PhysicsEngine/BodyInstance.h"
 #include "UObject/EnumProperty.h"
 #include "UObject/UnrealType.h"
 
@@ -135,6 +137,7 @@ namespace
 		bool bMesh = false;
 		bool bDecal = false;
 		bool bHealth = false;
+		bool bPhysics = false;
 	};
 
 	/** Every field name this action understands, so an unknown one is an error
@@ -151,6 +154,7 @@ namespace
 		if (Name == TEXT("materials"))   { Fields.bMaterials = true;   return true; }
 		if (Name == TEXT("mesh"))        { Fields.bMesh = true;        return true; }
 		if (Name == TEXT("decal"))       { Fields.bDecal = true;       return true; }
+		if (Name == TEXT("physics"))     { Fields.bPhysics = true;     return true; }
 		if (Name == TEXT("health"))
 		{
 			// health is derived from the others, so asking for it turns on
@@ -303,7 +307,7 @@ namespace
 					if (!MCPQueryApplyFieldName(Name, Fields))
 					{
 						return MCPError(FString::Printf(
-							TEXT("Unknown 'fields' entry '%s'. Valid: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health"),
+							TEXT("Unknown 'fields' entry '%s'. Valid: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics"),
 							*Name));
 					}
 					bAnyFieldRequested = true;
@@ -717,6 +721,44 @@ namespace
 				: bEffectiveNav ? TEXT("navigation relevant")
 				: TEXT("no query collision and no custom navigable geometry"));
 			Row->SetObjectField(TEXT("navigation"), NavObject);
+		}
+
+		// ── #1212: live rigid-body state, readable in world=pie ─────────
+		if (Primitive && Fields.bPhysics)
+		{
+			TSharedPtr<FJsonObject> PhysicsObject = MakeShared<FJsonObject>();
+			const bool bSimulating = Primitive->IsSimulatingPhysics();
+			PhysicsObject->SetBoolField(TEXT("simulatingPhysics"), bSimulating);
+			PhysicsObject->SetBoolField(TEXT("gravityEnabled"), Primitive->IsGravityEnabled());
+			PhysicsObject->SetStringField(TEXT("collisionEnabled"), MCPQueryCollisionEnabledName(Primitive->GetCollisionEnabled()));
+			PhysicsObject->SetStringField(TEXT("collisionProfile"), Primitive->GetCollisionProfileName().ToString());
+			PhysicsObject->SetObjectField(TEXT("linearVelocity"), MCPVec3ToJsonObject(Primitive->GetPhysicsLinearVelocity()));
+			PhysicsObject->SetObjectField(TEXT("angularVelocityDegrees"), MCPVec3ToJsonObject(Primitive->GetPhysicsAngularVelocityInDegrees()));
+			if (bSimulating)
+			{
+				PhysicsObject->SetNumberField(TEXT("mass"), Primitive->GetMass());
+			}
+			if (const FBodyInstance* Body = Primitive->GetBodyInstance())
+			{
+				PhysicsObject->SetBoolField(TEXT("awake"), Body->IsInstanceAwake());
+				// The override is a reflected member of the body instance; the
+				// effective material is what a hit actually reports.
+				if (const FProperty* OverrideProp = FBodyInstance::StaticStruct()->FindPropertyByName(TEXT("PhysMaterialOverride")))
+				{
+					PhysicsObject->SetField(TEXT("physMaterialOverride"),
+						MCPQuery::PropertyToJson(const_cast<FProperty*>(OverrideProp), OverrideProp->ContainerPtrToValuePtr<void>(Body)));
+				}
+				if (UPhysicalMaterial* Effective = Body->GetSimplePhysicalMaterial())
+				{
+					TSharedPtr<FJsonObject> MaterialObject = MakeShared<FJsonObject>();
+					MaterialObject->SetStringField(TEXT("path"), Effective->GetPathName());
+					MaterialObject->SetNumberField(TEXT("friction"), Effective->Friction);
+					MaterialObject->SetNumberField(TEXT("restitution"), Effective->Restitution);
+					MaterialObject->SetNumberField(TEXT("density"), Effective->Density);
+					PhysicsObject->SetObjectField(TEXT("physicalMaterial"), MaterialObject);
+				}
+			}
+			Row->SetObjectField(TEXT("physics"), PhysicsObject);
 		}
 
 		// ── #912: tick settings ─────────────────────────────────────────
