@@ -1524,7 +1524,7 @@ TSharedPtr<FJsonValue> FWidgetHandlers::BuildTree(const TSharedPtr<FJsonObject>&
 		for (const auto& Pair : Nodes[i].Properties->Values)
 		{
 			FString PropError;
-			if (!Pair.Value.IsValid() || !ApplyBuildTreeProperty(WidgetBP, Built[i], Pair.Key, Pair.Value, PropError))
+			if (!Pair.Value.IsValid() || !ApplyBuildTreeProperty(WidgetBP, Built[i], FString(*Pair.Key), Pair.Value, PropError))
 			{
 				Undo();
 				return MCPError(FString::Printf(TEXT("%s.%s: %s. Nothing was kept."), *Nodes[i].Path, *Pair.Key, *PropError));
