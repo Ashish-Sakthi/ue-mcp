@@ -647,6 +647,10 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default the source's folder)")),
 		OnConflict(TEXT("skip (default) returns the existing asset, error refuses; it never overwrites")),
 	});
+	Registry.RegisterHandler(TEXT("set_control_rig_preview_mesh"), &SetControlRigPreviewMesh, {
+		AssetPath(TEXT("Control Rig Blueprint asset path")),
+		MCPParam::Required(TEXT("skeletalMeshPath"), EType::String, TEXT("SkeletalMesh to preview the rig on")),
+	});
 	// The Control Rig edit session is UE 5.8 only. The read and capture stubs on
 	// older engines read their parameters ahead and refuse.
 	auto EditSequencePath = []()

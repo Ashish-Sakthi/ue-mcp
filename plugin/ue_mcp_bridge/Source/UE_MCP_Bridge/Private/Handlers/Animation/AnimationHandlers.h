@@ -139,6 +139,7 @@ private:
 	static TSharedPtr<FJsonValue> ReadControlRigHierarchy(const TSharedPtr<FJsonObject>& Params);
 	// #1133 Control Rig Blueprint from a skeletal mesh or skeleton, via the engine factory.
 	static TSharedPtr<FJsonValue> CreateControlRig(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetControlRigPreviewMesh(const TSharedPtr<FJsonObject>& Params);
 
 	// UE 5.8 Control Rig editing in Sequencer. Source AnimSequences are read-only;
 	// edits live in a LevelSequence until explicitly baked to a new AnimSequence.

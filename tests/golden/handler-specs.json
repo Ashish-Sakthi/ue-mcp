@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1084,
+  "handlerCount": 1085,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -30739,6 +30739,26 @@
         }
       ],
       "contractExempt": "writes an INI file under the project's Config folder"
+    },
+    "set_control_rig_preview_mesh": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Control Rig Blueprint asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "skeletalMeshPath",
+          "type": "string",
+          "required": true,
+          "description": "SkeletalMesh to preview the rig on"
+        }
+      ]
     },
     "set_current_edit_level": {
       "category": "level",
