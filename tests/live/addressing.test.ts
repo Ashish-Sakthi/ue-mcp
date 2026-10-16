@@ -80,7 +80,6 @@ describe("two sessions, one of them a live editor", () => {
     const result = await server.call("asset", {
       action: "list_textures",
       directory: "/Game",
-      recursive: false,
       editor: LIVE,
     });
     expect(result.isError).toBe(false);
@@ -111,7 +110,6 @@ describe("gating beyond one editor", () => {
     const result = await server.call("asset", {
       action: "list_textures",
       directory: "/Game",
-      recursive: false,
     });
     expect(result.isError).toBe(false);
     expect(servingEditor(result)).toBe(LIVE);
@@ -165,7 +163,6 @@ describe("the union surface", () => {
 
     const refused = await server.call("niagara", {
       action: "list",
-      directory: "/Game",
       editor: SECOND,
     });
     expect(refused.isError).toBe(true);
@@ -176,7 +173,6 @@ describe("the union surface", () => {
   it("keeps the same category working for the editor that did not disable it", async () => {
     const allowed = await server.call("niagara", {
       action: "list",
-      directory: "/Game",
       editor: LIVE,
     });
     // The editor answers it: what matters is that this is not the config
@@ -293,7 +289,6 @@ describe("the no-project default bridge", () => {
       const result = await bare.call("asset", {
         action: "list_textures",
         directory: "/Game",
-        recursive: false,
       });
       expect(result.isError).toBe(false);
       // One session, so nothing is attributed and nothing is gated: the

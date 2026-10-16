@@ -1302,8 +1302,40 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "renames",
         "type": "array",
         "required": true,
-        "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-        "items": "object"
+        "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+        "items": "object",
+        "fields": [
+          {
+            "name": "sourcePath",
+            "type": "string",
+            "required": false,
+            "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+          },
+          {
+            "name": "destinationPath",
+            "type": "string",
+            "required": false,
+            "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+          },
+          {
+            "name": "assetPath",
+            "type": "string",
+            "required": false,
+            "description": "Asset to rename in place, with newName"
+          },
+          {
+            "name": "newPackagePath",
+            "type": "string",
+            "required": false,
+            "description": "Destination folder, with sourcePath and newName"
+          },
+          {
+            "name": "newName",
+            "type": "string",
+            "required": false,
+            "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+          }
+        ]
       }
     ]
   },
@@ -2565,7 +2597,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "save",
         "type": "boolean",
         "required": false,
-        "description": "Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless"
+        "description": "Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference"
       },
       {
         "name": "allowProjectWide",
@@ -3252,7 +3284,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "save",
         "type": "boolean",
         "required": false,
-        "description": "Save the imported assets (default false)"
+        "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
       },
       {
         "name": "automated",
@@ -6023,7 +6055,7 @@ export const schema: Record<string, z.ZodType> = {
   removeDegenerates: z.boolean().optional().describe("Drop degenerate triangles when writing back into an existing mesh (default false)"),
   removeFullyContainedShapes: z.boolean().optional().describe("Drop shapes entirely inside another (default true)"),
   removeRedundantKeys: z.boolean().optional().describe("Strip keys that do not change the value (default true)"),
-  renames: z.array(z.record(z.unknown())).optional().describe("Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}"),
+  renames: z.array(z.object({ sourcePath: z.string().optional().describe("Asset to move, with destinationPath or with newPackagePath + newName"), destinationPath: z.string().optional().describe("Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"), assetPath: z.string().optional().describe("Asset to rename in place, with newName"), newPackagePath: z.string().optional().describe("Destination folder, with sourcePath and newName"), newName: z.string().optional().describe("New asset name, with assetPath or with sourcePath + newPackagePath") })).optional().describe("Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused"),
   replaceExisting: z.boolean().optional().describe("Replace an asset already at the destination (default true) (import_file, import_skeletal_mesh). Remove entries the CSV does not carry (default false) (import_stringtable_csv)"),
   reprojectToInputMesh: z.boolean().optional().describe("Pull new vertices back onto the original surface each pass (default true)"),
   requireExactKeys: z.boolean().optional().describe("Also fail when the CSV carries keys expectedKeys does not list (default false)"),
@@ -6036,7 +6068,7 @@ export const schema: Record<string, z.ZodType> = {
   rows: z.record(z.unknown()).optional().describe("Rows to upsert: {rowName: {field: value}}"),
   rowStruct: z.string().optional().describe("Row struct, e.g. /Script/Module.MyRow or a UserDefinedStruct path"),
   sampleLimit: z.number().int().optional().describe("Sample asset names per group (default 5, max 25)"),
-  save: z.boolean().optional().describe("Save the asset after the edit (default true) (add_graph_node, connect_graph_pins, disconnect_graph_pins, remove_graph_node). Save the package after the write (default true) (append_asset_array_elements, set_asset_property). Save the written asset (default true) (apply_mesh_fracture, apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify, generate_mesh_collision, mesh_boolean). Save the changed packages (default true) (bulk_set_asset_properties, bulk_upsert_data_assets). Save the new asset (default true) (create_customizable_object). Save the owning package (default true) (create_subobject). Save what changed (default true) (fix_asset_hygiene). Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless (fixup_redirectors). Save the mesh (default true) (generate_lightmap_uvs, set_uv_channel_count, transform_uvs, unwrap_uvs). Save the imported assets (default false) (import_file). Save the table (default true) (import_stringtable_csv). Save the imported textures (default true) (import_texture_batch). Save the package after the write (default false) (set_datatable_cells). Save each changed mesh (default true) (set_mesh_materials_batch). Save the mesh after the rebuild (default true) (set_static_mesh_build_settings)"),
+  save: z.boolean().optional().describe("Save the asset after the edit (default true) (add_graph_node, connect_graph_pins, disconnect_graph_pins, remove_graph_node). Save the package after the write (default true) (append_asset_array_elements, set_asset_property). Save the written asset (default true) (apply_mesh_fracture, apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify, generate_mesh_collision, mesh_boolean). Save the changed packages (default true) (bulk_set_asset_properties, bulk_upsert_data_assets). Save the new asset (default true) (create_customizable_object). Save the owning package (default true) (create_subobject). Save what changed (default true) (fix_asset_hygiene). Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference (fixup_redirectors). Save the mesh (default true) (generate_lightmap_uvs, set_uv_channel_count, transform_uvs, unwrap_uvs). Save each imported asset and report saved per asset (default true; false leaves them dirty) (import_file). Save the table (default true) (import_stringtable_csv). Save the imported textures (default true) (import_texture_batch). Save the package after the write (default false) (set_datatable_cells). Save each changed mesh (default true) (set_mesh_materials_batch). Save the mesh after the rebuild (default true) (set_static_mesh_build_settings)"),
   saveContentPackages: z.boolean().optional().describe("Include content packages (default true)"),
   saveMapPackages: z.boolean().optional().describe("Include map packages (default true)"),
   scale: z.record(z.unknown()).optional().describe("UV-space scale {u, v}; a zero component is refused"),

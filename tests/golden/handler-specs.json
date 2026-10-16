@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1085,
+  "handlerCount": 1088,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -1726,6 +1726,12 @@
           "type": "object",
           "required": false,
           "description": "Node-specific settings, such as functionName and className for a CallFunction node"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -6608,8 +6614,40 @@
           "name": "renames",
           "type": "array",
           "required": true,
-          "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-          "items": "object"
+          "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourcePath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+            },
+            {
+              "name": "destinationPath",
+              "type": "string",
+              "required": false,
+              "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+            },
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to rename in place, with newName"
+            },
+            {
+              "name": "newPackagePath",
+              "type": "string",
+              "required": false,
+              "description": "Destination folder, with sourcePath and newName"
+            },
+            {
+              "name": "newName",
+              "type": "string",
+              "required": false,
+              "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+            }
+          ]
         }
       ]
     },
@@ -7609,6 +7647,18 @@
       "params": [],
       "contractExempt": "closes the open Sequencer"
     },
+    "close_window": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to close, by the id list_windows reported"
+        }
+      ],
+      "contractExempt": "closes an open editor window"
+    },
     "commit_skeleton_edit": {
       "category": "animation",
       "params": [
@@ -8495,6 +8545,12 @@
           "type": "boolean",
           "required": false,
           "description": "Break every existing link on the target pin first"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -10461,6 +10517,12 @@
           "type": "string",
           "required": false,
           "description": "When the level exists: skip (default) returns it untouched, error refuses"
+        },
+        {
+          "name": "worldPartition",
+          "type": "boolean",
+          "required": false,
+          "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
         }
       ],
       "contractExempt": "creates and opens a level"
@@ -11968,6 +12030,12 @@
           "aliases": [
             "nodeName"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -13884,7 +13952,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless"
+          "description": "Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference"
         },
         {
           "name": "allowProjectWide",
@@ -16218,7 +16286,7 @@
           "name": "maxLines",
           "type": "integer",
           "required": false,
-          "description": "How far back into the ring buffer to read (default 100)"
+          "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
         },
         {
           "name": "filter",
@@ -17372,7 +17440,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported assets (default false)"
+          "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
         },
         {
           "name": "automated",
@@ -20416,6 +20484,35 @@
         }
       ]
     },
+    "list_windows": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": false,
+          "description": "Describe only this window, by the id list_windows or list_dialogs reported"
+        },
+        {
+          "name": "maxTexts",
+          "type": "integer",
+          "required": false,
+          "description": "Texts reported per window (default 200)"
+        },
+        {
+          "name": "maxTextChars",
+          "type": "integer",
+          "required": false,
+          "description": "Characters kept per text (default 2000)"
+        },
+        {
+          "name": "maxButtons",
+          "type": "integer",
+          "required": false,
+          "description": "Buttons reported per window (default 200)"
+        }
+      ]
+    },
     "live_coding_compile": {
       "category": "project",
       "params": [
@@ -20500,6 +20597,21 @@
           "type": "string",
           "required": true,
           "description": "Map package to open"
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the open map and its dirty external actor packages before switching (default false)",
+          "aliases": [
+            "saveCurrent"
+          ]
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ],
       "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -21954,6 +22066,18 @@
           "aliases": [
             "path"
           ]
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: save the open map's unsaved packages before switching (default false)"
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ]
     },
@@ -22266,6 +22390,19 @@
               "type": "string",
               "required": false,
               "description": "Actor label"
+            },
+            {
+              "name": "tags",
+              "type": "array",
+              "required": false,
+              "description": "Actor tags to add",
+              "items": "string"
+            },
+            {
+              "name": "parentLabel",
+              "type": "string",
+              "required": false,
+              "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
             }
           ]
         }
@@ -22563,6 +22700,43 @@
           "description": "Clear the existing samples first (default true)"
         }
       ]
+    },
+    "press_window_button": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to press a button on, by the id list_windows reported"
+        },
+        {
+          "name": "buttonLabel",
+          "type": "string",
+          "required": false,
+          "description": "Label of the button to press, matched exactly first, then as a substring; refused when ambiguous"
+        },
+        {
+          "name": "buttonIndex",
+          "type": "number",
+          "required": false,
+          "description": "Index of the button to press, in the order list_windows reports"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "buttonLabel"
+            ],
+            [
+              "buttonIndex"
+            ]
+          ]
+        }
+      ],
+      "contractExempt": "presses a button on an open editor window"
     },
     "preview_animation": {
       "category": "animation",
@@ -33220,6 +33394,12 @@
           "aliases": [
             "defaultValue"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },

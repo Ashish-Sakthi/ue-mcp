@@ -293,6 +293,9 @@ describe("stop_editor never presses a button and never arms one", () => {
     expect(result.success).toBe(true);
     // The quit and nothing else: the gate decides the dialog question.
     expect(bridge.methods()).toEqual(["request_editor_shutdown"]);
+    // The editor it stopped is named, so a wrong target is visible (#1278).
+    expect(result.stopped?.project).toMatch(/\.uproject$/);
+    expect(result.message).toContain(result.stopped!.project!);
   });
 
   it("arms no dialog policy and presses nothing when a dialog is already blocking", async () => {
@@ -431,10 +434,13 @@ describe("the plugin arms no policy and invents no answer", () => {
   it("hands an unarmed dialog back to the user instead of synthesizing a reply", () => {
     const source = readHandlerFile("DialogHandlers.cpp");
     const handler = source.slice(
-      source.indexOf("EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type"),
+      source.indexOf("EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgCategory"),
       source.indexOf("TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy"),
     );
-    expect(handler).toContain("FMessageDialog::Open(MsgType, Text, Title)");
+    // The editor's own binding shows it as a Slate modal the dialog actions can
+    // reach; unbinding first fell through to a native box nothing could (#1272).
+    expect(handler).toContain("PreviousModalMessageDialog.Execute(Category, MsgType, Text, Title)");
+    expect(handler).not.toContain("ModalMessageDialog.Unbind()");
     // The old fallback picked an answer from the message type. Every branch of
     // it returned a button nobody had chosen.
     expect(handler).not.toContain("switch (MsgType)");

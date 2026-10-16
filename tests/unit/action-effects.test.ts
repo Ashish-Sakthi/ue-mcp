@@ -228,7 +228,7 @@ describe("the three gates agree, because they read one answer", () => {
     // declaration lie to every other consumer.
     const NEVER_LOCKED = new Set(["asset.lock", "asset.unlock", "asset.unlock_all", "asset.list_locks"]);
     const ADDRESSES_THE_SERVER = new Set([
-      "project.list_editors", "project.use_editor", "project.add_editor", "project.drop_editor",
+      "project.list_editors", "project.use_editor", "project.add_editor", "project.drop_editor", "feedback.submit",
     ]);
     const disagreements: string[] = [];
 

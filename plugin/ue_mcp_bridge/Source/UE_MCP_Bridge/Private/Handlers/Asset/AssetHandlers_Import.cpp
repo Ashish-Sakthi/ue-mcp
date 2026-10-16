@@ -771,7 +771,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	const bool bHasFactoryProperties = TryGetObjectParam(Params, TEXT("factoryProperties"), FactoryProperties) && FactoryProperties;
 	const bool bAutomated = OptionalBool(Params, TEXT("automated"), true);
 	const bool bReplaceExisting = OptionalBool(Params, TEXT("replaceExisting"), true);
-	const bool bSaveImported = OptionalBool(Params, TEXT("save"), false);
+	// An import that is never written is lost on editor close, so it saves by default like every create (#1280).
+	const bool bSaveImported = OptionalBool(Params, TEXT("save"), true);
 	const FString AssetName = OptionalString(Params, TEXT("name"));
 
 	DestinationPath.RemoveFromEnd(TEXT("/"));
@@ -835,7 +836,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	FGCRootScope TaskRoot(Task);
 	Task->bAutomated = bAutomated;
 	Task->bReplaceExisting = bReplaceExisting;
-	Task->bSave = bSaveImported;
+	// Saved below per asset, so a failed write is reported on its row rather than only logged.
+	Task->bSave = false;
 	Task->Filename = FileName;
 	Task->DestinationPath = DestinationPath;
 	Task->Factory = Factory; // null lets AssetTools pick by extension
@@ -851,9 +853,27 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	AssetToolsModule.Get().ImportAssetTasks(Tasks);
 
 	TArray<TSharedPtr<FJsonValue>> ImportedPaths;
+	TArray<TSharedPtr<FJsonValue>> ImportedRows;
+	bool bAllSaved = true;
 	for (UObject* ImportedObj : Task->GetObjects())
 	{
-		if (ImportedObj) ImportedPaths.Add(MakeShared<FJsonValueString>(ImportedObj->GetPathName()));
+		if (!ImportedObj) continue;
+		ImportedPaths.Add(MakeShared<FJsonValueString>(ImportedObj->GetPathName()));
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("assetPath"), ImportedObj->GetPathName());
+		Row->SetStringField(TEXT("class"), ImportedObj->GetClass()->GetName());
+		bool bSaved = false;
+		if (bSaveImported)
+		{
+			FString SaveError;
+			bSaved = SaveAssetPackageChecked(ImportedObj, SaveError);
+			if (!bSaved) Row->SetStringField(TEXT("saveError"), SaveError);
+		}
+		Row->SetBoolField(TEXT("saved"), bSaved);
+		UPackage* Package = ImportedObj->GetOutermost();
+		if (!bSaved && Package && Package->IsDirty()) Row->SetBoolField(TEXT("dirtyNotSaved"), true);
+		bAllSaved &= bSaved;
+		ImportedRows.Add(MakeShared<FJsonValueObject>(Row));
 	}
 
 	auto Result = MCPSuccess();
@@ -863,8 +883,15 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	Result->SetStringField(TEXT("factoryClass"), Factory ? Factory->GetClass()->GetPathName() : TEXT("auto"));
 	if (AppliedProperties.Num() > 0) Result->SetArrayField(TEXT("factoryPropertiesApplied"), AppliedProperties);
 	Result->SetArrayField(TEXT("importedAssets"), ImportedPaths);
+	Result->SetArrayField(TEXT("imported"), ImportedRows);
 	Result->SetNumberField(TEXT("importedCount"), ImportedPaths.Num());
+	Result->SetBoolField(TEXT("saved"), ImportedPaths.Num() > 0 && bAllSaved);
 	Result->SetBoolField(TEXT("success"), ImportedPaths.Num() > 0);
+	if (bSaveImported && ImportedPaths.Num() > 0 && !bAllSaved)
+	{
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), TEXT("The import produced assets, but at least one could not be saved; its row carries saveError."));
+	}
 	if (ImportedPaths.Num() == 0)
 	{
 		Result->SetStringField(TEXT("error"),

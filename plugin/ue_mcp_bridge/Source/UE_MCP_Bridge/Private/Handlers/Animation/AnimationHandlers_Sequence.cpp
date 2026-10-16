@@ -1557,7 +1557,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ApplyAnimationModifier(const TSharedP
 	Result->SetStringField(TEXT("rollbackNote"),
 		TEXT("A modifier bakes whatever its OnApply writes (curves, notifies, track edits) and registers itself in the sequence's asset user data. ")
 		TEXT("No action reverts a modifier or unregisters one, and re-applying it is not an inverse, so there is no inverse call. ")
-		TEXT("Recover per artefact: animation(remove_anim_curve) for a baked curve, animation(remove_anim_notify) for baked notifies."));
+		TEXT("Recover per artefact: animation(remove_curve) for a baked curve, animation(remove_notify) for baked notifies."));
 	return MCPResult(Result);
 }
 
@@ -2085,7 +2085,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::BakeRootMotionFromBone(const TSharedP
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
 			TEXT("The replay restores the keys of the %d bone track(s) that already existed, and a track this call had to create stays on the sequence because nothing removes a bone track. ")
-			TEXT("It does not restore bEnableRootMotion, which this call forced on: replay animation(set_root_motion_settings) with enableRootMotion=%s to finish the undo."),
+			TEXT("It does not restore bEnableRootMotion, which this call forced on: replay animation(set_root_motion) with enableRootMotion=%s to finish the undo."),
 			PrevTracks.Num(), bPrevEnableRootMotion ? TEXT("true") : TEXT("false")));
 	}
 	else

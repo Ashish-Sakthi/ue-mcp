@@ -23,6 +23,7 @@
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
 #include "AssetToolsModule.h"
+#include "Engine/Blueprint.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "FileHelpers.h"
@@ -285,10 +286,12 @@ TSharedPtr<FJsonValue> FAssetHandlers::FixupRedirectors(const TSharedPtr<FJsonOb
 		return MCPResult(Result);
 	}
 
-	// ── Rewrite exactly those packages ─────────────────────────────────────
-	// The referencers are loaded first because a soft reference in an unloaded
-	// package is invisible to the rewriter, which is how 19 stubs survived the
-	// original rename.
+	// ── Rewrite exactly those packages, unattended ─────────────────────────
+	// IAssetTools::FixupReferencers is interactive: it raises "No referencing
+	// assets found to be resaved." and the Redirector Update Report as modals
+	// (#1266, #1237). So the referencers are loaded here, which resolves their
+	// hard references to each destination, their soft paths are renamed, and
+	// they are saved directly. Nothing on this path opens a window.
 	TArray<UPackage*> LoadedReferencers;
 	TArray<TSharedPtr<FJsonValue>> PackageStatuses;
 	for (const FString& PackageName : PackagesToLoad)
@@ -313,70 +316,91 @@ TSharedPtr<FJsonValue> FAssetHandlers::FixupRedirectors(const TSharedPtr<FJsonOb
 			PackageStatuses.Add(MakeShared<FJsonValueObject>(Entry));
 			continue;
 		}
+		if (Package->HasAnyPackageFlags(PKG_CompiledIn))
+		{
+			Entry->SetStringField(TEXT("status"), TEXT("code_reference"));
+			Entry->SetStringField(TEXT("reason"), TEXT("referenced from native code, which a resave cannot repoint"));
+			PackageStatuses.Add(MakeShared<FJsonValueObject>(Entry));
+			continue;
+		}
 		LoadedReferencers.Add(Package);
 		Entry->SetStringField(TEXT("status"), TEXT("loaded"));
 		PackageStatuses.Add(MakeShared<FJsonValueObject>(Entry));
 	}
 
-	IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get();
-	// LeaveFixedUpRedirectors on purpose: the deletion below happens after the
-	// registry has been re-queried, so a redirector something still points at
-	// is never removed.
-	AssetTools.FixupReferencers(
-		RedirectorObjects,
-		/*bCheckoutDialogPrompt=*/false,
-		ERedirectFixupMode::LeaveFixedUpRedirectors);
+	if (LoadedReferencers.Num() > 0)
+	{
+		// The same old-to-new map the editor's own fix-up builds, including a
+		// Blueprint's generated class and its default object.
+		TMap<FSoftObjectPath, FSoftObjectPath> RedirectorMap;
+		for (const UObjectRedirector* Redirector : RedirectorObjects)
+		{
+			if (!Redirector || !Redirector->DestinationObject) continue;
+			const FSoftObjectPath OldPath(Redirector);
+			const FSoftObjectPath NewPath(Redirector->DestinationObject);
+			RedirectorMap.Add(OldPath, NewPath);
+			if (Cast<UBlueprint>(Redirector->DestinationObject))
+			{
+				RedirectorMap.Add(
+					FSoftObjectPath(FString::Printf(TEXT("%s_C"), *OldPath.ToString())),
+					FSoftObjectPath(FString::Printf(TEXT("%s_C"), *NewPath.ToString())));
+				RedirectorMap.Add(
+					FSoftObjectPath(FString::Printf(TEXT("%s.Default__%s_C"), *OldPath.GetLongPackageName(), *OldPath.GetAssetName())),
+					FSoftObjectPath(FString::Printf(TEXT("%s.Default__%s_C"), *NewPath.GetLongPackageName(), *NewPath.GetAssetName())));
+			}
+		}
+		IAssetTools& AssetTools = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get();
+		AssetTools.RenameReferencingSoftObjectPaths(LoadedReferencers, RedirectorMap);
 
-	const bool bFixupStillRunning = AssetTools.IsFixupReferencersInProgress();
-	Result->SetBoolField(TEXT("fixupInProgress"), bFixupStillRunning);
+		// A loaded package already points at the destination in memory; only a
+		// resave writes that into its import table.
+		for (UPackage* Package : LoadedReferencers)
+		{
+			Package->MarkPackageDirty();
+		}
+	}
 
 	// ── Save exactly those packages ────────────────────────────────────────
-	// save=false skips this explicit pass only. The editor's own fix-up writes
-	// what it can on its own, so this is not a way to preview the change:
-	// dryRun is, and it returns before anything is loaded.
+	// save=false leaves the repointed referencers dirty in memory, so the
+	// registry still lists them and every redirector they reference is kept.
 	int32 SavedCount = 0;
 	if (!bSave)
 	{
 		Result->SetStringField(TEXT("saveNote"),
-			TEXT("save=false skipped the explicit save pass. The editor's referencer fix-up writes what it can regardless, ")
-			TEXT("so use dryRun=true to preview instead. Redirectors are still only deleted when the registry says nothing references them."));
+			TEXT("save=false repointed the referencers in memory and left them dirty, so nothing was written and every ")
+			TEXT("redirector they reference was kept. Save them, then rerun to delete the redirectors."));
 	}
-	if (bSave && !bFixupStillRunning)
+	else
 	{
-		TArray<UPackage*> ToSave;
-		for (UPackage* Package : LoadedReferencers)
-		{
-			if (Package && Package->IsDirty()) ToSave.Add(Package);
-		}
-		if (ToSave.Num() > 0)
-		{
-			UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty=*/true);
-		}
 		TArray<FString> ModifiedFiles;
 		for (const TSharedPtr<FJsonValue>& Value : PackageStatuses)
 		{
 			const TSharedPtr<FJsonObject> Entry = Value->AsObject();
-			if (!Entry.IsValid()) continue;
+			FString Status;
+			if (!Entry.IsValid() || !Entry->TryGetStringField(TEXT("status"), Status) || Status != TEXT("loaded")) continue;
 			FString PackageName;
 			Entry->TryGetStringField(TEXT("packageName"), PackageName);
 			UPackage* Package = FindPackage(nullptr, *PackageName);
 			if (!Package) continue;
-			const bool bStillDirty = Package->IsDirty();
-			Entry->SetBoolField(TEXT("stillDirty"), bStillDirty);
-			Entry->SetStringField(TEXT("status"), bStillDirty ? TEXT("save_failed") : TEXT("saved"));
-			if (!bStillDirty)
+
+			FString SaveError;
+			const bool bSaved = SaveAssetPackageChecked(Package, SaveError);
+			Entry->SetBoolField(TEXT("stillDirty"), Package->IsDirty());
+			Entry->SetStringField(TEXT("status"), bSaved ? TEXT("saved") : TEXT("save_failed"));
+			if (!bSaved)
 			{
-				++SavedCount;
-				FString FileName;
-				if (FPackageName::DoesPackageExist(PackageName, &FileName))
-				{
-					ModifiedFiles.Add(FileName);
-				}
+				Entry->SetStringField(TEXT("error"), SaveError);
+				continue;
+			}
+			++SavedCount;
+			FString FileName;
+			if (ResolvePackageFileName(Package, FileName))
+			{
+				ModifiedFiles.Add(FileName);
 			}
 		}
-		// Re-query: the registry's referencer graph is what decides which
-		// redirectors are safe to delete, and it is stale until the rewritten
-		// packages have been rescanned.
+		// The registry's referencer graph decides which redirectors are safe to
+		// delete, and it is stale until the rewritten packages are rescanned.
 		if (ModifiedFiles.Num() > 0)
 		{
 			Registry.ScanModifiedAssetFiles(ModifiedFiles);
@@ -388,6 +412,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::FixupRedirectors(const TSharedPtr<FJsonOb
 	// ── Delete only the redirectors nothing points at any more ─────────────
 	TArray<UObject*> ToDelete;
 	TArray<TSharedPtr<FJsonValue>> RedirectorStatuses;
+	TArray<FString> NoReferencers;
+	int32 FixedCount = 0;
 	for (const FMCPRedirectorPlan& Plan : Plans)
 	{
 		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
@@ -414,14 +440,20 @@ TSharedPtr<FJsonValue> FAssetHandlers::FixupRedirectors(const TSharedPtr<FJsonOb
 		Entry->SetArrayField(TEXT("remainingHardReferencers"), MCPStringListToJson(RemainingHard));
 		Entry->SetArrayField(TEXT("remainingSoftReferencers"), MCPStringListToJson(RemainingSoft));
 
-		if (Remaining > 0 || bFixupStillRunning)
+		if (Plan.AllReferencers().Num() == 0)
+		{
+			NoReferencers.Add(Plan.PackageName);
+		}
+		if (Remaining > 0)
 		{
 			Entry->SetStringField(TEXT("status"), TEXT("kept"));
-			Entry->SetStringField(TEXT("reason"), bFixupStillRunning
-				? TEXT("the editor's referencer fix-up is still running, so nothing was deleted this call")
-				: TEXT("something still references it; rerun once those packages are saved"));
+			Entry->SetStringField(TEXT("reason"), TEXT("something still references it; rerun once those packages are saved"));
 			RedirectorStatuses.Add(MakeShared<FJsonValueObject>(Entry));
 			continue;
+		}
+		if (Plan.AllReferencers().Num() > 0)
+		{
+			++FixedCount;
 		}
 
 		if (UObject* Redirector = MCPLoadAssetObject(Plan.ObjectPath))
@@ -467,6 +499,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::FixupRedirectors(const TSharedPtr<FJsonOb
 	Result->SetNumberField(TEXT("deleteReportedCount"), DeletedCount);
 	Result->SetNumberField(TEXT("deletedRedirectorCount"), ConfirmedDeleted);
 	Result->SetArrayField(TEXT("redirectors"), RedirectorStatuses);
+	// The summary #1266 asks for: redirectors whose referencers were all
+	// repointed, redirectors removed from disk, and those nothing referenced.
+	Result->SetNumberField(TEXT("fixed"), FixedCount);
+	Result->SetNumberField(TEXT("deleted"), ConfirmedDeleted);
+	Result->SetArrayField(TEXT("noReferencers"), MCPStringListToJson(NoReferencers));
 	MCPSetUpdated(Result);
 	// Two irreversible writes, neither of which the bridge can undo. The
 	// referencer packages were saved over their previous bytes, and no copy of
