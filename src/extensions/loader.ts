@@ -26,6 +26,7 @@ import { satisfiesMinimum } from "./version.js";
 import { mergeInjectionsIntoTool, type InjectionPlan } from "./injection.js";
 import { buildProvidedTool, type ProvisionPlan } from "./provision.js";
 import { readDeployedBridgeApiVersion } from "./bridge-api.js";
+import { resolveServerImportsToSelf } from "./self-resolve.js";
 import {
   partitionFlowsByGroup,
   runtimeConfigFor,
@@ -704,6 +705,7 @@ async function importTaskClass(pkgDir: string, classPath: string): Promise<TaskC
       candidates.map((c) => `  - ${c}`).join("\n"),
     );
   }
+  resolveServerImportsToSelf();
   const mod = await import(pathToFileURL(resolved).href);
   const baseName = path.basename(segments);
   const TaskClass = mod.default ?? mod[baseName];

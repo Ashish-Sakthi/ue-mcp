@@ -74,9 +74,6 @@ Conventions:
   "main": "dist/index.js",
   "files": ["dist", "ue-mcp.plugin.yml", "knowledge", "README.md"],
   "keywords": ["unreal-engine"],
-  "peerDependencies": {
-    "ue-mcp": ">=1.0.65"
-  },
   "devDependencies": {
     "ue-mcp": "^1.0.65",
     "typescript": "^5.7.0"
@@ -87,7 +84,7 @@ Conventions:
 }
 ```
 
-`UeMcpTask` (and the types you import alongside it) come from `ue-mcp/task` - a thin, server-free entry point that the consumer's installed `ue-mcp` already provides. That's why `ue-mcp` is a **peer** dependency: the running server supplies the copy at load time, so your task extends the same base class the server uses. The matching **dev** dependency is only there to type-check your build. You never depend on the underlying flow runtime directly - it stays an implementation detail behind `ue-mcp/task`.
+`UeMcpTask` (and the types you import alongside it) come from `ue-mcp/task` - a thin, server-free entry point. The running server answers every `ue-mcp` and `ue-mcp/*` import a plugin makes with its own package, so your task extends the same base class the server uses and the user needs no copy of ue-mcp in `node_modules`. The **dev** dependency is only there to type-check your build. Do not declare a `peerDependencies` range on `ue-mcp`: npm admits a prerelease only when a range names the same `major.minor.patch`, so `>=1.0.65` rejects `1.4.0-beta.1` and the install fails with ERESOLVE. `minServerVersion` in `ue-mcp.plugin.yml` is the version gate. You never depend on the underlying flow runtime directly - it stays an implementation detail behind `ue-mcp/task`.
 
 ## `ue-mcp.plugin.yml`
 
