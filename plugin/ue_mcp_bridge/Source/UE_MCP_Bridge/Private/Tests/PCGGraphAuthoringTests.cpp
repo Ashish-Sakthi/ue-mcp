@@ -497,7 +497,9 @@ bool FMCPPCGGraphParametersTest::RunTest(const FString& Parameters)
 	auto ExportParams = MakeShared<FJsonObject>();
 	ExportParams->SetStringField(TEXT("assetPath"), GraphPath);
 	FString ExportedParameter;
-	for (const TSharedPtr<FJsonValue>& N : Invoke(Registry, TEXT("export_pcg_graph"), ExportParams)->GetArrayField(TEXT("nodes")))
+	// Held in a local: the range-for would otherwise iterate an array owned by a destroyed temporary.
+	const TSharedPtr<FJsonObject> Exported = Invoke(Registry, TEXT("export_pcg_graph"), ExportParams);
+	for (const TSharedPtr<FJsonValue>& N : Exported->GetArrayField(TEXT("nodes")))
 	{
 		if (N->AsObject()->GetStringField(TEXT("name")) == TEXT("GetSpacing")) N->AsObject()->TryGetStringField(TEXT("parameter"), ExportedParameter);
 	}
