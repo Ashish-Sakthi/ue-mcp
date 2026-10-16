@@ -2792,6 +2792,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 
 	if (!bSuccess)
 	{
+		// A delete that did not happen is a failed call, not a success carrying deleted=false (#1223).
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("'%s' was not deleted; the asset is still at this path. reason and the fields beside it say why."), *AssetPath));
 		ApplyDiagnosticsToJson(Result, DiagnoseDeleteFailure(AssetPath));
 	}
 
