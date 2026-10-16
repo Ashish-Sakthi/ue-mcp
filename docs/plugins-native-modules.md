@@ -71,7 +71,7 @@ ue-mcp plugin record-specs --project path/to/Project.uproject
 ue-mcp plugin record-specs --project path/to/Project.uproject --check   # CI: fail when the file is stale
 ```
 
-Ship that file in the tarball (`files:`). The server builds the surface from the recording, so the surface is the same whether or not an editor is connected. `project(get_status)` reports `deployedPlugin.handlerSpecDrift` when the running module registered something different.
+Ship that file in the tarball (`files:`). The server builds the surface from the recording, so the surface is the same whether or not an editor is connected. `project(get_status)` reports `deployedPlugin.handlerSpecDrift` when the running module registered something different. A call to a drifted handler is checked against the contract the running module registered, since the bridge enforces that one anyway; `describe_action` keeps showing the recording until you re-record it and the client reconnects.
 
 ## Layout inside the npm tarball
 

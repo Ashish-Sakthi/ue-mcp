@@ -620,7 +620,9 @@ export function nativeHandlerSurface(
   };
   const prepFor = (action: string, hName: string) => {
     const spec = specs?.[hName];
-    return spec ? { action, paramContract: { params: spec.params, choices: spec.choices, strict: true } } : undefined;
+    return spec
+      ? { action, paramContract: { params: spec.params, choices: spec.choices, strict: true }, liveSpecMethod: hName }
+      : undefined;
   };
 
   if (builtInCategories.has(cat)) {

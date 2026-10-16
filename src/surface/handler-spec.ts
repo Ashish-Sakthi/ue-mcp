@@ -801,3 +801,27 @@ export function recordedSpecsProblems(raw: unknown): string[] {
   if (!handlers || typeof handlers !== "object" || Array.isArray(handlers)) return ["handlers is not an object"];
   return specProblems(handlers as HandlerSpecs);
 }
+
+/**
+ * The contract a plugin handler's call is held to: the spec the running
+ * module registered when it differs from the recording and is well formed,
+ * else the recording (#1290). The bridge enforces the live spec anyway, so
+ * refusing a parameter it accepts only blocks the call until a reconnect.
+ */
+export function liveContract(
+  recorded: ParamContract,
+  method: string,
+  livePluginSpecs: Record<string, unknown> | undefined,
+): { contract: ParamContract; adopted: boolean; problem?: string } {
+  const live = livePluginSpecs?.[method];
+  if (live === undefined) return { contract: recorded, adopted: false };
+  const problems = specProblems({ [method]: live } as HandlerSpecs);
+  if (problems.length > 0) return { contract: recorded, adopted: false, problem: problems[0] };
+  const spec = live as HandlerSpec;
+  const same = (s: { params: readonly ParamSpec[]; choices?: readonly ParamChoice[] }) =>
+    canonical({ params: s.params, choices: s.choices } as HandlerSpec);
+  if (same(recorded) === same(spec)) {
+    return { contract: recorded, adopted: false };
+  }
+  return { contract: { params: spec.params, choices: spec.choices, strict: recorded.strict }, adopted: true };
+}

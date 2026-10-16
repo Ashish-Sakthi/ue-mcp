@@ -1,7 +1,7 @@
 import type { TaskResult } from "@db-lyon/flowkit";
 import type { ActionSpec, CategoryOptions } from "../core/types.js";
 import { stripAction } from "../surface/routing-params.js";
-import { prepareCall, finishCall, forwardToBridge, type CallPreparation } from "../dispatch/call-pipeline.js";
+import { prepareCall, finishCall, forwardToBridge, withLiveContract, type CallPreparation } from "../dispatch/call-pipeline.js";
 import { McpError, ErrorCode } from "../core/errors.js";
 import type { FlowContext } from "./context.js";
 import { liftRollback } from "./rollback.js";
@@ -95,7 +95,7 @@ export async function runBridge(
   const options = stripAction(rawOptions);
   // The routing parameters come off, the paths are repaired, and the category
   // folds its accepted spellings into the canonical ones.
-  const pipeline = prepareCall(options, prep);
+  const pipeline = prepareCall(options, withLiveContract(prep, ctx.bridge.capabilities?.pluginHandlerSpecs));
   const params = forwardToBridge(pipeline, pipeline.params, mapParams, name);
   // The caller's budget wins over the action's authored one: an action that
   // declares 120s is stating a floor it needs, not a ceiling.

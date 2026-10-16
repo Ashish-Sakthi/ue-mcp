@@ -205,3 +205,41 @@ describe("review findings (#1282)", () => {
     expect(problems.join("\n")).toMatch(/cannot write/);
   });
 });
+
+describe("live plugin specs (#1290)", () => {
+  const withInstanceOf = {
+    params: [...SPECS.volume_set.params, { name: "instanceOf", type: "string", required: false, description: "Template" }],
+  };
+
+  function runLive(options: Record<string, unknown>, pluginHandlerSpecs: Record<string, unknown> | undefined) {
+    const { surface } = provided();
+    const reg = surface.taskRegistrations.find((r) => r.name === "voxel.volume_set")!;
+    const calls: Array<{ method: string; params: Record<string, unknown> }> = [];
+    const ctx = {
+      project: {},
+      bridge: {
+        capabilities: { pluginHandlerSpecs } as BridgeCapabilities,
+        call: async (method: string, params: Record<string, unknown>) => { calls.push({ method, params }); return { success: true }; },
+      } as unknown as IBridge,
+    } as FlowContext;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const task = new (reg.ctor as any)(ctx, options);
+    return { calls, done: task.execute() as Promise<unknown> };
+  }
+
+  it("adopts the running module's spec when it differs from the recording", async () => {
+    const { calls, done } = runLive({ actorPath: "/A", instanceOf: "/T" }, { volume_set: withInstanceOf });
+    await done;
+    expect(calls).toEqual([{ method: "volume_set", params: { actorPath: "/A", instanceOf: "/T" } }]);
+  });
+
+  it("keeps the recording without a live spec, and names a malformed live spec in the refusal", async () => {
+    await expect(runLive({ actorPath: "/A", instanceOf: "/T" }, undefined).done).rejects.toThrow(/does not take instanceOf/);
+    await expect(runLive({ actorPath: "/A", instanceOf: "/T" }, { volume_set: { params: "nope" } }).done)
+      .rejects.toThrow(/running module registered a different contract for volume_set/);
+  });
+
+  it("still holds the call to the live spec", async () => {
+    await expect(runLive({ instanceOf: "/T" }, { volume_set: withInstanceOf }).done).rejects.toThrow(/needs actorPath/);
+  });
+});
