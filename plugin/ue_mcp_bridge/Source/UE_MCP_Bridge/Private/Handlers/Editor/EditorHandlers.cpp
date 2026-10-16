@@ -7,6 +7,7 @@
 #include "HandlerSkinnedAsset.h"
 #include "HandlerSceneCapture.h"
 #include "Handlers/Level/LevelHandlers.h"
+#include "Handlers/HandlerEditorState.h"
 #include "Misc/PackageName.h"
 
 #include "MessageLogModule.h"
@@ -3582,8 +3583,38 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 			TEXT("a map file may have been saved at levelPath without being opened."), *LevelPath, *OpenPackage));
 	}
 
+	// A World Partition copy keeps actor descs pointing at the /Temp world it was built in until it is saved
+	// and reopened, and PIE then streams none of those actors (#1284).
+	bool bReopened = false;
+	if (bHasTemplate && World->IsPartitionedWorld())
+	{
+		TArray<UPackage*> ToSave;
+		ToSave.Add(World->GetOutermost());
+		if (World->PersistentLevel)
+		{
+			for (UPackage* External : World->PersistentLevel->GetLoadedExternalObjectPackages())
+			{
+				if (External) ToSave.AddUnique(External);
+			}
+		}
+		if (!UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty*/ false))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' was created from the template but could not be saved, so its actor descriptors still point at /Temp. The output log carries the reason."), *LevelPath));
+		}
+		UEditorLoadingAndSavingUtils::NewBlankMap(/*bSaveExistingMap*/ false);
+		FString ReloadError;
+		if (!MCPEditorState::LoadLevelViaHandler(&FLevelHandlers::LoadLevel, LevelPath, ReloadError))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' was created and saved, but reopening it failed: %s"), *LevelPath, *ReloadError));
+		}
+		World = GetEditorWorld();
+		if (!World) return MCPError(TEXT("No editor world after reopening the new level"));
+		bReopened = true;
+	}
+
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
+	if (bReopened) Result->SetBoolField(TEXT("savedAndReopened"), true);
 	Result->SetStringField(TEXT("worldName"), World->GetName());
 	Result->SetStringField(TEXT("worldPath"), World->GetPathName());
 	Result->SetBoolField(TEXT("worldPartition"), World->IsPartitionedWorld());
