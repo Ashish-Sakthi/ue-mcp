@@ -1,5 +1,5 @@
 import type { TaskResult } from "@db-lyon/flowkit";
-import type { ActionSpec, CategoryOptions } from "../core/types.js";
+import type { ActionSpec, BridgeActionSpec, CategoryOptions } from "../core/types.js";
 import { stripAction } from "../surface/routing-params.js";
 import { prepareCall, finishCall, forwardToBridge, type CallPreparation } from "../dispatch/call-pipeline.js";
 import { McpError, ErrorCode } from "../core/errors.js";
@@ -76,7 +76,7 @@ export async function runAction(
   options: Record<string, unknown>,
   prep?: CallPreparation,
 ): Promise<TaskResult> {
-  if (spec.kind === "bridge") return runBridge(ctx, name, spec.bridge, paramMapperOf(spec), spec.timeoutMs, options, prep);
+  if (spec.kind === "bridge") return runBridge(ctx, name, spec.bridge, paramMapperOf(spec), spec.timeoutMs, options, prep, spec.followUp);
   if (spec.kind === "handler") return runHandler(ctx, name, spec.handler, options, prep);
   throw new McpError(ErrorCode.NO_HANDLER, `Action '${name}' has no handler or bridge method`);
 }
@@ -89,6 +89,7 @@ export async function runBridge(
   timeoutMs: number | undefined,
   rawOptions: Record<string, unknown>,
   prep?: CallPreparation,
+  followUp?: BridgeActionSpec["followUp"],
 ): Promise<TaskResult> {
   // `action` is the dispatcher's, not a bridge parameter. Stripped before the
   // mapper, since a mapper that forwards its input verbatim would carry it.
@@ -99,7 +100,8 @@ export async function runBridge(
   const params = forwardToBridge(pipeline, pipeline.params, mapParams, name);
   // The caller's budget wins over the action's authored one: an action that
   // declares 120s is stating a floor it needs, not a ceiling.
-  const answered = await ctx.bridge.call(method, params, pipeline.timeoutMs ?? timeoutMs);
+  const sent = await ctx.bridge.call(method, params, pipeline.timeoutMs ?? timeoutMs);
+  const answered = followUp ? await followUp(ctx, params, sent) : sent;
   const raw = finishCall(answered, pipeline);
   if (typeof raw !== "object" || raw === null) {
     return applyHandlerOutcome(ctx, answered, { success: true, data: { result: raw } });

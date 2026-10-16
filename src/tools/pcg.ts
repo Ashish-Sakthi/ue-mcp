@@ -1,5 +1,7 @@
+import { z } from "zod";
 import type { ToolDef } from "../core/types.js";
 import { categoryTool } from "../surface/category-tool.js";
+import { waitAfterRegenerate, waitForGeneration } from "./pcg-wait.js";
 import { actions as epicActions, schema as epicSchema } from "./epic/pcg.generated.js";
 import { specBp, schema as specSchema } from "./specs/pcg.generated.js";
 
@@ -11,7 +13,7 @@ export const pcgTool: ToolDef = categoryTool(
     read_graph:           specBp("read", "Read graph structure.", "read_pcg_graph"),
     read_node_settings:   specBp("read", "Read node settings.", "read_pcg_node_settings"),
     get_components:       specBp("read", "List PCG components in level.", "get_pcg_components"),
-    get_component_details: specBp("read", "Inspect PCG component (#983). Reports isGenerating, isCleaningUp, generated, partitioned (with local component counts) and lastRun {id, state generating|generated|cancelled|cleaned|not_started, startedUtc, finishedUtc}; poll it until the runId execute or force_regenerate returned finishes.", "get_pcg_component_details"),
+    get_component_details: specBp("read", "Inspect PCG component (#983). Reports isGenerating, isCleaningUp, generated, partitioned (with local component counts) and lastRun {id, state generating|generated|cancelled|cleaned|not_started, startedUtc, finishedUtc}; to wait for a run, use wait_for_generation or wait=true on execute.", "get_pcg_component_details"),
     create_graph:         specBp("mutate", "Create graph in packagePath (or path), default /Game/PCG. Idempotent by path: an existing graph is reported rather than replaced.", "create_pcg_graph"),
     add_node:             specBp("mutate", "Add node. The engine assigns its name unless name is given; either way nodeName in the result is what connect_nodes and remove_node take. A name already in the graph with the same class is reported as existed; another class is refused (#1331).", "add_pcg_node"),
     connect_nodes:        specBp("mutate", "Wire nodes. Returns edgeVerified=true after confirming the UPCGEdge persisted; surfaces an error if AddEdge succeeded but no edge object was instantiated (#304).", "connect_pcg_nodes"),
@@ -20,8 +22,28 @@ export const pcgTool: ToolDef = categoryTool(
     set_static_mesh_spawner_meshes: specBp("mutate", "Populate weighted MeshEntries on a PCGStaticMeshSpawner node (#145). entries=[{mesh, weight?}]; replace defaults to true. Refuses a selector the node's settings do not own; reports selectorOuterIsSettings.", "set_static_mesh_spawner_meshes"),
     remove_node:          specBp("mutate", "Remove node. The graph's input and output nodes are refused.", "remove_pcg_node"),
     unwrap_instance_nodes: specBp("mutate", "Give instance nodes (UPCGSettingsInstance wrappers, read-only in the PCG editor's details panel) their own settings object, keeping every value and edge. Settings from a shared asset are copied into the node. Nodes that already own their settings are left alone. Omit nodeName for every node in the graph (#1087).", "unwrap_pcg_instance_nodes"),
-    execute:              specBp("mutate", "Regenerate PCG. A seed is written to the component before generating, and the old one reported back as previousSeed (#983). Returns at once with runId; generation finishes on later ticks (poll get_component_details). Refused with generation_in_progress while a run is active.", "execute_pcg_graph"),
-    force_regenerate:     specBp("mutate", "Force a stuck PCG component to regenerate (clears graph ref, re-sets, cleanup+generate) (#146/#983). Cancels active generation before resetting; returns runId like execute, including when the component was busy.", "force_regenerate_pcg"),
+    execute: {
+      ...specBp("mutate", "Regenerate PCG. A seed is written to the component before generating, and the old one reported back as previousSeed (#983). Returns at once with runId, or with wait=true only once that run finishes, adding wait {state generated|cancelled|cleaned|not_started|timed_out, durationMs}; a timed-out wait is a warning, not a failure (#1365). Refused with generation_in_progress while a run is active.", "execute_pcg_graph"),
+      followUp: waitAfterRegenerate,
+    },
+    force_regenerate: {
+      ...specBp("mutate", "Force a stuck PCG component to regenerate (clears graph ref, re-sets, cleanup+generate) (#146/#983). Cancels active generation before resetting; returns runId like execute, including when the component was busy, and takes wait=true the same way (#1365).", "force_regenerate_pcg"),
+      followUp: waitAfterRegenerate,
+    },
+    get_generation_state: specBp("read", "One poll of a PCG component's generation: busy (generating, cleaning up, or local components generating), finishCount and lastFinishState for generations that ended since the bridge started watching the component (whoever started them), and lastRun. wait_for_generation polls this for you (#1365).", "get_pcg_generation_state"),
+    wait_for_generation: {
+      kind: "handler",
+      effect: "read",
+      description: "Block until a PCG component's generation finishes, for a run started by anything (execute, the editor, a project function that defers to the next tick), polling get_generation_state with backoff. With runId, waits for that run; without, for the generation in flight, or one that starts within graceSeconds (default 2), else returns state idle. Partitioned components finish when their local components do. Returns state generated|cancelled|cleaned|not_started|idle|timed_out, durationMs, polls and lastRun; timed_out fails the call (#1365). Params: actorLabel?, actorPath?, componentName?, runId?, timeoutSeconds?, graceSeconds?",
+      handler: async (ctx, p) => waitForGeneration(ctx, {
+        actorLabel: p.actorLabel as string | undefined,
+        actorPath: p.actorPath as string | undefined,
+        componentName: p.componentName as string | undefined,
+        runId: p.runId as number | undefined,
+        timeoutSeconds: p.timeoutSeconds as number | undefined,
+        graceSeconds: p.graceSeconds as number | undefined,
+      }),
+    },
     cleanup:              specBp("mutate", "Cleanup a PCG component (remove spawned content) (#146).", "cleanup_pcg"),
     toggle_graph:         specBp("mutate", "Toggle a PCG component's graph assignment to force reinit (no generate) (#146).", "toggle_pcg_graph"),
     add_volume:           specBp("mutate", "Place PCG volume. Idempotent by editor label when one is given. transform {location, rotation, scale|scale3D} is honoured; reports the placed location, rotation, scale, extent and scaledExtent.", "add_pcg_volume"),
@@ -44,5 +66,7 @@ export const pcgTool: ToolDef = categoryTool(
     // registration. A key listed again below is shared with hand-written
     // actions, and tests/unit/handler-specs.test.ts holds the two to one type.
     ...specSchema,
+    runId: z.number().optional().describe("wait_for_generation: the runId execute or force_regenerate returned"),
+    graceSeconds: z.number().optional().describe("wait_for_generation: with no runId and nothing generating, how long to wait for a deferred start (default 2)"),
   },
 );

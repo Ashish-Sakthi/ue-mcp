@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1084,
+  "handlerCount": 1085,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -13051,6 +13051,18 @@
           "type": "integer",
           "required": false,
           "description": "Write the component's Seed before generating; the old one is reported as previousSeed"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -13941,6 +13953,18 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -16255,6 +16279,42 @@
     "get_pcg_components": {
       "category": "pcg",
       "params": []
+    },
+    "get_pcg_generation_state": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "This PCG component (default: the actor's first, the one execute regenerates)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
     },
     "get_perceived_actors": {
       "category": "gameplay",

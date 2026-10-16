@@ -59,6 +59,9 @@ private:
 	// issue #1309 - the data a component generated, or one node's output under inspection.
 	static TSharedPtr<FJsonValue> ReadGeneratedOutput(const TSharedPtr<FJsonObject>& Params);
 
+	// issue #1365 - generation state for waiting on a run started by anything.
+	static TSharedPtr<FJsonValue> GetPCGGenerationState(const TSharedPtr<FJsonObject>& Params);
+
 	static void ExportSubgraphSettings(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
 	static bool ImportSubgraphSettings(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
 };

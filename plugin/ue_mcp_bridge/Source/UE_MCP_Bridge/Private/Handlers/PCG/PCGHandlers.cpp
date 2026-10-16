@@ -443,6 +443,10 @@ namespace
 		FDateTime StartedUtc;
 		FDateTime FinishedUtc;
 		bool bBound = false;
+		// Every generation that ended once observed, whoever started it (#1365).
+		int64 FinishCount = 0;
+		FString LastFinishState;
+		FDateTime LastFinishUtc;
 	};
 
 	static TMap<TWeakObjectPtr<UPCGComponent>, FPCGRunRecord>& PCGRuns()
@@ -482,7 +486,14 @@ namespace
 	static void FinishPCGRun(UPCGComponent* Comp, const FString& State)
 	{
 		FPCGRunRecord* Run = PCGRuns().Find(TWeakObjectPtr<UPCGComponent>(Comp));
-		if (!Comp || !Run || Run->State != TEXT("generating")) return;
+		if (!Comp || !Run) return;
+		if (!(State == TEXT("cleaned") && Comp->IsGenerating()))
+		{
+			++Run->FinishCount;
+			Run->LastFinishState = State;
+			Run->LastFinishUtc = FDateTime::UtcNow();
+		}
+		if (Run->State != TEXT("generating")) return;
 		// force_regenerate_pcg queues a cleanup ahead of its Generate; that
 		// cleanup finishing while the new run is in flight has not ended the run.
 		if (State == TEXT("cleaned") && Comp->IsGenerating()) return;
@@ -490,10 +501,9 @@ namespace
 		Run->FinishedUtc = FDateTime::UtcNow();
 	}
 
-	// Call immediately before Generate(). Returns the new run id.
-	static int64 StartPCGRun(UPCGComponent* Comp)
+	/** The component's record, with its completion delegates bound, so generations anything starts are counted. */
+	static FPCGRunRecord& ObservePCGComponent(UPCGComponent* Comp)
 	{
-		static int64 LastRunId = 0;
 		for (auto It = PCGRuns().CreateIterator(); It; ++It)
 		{
 			if (!It.Key().IsValid()) It.RemoveCurrent();
@@ -508,6 +518,14 @@ namespace
 			Comp->OnPCGGraphCleanedDelegate.AddWeakLambda(Comp, [](UPCGComponent* C) { FinishPCGRun(C, TEXT("cleaned")); });
 			Run.bBound = true;
 		}
+		return Run;
+	}
+
+	// Call immediately before Generate(). Returns the new run id.
+	static int64 StartPCGRun(UPCGComponent* Comp)
+	{
+		static int64 LastRunId = 0;
+		FPCGRunRecord& Run = ObservePCGComponent(Comp);
 		Run.Id = ++LastRunId;
 		Run.State = TEXT("generating");
 		Run.StartedUtc = FDateTime::UtcNow();
@@ -682,9 +700,13 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("propertyName"), EType::String, TEXT("One property to write instead of a settings object")),
 		MCPParam::Optional(TEXT("propertyValue"), EType::String, TEXT("The value for propertyName, as UE export text")),
 	}, MCPSpec::ExactlyOne({ { TEXT("settings") }, { TEXT("propertyName"), TEXT("propertyValue") } }));
+	// #1365: wait and timeoutSeconds are honoured by the MCP server, which polls get_pcg_generation_state.
+	const FMCPParamSpec SpecWait = MCPParam::Optional(TEXT("wait"), EType::Boolean, TEXT("Return only once this run finishes (default false); the result gains wait {state, durationMs}"));
+	const FMCPParamSpec SpecWaitTimeout = MCPParam::Optional(TEXT("timeoutSeconds"), EType::Number, TEXT("Longest wait in seconds (default 600)"));
 	Registry.RegisterHandler(TEXT("execute_pcg_graph"), &ExecutePCGGraph, {
 		SpecActorLabel, SpecActorPath,
 		MCPParam::Optional(TEXT("seed"), EType::Integer, TEXT("Write the component's Seed before generating; the old one is reported as previousSeed")),
+		SpecWait, SpecWaitTimeout,
 	}, ActorChoice);
 	Registry.RegisterHandler(TEXT("add_pcg_volume"), &SpawnPCGVolume, {
 		MCPParam::Optional(TEXT("graphPath"), EType::String, TEXT("PCGGraph to assign to the volume's component")),
@@ -718,6 +740,11 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	// #146: force_regenerate / cleanup / toggle_graph on PCG components
 	Registry.RegisterHandler(TEXT("force_regenerate_pcg"), &ForceRegeneratePCG, {
 		SpecActorLabel, SpecActorPath,
+		SpecWait, SpecWaitTimeout,
+	}, ActorChoice);
+	Registry.RegisterHandler(TEXT("get_pcg_generation_state"), &GetPCGGenerationState, {
+		SpecActorLabel, SpecActorPath,
+		MCPParam::Optional(TEXT("componentName"), EType::String, TEXT("This PCG component (default: the actor's first, the one execute regenerates)")),
 	}, ActorChoice);
 	Registry.RegisterHandler(TEXT("cleanup_pcg"), &CleanupPCG, {
 		SpecActorLabel, SpecActorPath,
@@ -1769,6 +1796,9 @@ TSharedPtr<FJsonValue> FPCGHandlers::ExecutePCGGraph(const TSharedPtr<FJsonObjec
 	FString ActorLabel;
 	double Seed = 0;
 	const bool bHasSeed = TryGetNumberParam(Params, TEXT("seed"), Seed);
+	// The MCP server does the waiting; the handler echoes the request so the result shows it was seen (#1365).
+	const bool bWait = OptionalBool(Params, TEXT("wait"), false);
+	const double WaitTimeout = OptionalNumber(Params, TEXT("timeoutSeconds"), 600.0);
 
 	REQUIRE_EDITOR_WORLD(World);
 
@@ -1818,6 +1848,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ExecutePCGGraph(const TSharedPtr<FJsonObjec
 	Result->SetStringField(TEXT("componentName"), PCGComp->GetName());
 	Result->SetNumberField(TEXT("runId"), (double)RunId);
 	Result->SetField(TEXT("lastRun"), PCGRunJson(PCGComp));
+	if (bWait) Result->SetNumberField(TEXT("waitRequestedSeconds"), WaitTimeout);
 	if (PCGComp->GetGraph())
 	{
 		Result->SetStringField(TEXT("graphName"), PCGComp->GetGraph()->GetName());
@@ -2196,6 +2227,50 @@ TSharedPtr<FJsonValue> FPCGHandlers::GetPCGComponentDetails(const TSharedPtr<FJs
 	return MCPResult(Result);
 }
 
+// #1365: the cheap state wait_for_generation polls. Observing binds the completion delegates, so a
+// generation started by anything (a project UFUNCTION, the editor) is counted once it ends.
+TSharedPtr<FJsonValue> FPCGHandlers::GetPCGGenerationState(const TSharedPtr<FJsonObject>& Params)
+{
+	const FString ComponentName = OptionalString(Params, TEXT("componentName"));
+	REQUIRE_EDITOR_WORLD(World);
+	TSharedPtr<FJsonValue> ActorErr;
+	AActor* Actor = MCPResolveActor(World, Params, ActorErr);
+	if (!Actor) return ActorErr;
+	UPCGComponent* Comp = nullptr;
+	TArray<UPCGComponent*> Comps;
+	Actor->GetComponents<UPCGComponent>(Comps);
+	for (UPCGComponent* C : Comps)
+	{
+		if (C && (ComponentName.IsEmpty() || C->GetName() == ComponentName)) { Comp = C; break; }
+	}
+	if (!Comp)
+	{
+		return MCPError(FString::Printf(TEXT("No PCGComponent%s on actor %s."),
+			ComponentName.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" named '%s'"), *ComponentName), *Actor->GetActorLabel()));
+	}
+	const FPCGRunRecord& Run = ObservePCGComponent(Comp);
+	const FPCGLocalComponentCounts Locals = CountPCGLocalComponents(Comp);
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("actorLabel"), Actor->GetActorLabel());
+	Result->SetStringField(TEXT("actorPath"), Actor->GetPathName());
+	Result->SetStringField(TEXT("componentName"), Comp->GetName());
+	Result->SetBoolField(TEXT("busy"), PCGComponentBusy(Comp));
+	Result->SetBoolField(TEXT("isGenerating"), Comp->IsGenerating());
+	Result->SetBoolField(TEXT("isCleaningUp"), Comp->IsCleaningUp());
+	Result->SetBoolField(TEXT("generated"), Comp->bGenerated);
+	Result->SetBoolField(TEXT("partitioned"), Comp->IsPartitioned());
+	if (Locals.bKnown) Result->SetNumberField(TEXT("localComponentsGenerating"), Locals.Generating);
+	Result->SetNumberField(TEXT("finishCount"), (double)Run.FinishCount);
+	if (Run.FinishCount > 0)
+	{
+		Result->SetStringField(TEXT("lastFinishState"), Run.LastFinishState);
+		Result->SetStringField(TEXT("lastFinishUtc"), Run.LastFinishUtc.ToIso8601());
+	}
+	Result->SetField(TEXT("lastRun"), PCGRunJson(Comp));
+	return MCPResult(Result);
+}
+
 // ─── #145 set_static_mesh_spawner_meshes ────────────────────────────
 // Populates the MeshEntries array on a PCGStaticMeshSpawner node's
 // weighted mesh selector. set_pcg_node_settings can't reach into
@@ -2425,6 +2500,8 @@ namespace
 TSharedPtr<FJsonValue> FPCGHandlers::ForceRegeneratePCG(const TSharedPtr<FJsonObject>& Params)
 {
 	FString ActorLabel;
+	const bool bWait = OptionalBool(Params, TEXT("wait"), false);
+	const double WaitTimeout = OptionalNumber(Params, TEXT("timeoutSeconds"), 600.0);
 
 	UPCGComponent* PCGComp = nullptr; AActor* Actor = nullptr;
 	if (auto Err = FindPCGComponentByLabel(Params, PCGComp, Actor)) return Err;
@@ -2462,6 +2539,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ForceRegeneratePCG(const TSharedPtr<FJsonOb
 	Result->SetStringField(TEXT("graphName"), OriginalGraph->GetName());
 	Result->SetStringField(TEXT("graphPath"), OriginalGraph->GetPathName());
 	Result->SetBoolField(TEXT("regenerated"), true);
+	if (bWait) Result->SetNumberField(TEXT("waitRequestedSeconds"), WaitTimeout);
 	Result->SetBoolField(TEXT("wasGenerated"), bWasGenerated);
 	Result->SetBoolField(TEXT("partitioned"), bPartitioned);
 

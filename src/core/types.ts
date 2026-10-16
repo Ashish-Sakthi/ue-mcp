@@ -374,6 +374,11 @@ export interface BridgeActionSpec extends ActionSpecBase {
    * `epic_call_tool` envelope from it and `epicSchema` (see paramMapperOf).
    */
   epicTool?: EpicToolRef;
+  /**
+   * Runs after the bridge answers, with the parameters sent and the answer; what it returns replaces the answer.
+   * For work the editor cannot do on its game thread, such as waiting for a PCG generation (#1365).
+   */
+  followUp?: (ctx: ToolContext, params: Record<string, unknown>, answered: unknown) => Promise<unknown>;
   handler?: never;
 }
 

@@ -333,6 +333,18 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "integer",
         "required": false,
         "description": "Write the component's Seed before generating; the old one is reported as previousSeed"
+      },
+      {
+        "name": "wait",
+        "type": "boolean",
+        "required": false,
+        "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+      },
+      {
+        "name": "timeoutSeconds",
+        "type": "number",
+        "required": false,
+        "description": "Longest wait in seconds (default 600)"
       }
     ],
     "choices": [
@@ -412,6 +424,18 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "Full actor object path; the unambiguous selector"
+      },
+      {
+        "name": "wait",
+        "type": "boolean",
+        "required": false,
+        "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+      },
+      {
+        "name": "timeoutSeconds",
+        "type": "number",
+        "required": false,
+        "description": "Longest wait in seconds (default 600)"
       }
     ],
     "choices": [
@@ -461,6 +485,42 @@ export const handlerSpecs: HandlerSpecs = {
   "get_pcg_components": {
     "category": "pcg",
     "params": []
+  },
+  "get_pcg_generation_state": {
+    "category": "pcg",
+    "params": [
+      {
+        "name": "actorLabel",
+        "type": "string",
+        "required": false,
+        "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+      },
+      {
+        "name": "actorPath",
+        "type": "string",
+        "required": false,
+        "description": "Full actor object path; the unambiguous selector"
+      },
+      {
+        "name": "componentName",
+        "type": "string",
+        "required": false,
+        "description": "This PCG component (default: the actor's first, the one execute regenerates)"
+      }
+    ],
+    "choices": [
+      {
+        "mode": "exactlyOne",
+        "branches": [
+          [
+            "actorLabel"
+          ],
+          [
+            "actorPath"
+          ]
+        ]
+      }
+    ]
   },
   "import_pcg_graph": {
     "category": "pcg",
@@ -1048,12 +1108,13 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   create_pcg_graph: "Params: name, packagePath? (or path), onConflict?",
   create_pcg_graph_instance: "Params: name, graphPath, packagePath?, overrides?, onConflict?",
   disconnect_pcg_nodes: "Params: assetPath (or path), sourceNode (or sourceNodeName), targetNode (or targetNodeName), sourcePin? (or sourcePinLabel), targetPin? (or targetPinLabel)",
-  execute_pcg_graph: "Params: actorLabel OR actorPath, seed?",
+  execute_pcg_graph: "Params: actorLabel OR actorPath, seed?, wait?, timeoutSeconds?",
   export_level_to_pcg_asset: "Params: levelPath, assetPath?, assetName?, save?",
   export_pcg_graph: "Params: assetPath (or path), includeSettings?",
-  force_regenerate_pcg: "Params: actorLabel OR actorPath",
+  force_regenerate_pcg: "Params: actorLabel OR actorPath, wait?, timeoutSeconds?",
   get_pcg_component_details: "Params: actorLabel OR actorPath",
   get_pcg_components: "Params: none",
+  get_pcg_generation_state: "Params: actorLabel OR actorPath, componentName?",
   import_pcg_graph: "Params: assetPath (or path), nodes, connections?, replace?, removeNodes?, removeConnections?",
   list_pcg_graphs: "Params: cursor?, limit?",
   read_pcg_generated_output: "Params: actorLabel OR actorPath, componentName?, pin?, attributes?, offset?, limit?, nodeName?, graphPath?, includeLocalComponents?",
@@ -1080,7 +1141,7 @@ export const schema: Record<string, z.ZodType> = {
   assetPath: z.string().optional().describe("PCGGraph asset path (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_graph_parameters, set_pcg_graph_pins, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder) (export_level_to_pcg_asset). PCGGraphInstance asset path (set_pcg_graph_instance_overrides)"),
   assetPaths: z.array(z.string()).optional().describe("PCG data assets to re-export from their source levels"),
   attributes: z.array(z.string()).optional().describe("Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)"),
-  componentName: z.string().optional().describe("Only this PCG component (default: every PCG component on the actor)"),
+  componentName: z.string().optional().describe("This PCG component (default: the actor's first, the one execute regenerates) (get_pcg_generation_state). Only this PCG component (default: every PCG component on the actor) (read_pcg_generated_output)"),
   connections: z.array(z.record(z.unknown())).optional().describe("[{from, fromPin?, to, toPin?}]"),
   cursor: z.string().optional().describe("Resume a paged read: pass back the 'nextCursor' from the previous page, unmodified"),
   entries: z.array(z.object({ mesh: z.string().describe("StaticMesh, package or object path; an entry without one is skipped, and one that does not load refuses the call"), weight: z.number().optional().describe("Relative pick weight (default 1), truncated to a whole number") })).optional().describe("Weighted mesh entries"),
@@ -1128,7 +1189,9 @@ export const schema: Record<string, z.ZodType> = {
   targetNodeName: z.string().optional().describe("Alias for targetNode"),
   targetPin: z.string().optional().describe("Input pin label. connect_nodes defaults to the first input pin, disconnect_nodes to any"),
   targetPinLabel: z.string().optional().describe("Alias for targetPin"),
+  timeoutSeconds: z.number().optional().describe("Longest wait in seconds (default 600)"),
   transform: z.object({ location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Actor scale (default 1)"), scale3D: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Same as scale") }).optional().describe("Actor transform; scale multiplies the extent"),
+  wait: z.boolean().optional().describe("Return only once this run finishes (default false); the result gains wait {state, durationMs}"),
 };
 
 /** Declare an action for a spec'd bridge method: effect, summary, method. */
