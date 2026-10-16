@@ -328,3 +328,66 @@ describe("registry-catalog helpers", () => {
     expect(url.length).toBeLessThan(6500);
   });
 });
+
+describe("feedback routing of plugin-injected actions", () => {
+  beforeEach(() => {
+    clearCoreSurfaceCache();
+  });
+
+  function installedPerforce(): PluginInfo {
+    return {
+      ...installedPieStudio(),
+      name: "ue-mcp-perforce",
+      actionPrefix: "p4",
+      injected: { source_control: ["p4_reconcile"] },
+      provided: {},
+    };
+  }
+
+  // The addressed editor's graph, as the dispatcher hands it in: the plugin's
+  // action sits on the core category it was injected into.
+  const GRAPH = ALL_TOOLS.map((t) =>
+    t.name === "source_control"
+      ? { ...t, actions: { ...t.actions, p4_reconcile: t.actions.get_status } }
+      : t,
+  );
+
+  it("routes a report naming the injected action bare, with no idealTool, to the owning plugin", async () => {
+    const d = await routeFeedback({
+      title: "Reconcile misses files opened outside the editor",
+      summary: "p4_reconcile reports nothing to reconcile after files were edited in a text editor.",
+      catalog: CATALOG,
+      tools: GRAPH,
+      installed: [installedPerforce()],
+    });
+    expect(d.target).toBe("plugin");
+    expect(d.candidate?.slug).toBe("perforce");
+    expect(d.candidate?.confidence).toBe("certain");
+    expect(d.candidate?.reasons.join(" ")).toContain("source_control(p4_reconcile)");
+  });
+
+  it("routes a report naming the injected action only in its title to the owning plugin", async () => {
+    const d = await routeFeedback({
+      title: "source_control(p4_reconcile) times out on a large depot",
+      summary: "The call never returns on a workspace with many files.",
+      catalog: CATALOG,
+      tools: GRAPH,
+      installed: [installedPerforce()],
+    });
+    expect(d.target).toBe("plugin");
+    expect(d.candidate?.slug).toBe("perforce");
+    expect(d.coreAnchor).not.toBe("source_control(p4_reconcile)");
+  });
+
+  it("keeps a report about a core source_control action on core with the plugin installed", async () => {
+    const d = await routeFeedback({
+      title: "source_control(mark_for_delete) leaves the asset loaded",
+      summary: "After mark_for_delete the asset still shows in the content browser.",
+      catalog: CATALOG,
+      tools: GRAPH,
+      installed: [installedPerforce()],
+    });
+    expect(d.target).toBe("core");
+    expect(d.coreAnchor).toBe("source_control(mark_for_delete)");
+  });
+});

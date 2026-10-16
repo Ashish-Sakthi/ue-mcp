@@ -32,8 +32,10 @@ import {
  *                             refused, so the agent cannot aim a submission at
  *                             an arbitrary GitHub project.
  *   2. installed ownership  - `idealTool` names a category or action that a
- *                             locally loaded plugin actually provides. This is
- *                             a fact, not a guess: confidence "certain".
+ *                             locally loaded plugin actually provides, or the
+ *                             title or summary names an action a loaded plugin
+ *                             injected (`p4_reconcile`, bare or as a call).
+ *                             This is a fact, not a guess: confidence "certain".
  *   3. core anchor          - the text names a real built-in category or action
  *                             (`editor(play_in_editor)`). Core owns it; any
  *                             keyword hit is demoted to a suggestion.
@@ -166,6 +168,30 @@ function coreSurface(tools: readonly ToolDef[] = NO_TOOLS): CoreSurface {
   const surface = { categories, actions };
   coreSurfaceCache.set(tools, surface);
   return surface;
+}
+
+/**
+ * The graph a caller hands in is the addressed editor's, so it carries every
+ * action a loaded plugin injected (`p4_reconcile` on source_control) and every
+ * category one provides. Those belong to the plugin, not to core, so they are
+ * taken back out before anything is anchored on them.
+ */
+function withoutPluginSurface(core: CoreSurface, installed: PluginInfo[]): CoreSurface {
+  const ownedCategories = new Set<string>();
+  const ownedActions = new Set<string>();
+  for (const p of installed) {
+    for (const cat of Object.keys(p.provided)) ownedCategories.add(cat.toLowerCase());
+    for (const actions of [...Object.values(p.injected), ...Object.values(p.provided)]) {
+      for (const a of actions) ownedActions.add(a.toLowerCase());
+    }
+  }
+  if (ownedCategories.size === 0 && ownedActions.size === 0) return core;
+  const categories = new Set([...core.categories].filter((c) => !ownedCategories.has(c)));
+  const actions = new Map<string, string>();
+  for (const [action, cat] of core.actions) {
+    if (!ownedActions.has(action) && !ownedCategories.has(cat.toLowerCase())) actions.set(action, cat);
+  }
+  return { categories, actions };
 }
 
 /** Test seam: forget the memoised built-in surfaces. */
@@ -414,10 +440,10 @@ function coreDecision(
 }
 
 export async function routeFeedback(input: RoutingInput): Promise<RoutingDecision> {
-  const core = coreSurface(input.tools);
+  const installed = input.installed ?? [];
+  const core = withoutPluginSurface(coreSurface(input.tools), installed);
   const catalog = input.catalog ?? (await fetchRegistryCatalog({ timeoutMs: input.timeoutMs }));
   const catalogAvailable = catalog.length > 0;
-  const installed = input.installed ?? [];
 
   const candidates = buildCandidates(catalog, installed, core);
 
@@ -478,6 +504,19 @@ export async function routeFeedback(input: RoutingInput): Promise<RoutingDecisio
       c.score = 100;
       c.confidence = "certain";
       c.reasons.push(`'${idealAction}' carries ${c.name}'s '${c.actionPrefix}_' action prefix`);
+    } else {
+      // An action only this plugin adds, named anywhere in the report: bare
+      // (`p4_reconcile`), or as a call on the category it was injected into.
+      const named = [...c.ownedActions].find((owned) => {
+        const action = owned.slice(owned.indexOf(".") + 1);
+        return action.includes("_") && wordRe(action).test(text);
+      });
+      if (named) {
+        const [cat, action] = named.split(".");
+        c.score = 100;
+        c.confidence = "certain";
+        c.reasons.push(`the report names ${cat}(${action}), which ${c.name} adds in this project`);
+      }
     }
   }
 
