@@ -459,7 +459,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandlerWithTimeout(TEXT("fixup_redirectors"), &FixupRedirectors, 300.0f, {
 		MCPParam::Required(TEXT("paths"), EType::Array, TEXT("Redirector packages, or the folders holding them")).Items(EType::String),
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report the redirectors, referencers and packages it would load and save, and stop (default false)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference")),
 		MCPParam::Optional(TEXT("allowProjectWide"), EType::Boolean, TEXT("Permit a path naming a whole content root (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("create_data_asset"), &CreateDataAsset, {

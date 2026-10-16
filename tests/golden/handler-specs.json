@@ -13843,7 +13843,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless"
+          "description": "Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference"
         },
         {
           "name": "allowProjectWide",
