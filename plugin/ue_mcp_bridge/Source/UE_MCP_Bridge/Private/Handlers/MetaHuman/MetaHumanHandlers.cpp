@@ -269,6 +269,21 @@ namespace UEMCP::MetaHuman
 		return Obj;
 	}
 
+	/** The cloud requests' refusal when this install runs the Creator with limited features. Without the
+	 *  plugin's Optional content the editor subsystem has no cloud request state, and RequestAutoRigging
+	 *  and RequestTextureSources assert on it and take the editor down (#1354). Null when it is present. */
+	TSharedPtr<FJsonValue> CloudRequestsUnavailable(const TCHAR* Action)
+	{
+		TSharedPtr<IPlugin> Plugin = IPluginManager::Get().FindPlugin(TEXT("MetaHumanCharacter"));
+		const FString Optional = Plugin.IsValid() ? FPaths::Combine(Plugin->GetContentDir(), TEXT("Optional")) : FString();
+		if (!Optional.IsEmpty() && IFileManager::Get().DirectoryExists(*Optional)) return nullptr;
+		TSharedPtr<FJsonObject> ErrObj = MCPErrorObject(FString::Printf(
+			TEXT("%s needs the MetaHuman Creator's optional content, which this engine install does not have (%s), so the Creator runs with limited features and has no cloud request service. Install the MetaHuman optional content through the launcher, restart the editor, then retry."),
+			Action, *Optional));
+		ErrObj->SetStringField(TEXT("reason"), TEXT("optional_content_missing"));
+		return MCPResult(ErrObj);
+	}
+
 	bool CanBuild(UObject* Subsystem, UObject* Character)
 	{
 		FMCPReflectedCall Call;
@@ -630,6 +645,7 @@ TSharedPtr<FJsonValue> FMetaHumanHandlers::RequestRig(const TSharedPtr<FJsonObje
 	if (!Character) return Err;
 	bool bOpenedHere = false;
 	FString CallErr;
+	if (TSharedPtr<FJsonValue> Unavailable = CloudRequestsUnavailable(TEXT("request_rig"))) return Unavailable;
 	if (!EnsureOpen(Subsystem, Character, bOpenedHere, CallErr)) return MCPError(CallErr);
 
 	FMCPReflectedCall Call;
@@ -682,6 +698,7 @@ TSharedPtr<FJsonValue> FMetaHumanHandlers::RequestTextures(const TSharedPtr<FJso
 	if (!Character) return Err;
 	bool bOpenedHere = false;
 	FString CallErr;
+	if (TSharedPtr<FJsonValue> Unavailable = CloudRequestsUnavailable(TEXT("request_textures"))) return Unavailable;
 	if (!EnsureOpen(Subsystem, Character, bOpenedHere, CallErr)) return MCPError(CallErr);
 
 	FMCPReflectedCall Call;
