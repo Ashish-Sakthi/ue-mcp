@@ -960,9 +960,10 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<F
 	FString VarName;
 	if (auto Err = RequireString(Params, TEXT("name"), VarName)) return Err;
 
+	// Read before value can refuse, so every declared parameter is read on every call.
+	const bool bPropagate = OptionalBool(Params, TEXT("propagateToInstances"), false);
 	FString Value;
 	if (auto Err = RequireString(Params, TEXT("value"), Value)) return Err;
-	const bool bPropagate = OptionalBool(Params, TEXT("propagateToInstances"), false);
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
