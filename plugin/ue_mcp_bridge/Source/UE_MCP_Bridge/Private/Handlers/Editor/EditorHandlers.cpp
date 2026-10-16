@@ -3132,6 +3132,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 
 	TArray<TSharedPtr<FJsonValue>> Saved;
 	TArray<TSharedPtr<FJsonValue>> Failed;
+	TArray<TSharedPtr<FJsonValue>> Deleted;
+	const int32 DirtyCount = Dirty.Num();
+	MCPCommitEmptyExternalPackages(Dirty, Deleted, Failed);
 
 	for (UPackage* Pkg : Dirty)
 	{
@@ -3168,10 +3171,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 	}
 
 	auto Result = MCPSuccess();
-	Result->SetNumberField(TEXT("dirtyCount"), Dirty.Num());
+	Result->SetNumberField(TEXT("dirtyCount"), DirtyCount);
 	Result->SetNumberField(TEXT("savedCount"), Saved.Num());
+	Result->SetNumberField(TEXT("deletedCount"), Deleted.Num());
 	Result->SetNumberField(TEXT("failedCount"), Failed.Num());
 	Result->SetArrayField(TEXT("saved"), Saved);
+	if (Deleted.Num() > 0) Result->SetArrayField(TEXT("deleted"), Deleted);
 	if (Failed.Num() > 0)
 	{
 		Result->SetArrayField(TEXT("failed"), Failed);
@@ -3179,7 +3184,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 	}
 	// Nothing dirty means nothing was written, which is what a replay of this
 	// call after a successful one finds.
-	Result->SetBoolField(TEXT("changed"), Saved.Num() > 0);
+	Result->SetBoolField(TEXT("changed"), Saved.Num() + Deleted.Num() > 0);
 	// No rollback: the previous contents of each .uasset were overwritten on
 	// disk and are not held anywhere the bridge can reach.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
