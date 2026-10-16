@@ -174,6 +174,14 @@ async function init(argv: string[]): Promise<number | void> {
   const rest = initTarget.rest;
   let uprojectPath = initTarget.projectPath || flagValue(rest, "--project") || firstPositional(rest) || "";
   const machine = rest.includes("--yes") || rest.includes("-y") || rest.includes("--json");
+  if (!machine && !process.stdin.isTTY) {
+    fail(
+      "ue-mcp init asks its questions on a terminal, and stdin is not one. Pass --yes (or --json) to run "
+      + "without prompts; --project, --clients, --context, --disable, --native-exclude and "
+      + "--[no-]feedback, --[no-]hook, --[no-]skills answer them.",
+    );
+    return 2;
+  }
 
   if (!uprojectPath) {
     const found = findUProject(process.cwd());
@@ -227,7 +235,7 @@ async function init(argv: string[]): Promise<number | void> {
     if (c.description) parts.push(c.description);
     if (c.requiredPlugins) parts.push(`requires ${c.requiredPlugins.join(", ")}`);
     return { label: c.label, checked: !existingDisabled.has(c.name), suffix: parts.length > 0 ? parts.join(" - ") : undefined };
-  }));
+  }), "Pass --yes with --disable <categories>.");
   const disabled = optional.filter((_, i) => !states[i]).map((c) => c.name);
   console.log("");
 
@@ -237,7 +245,7 @@ async function init(argv: string[]): Promise<number | void> {
     label: "Enable native Epic 5.8 MCP tools",
     checked: existingNative.enabled !== false,
     suffix: "Wraps Unreal's ToolsetRegistry (GAS, Niagara, PCG, UMG, ...) as first-class actions in the matching categories",
-  }]))[0];
+  }], "Pass --yes with --native-tools or --no-native-tools."))[0];
   let nativeExclude: string[] = [];
   if (nativeEnabled) {
     const existingExclude = new Set(existingNative.exclude ?? []);
@@ -245,6 +253,7 @@ async function init(argv: string[]): Promise<number | void> {
     const includeStates = await checkboxSelect(
       "Include native tools in these categories (uncheck to skip)",
       offer.map((c) => ({ label: c, checked: !existingExclude.has(c) })),
+      "Pass --yes with --native-exclude <categories>.",
     );
     nativeExclude = offer.filter((_, i) => !includeStates[i]);
     console.log("");
@@ -259,7 +268,7 @@ async function init(argv: string[]): Promise<number | void> {
     "lean  - category tools and action names visible, signatures on demand",
     "full  - every action's signature listed inline (largest seed, no discovery calls)",
   ].map((l, i) => (CONTEXT_TIERS[i] === existingStrategy ? `${l}   [current]` : l));
-  const contextStrategy = CONTEXT_TIERS[await singleSelect("Context strategy", tierLabels)] ?? "micro";
+  const contextStrategy = CONTEXT_TIERS[await singleSelect("Context strategy", tierLabels, "Pass --yes with --context micro|lean|full.")] ?? "micro";
   console.log("");
 
   // 3. MCP clients. Global and Desktop configs affect every project, so they start unchecked.
@@ -270,7 +279,7 @@ async function init(argv: string[]): Promise<number | void> {
       label: c.name,
       checked: isProjectScopedClient(c.name),
       suffix: c.configPath,
-    })));
+    })), "Pass --yes with --clients <ids>.");
     selectedClients = detected.filter((_, i) => clientStates[i]).map((c) => c.name);
   } else {
     warn("No MCP clients detected. Add this to your MCP client config:");
@@ -309,7 +318,7 @@ async function init(argv: string[]): Promise<number | void> {
       suffix: "Recommended for Claude Code. Copies skill markdown into .claude/skills/.",
     });
   }
-  const behaviorStates = await checkboxSelect("Agent behavior", behaviorItems);
+  const behaviorStates = await checkboxSelect("Agent behavior", behaviorItems, "Pass --yes with --[no-]feedback, --[no-]hook and --[no-]skills.");
   const feedback = behaviorStates[0];
   const promptHook = configuredClaudeCode && (behaviorStates[1] ?? false) && feedback;
 

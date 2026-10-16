@@ -59,7 +59,7 @@ export async function runFeedbackAuthStep(opts: { ask?: boolean } = {}): Promise
     : await singleSelect("Authorize now?", [
         "Yes - run device flow now (recommended)",
         `Skip - feedback submissions will refuse until I run \`npx ue-mcp auth\` or call with author="bot"`,
-      ]);
+      ], "Run ue-mcp auth, which signs in without asking, or init --yes, which skips the sign-in.");
   if (choice !== 0) {
     info(`Skipped. Run npx ue-mcp auth to set this up later, or pass author="bot" at submit time.`);
     return false;
