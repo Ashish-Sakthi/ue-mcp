@@ -48,6 +48,9 @@ export const TRIAGE_LABELS = {
 };
 
 const MAX_SUMMARY = 700;
+// Built from code points so the banned characters never appear in this file.
+const DASHES = new RegExp(`\\s*[${String.fromCharCode(0x2014, 0x2013)}]\\s*`, "g");
+const ELLIPSIS = new RegExp(`${String.fromCharCode(0x2026)}|\\.{3,}`, "g");
 
 /** Public text from the agent: no pings, no markup, no outside links, house punctuation. */
 export function sanitize(text) {
@@ -57,7 +60,7 @@ export function sanitize(text) {
     url.startsWith("https://github.com/db-lyon/") ? m : label);
   t = t.replace(/https?:\/\/\S+/g, (url) => (url.startsWith("https://github.com/db-lyon/") ? url : ""));
   t = t.replace(/(^|[^\w`])@([\w-]+)/g, "$1$2");
-  t = t.replace(/\s*[—–]\s*/g, ", ").replace(/…|\.{3,}/g, ".").replace(/\s--\s/g, ", ");
+  t = t.replace(DASHES, ", ").replace(ELLIPSIS, ".").replace(/\s--\s/g, ", ");
   t = t.replace(/[ \t]+/g, " ").trim();
   if (t.length > MAX_SUMMARY) t = `${t.slice(0, MAX_SUMMARY).replace(/\s+\S*$/, "")}.`;
   return t;

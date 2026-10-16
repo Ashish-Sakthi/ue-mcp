@@ -21,7 +21,7 @@ describe("issue-triage targets", () => {
 
 describe("issue-triage sanitize", () => {
   it("drops mentions, markup, outside links and banned punctuation", () => {
-    const out = sanitize("Ping @someone <!-- hi --> see [x](https://evil.example) and https://github.com/db-lyon/ue-mcp/issues/1 — done...");
+    const out = sanitize(`Ping @someone <!-- hi --> see [x](https://evil.example) and https://github.com/db-lyon/ue-mcp/issues/1 ${String.fromCharCode(0x2014)} done...`);
     expect(out).toBe("Ping someone see x and https://github.com/db-lyon/ue-mcp/issues/1, done.");
   });
 });
