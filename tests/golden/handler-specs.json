@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1133,
+  "handlerCount": 1137,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -38934,6 +38934,18 @@
       ],
       "contractExempt": "Checks files out of the configured provider when called"
     },
+    "source_control_connect": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "password",
+          "type": "string",
+          "required": false,
+          "description": "Password or ticket for providers that log in (Perforce); sent to the provider only, never echoed"
+        }
+      ],
+      "contractExempt": "Connects the editor's configured provider when called"
+    },
     "source_control_diff": {
       "category": "source_control",
       "params": [
@@ -38985,6 +38997,23 @@
         }
       ]
     },
+    "source_control_history": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "One asset path or file whose revision history to read"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Most revisions to return, newest first (default 20); truncated says when more exist"
+        }
+      ]
+    },
     "source_control_list_changes": {
       "category": "source_control",
       "params": [
@@ -39008,6 +39037,19 @@
           "description": "Also list files on disk the provider does not track (default true)"
         }
       ]
+    },
+    "source_control_mark_for_delete": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "paths",
+          "type": "array",
+          "required": true,
+          "description": "Asset or package paths (/Game/X), content folders, or files on disk (absolute or relative to the project)",
+          "items": "string"
+        }
+      ],
+      "contractExempt": "Marks files for delete in the configured provider when called"
     },
     "source_control_revert": {
       "category": "source_control",
@@ -39068,6 +39110,19 @@
         }
       ],
       "contractExempt": "Submits files to the repository when called"
+    },
+    "source_control_sync": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "paths",
+          "type": "array",
+          "required": false,
+          "description": "Folders or files to sync to the latest revision (default the project's Content, Config, Source and Plugins folders and its .uproject)",
+          "items": "string"
+        }
+      ],
+      "contractExempt": "Syncs the workspace from the repository when called"
     },
     "spawn_actors_batch": {
       "category": "level",
