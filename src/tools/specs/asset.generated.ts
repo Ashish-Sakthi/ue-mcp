@@ -1975,7 +1975,7 @@ export const handlerSpecs: HandlerSpecs = {
             "name": "type",
             "type": "string",
             "required": false,
-            "description": "MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor"
+            "description": "Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>"
           }
         ]
       },
@@ -2271,7 +2271,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "type",
         "type": "string",
         "required": false,
-        "description": "MakePinType string for add_field (default bool) and set_field_type"
+        "description": "Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips"
       }
     ]
   },
@@ -6070,7 +6070,7 @@ export const schema: Record<string, z.ZodType> = {
   spawnMode: z.string().optional().describe("auto (default) | action | direct"),
   sRGB: z.boolean().optional().describe("Applied to the imported texture (import_texture). Treat the texture as sRGB (set_texture_settings)"),
   startIndex: z.number().int().optional().describe("First row index, for paging"),
-  structFields: z.array(z.object({ name: z.string().describe("Member display name"), type: z.string().optional().describe("MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor") })).optional().describe("Initial members; with none the struct keeps its one default member"),
+  structFields: z.array(z.object({ name: z.string().describe("Member display name"), type: z.string().optional().describe("Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>") })).optional().describe("Initial members; with none the struct keeps its one default member"),
   suspectOnly: z.boolean().optional().describe("Only rows where a requested property is absent or null"),
   sweptHullAxis: z.string().optional().describe("X | Y | Z (default) | SmallestBoxDimension | SmallestVolume (method SweptHulls)"),
   targetEdgeLength: z.number().optional().describe("Edge length in centimetres to aim for (targetType TargetEdgeLength, default 1)"),
@@ -6092,7 +6092,7 @@ export const schema: Record<string, z.ZodType> = {
   toolTransform: z.object({ location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Translation"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Rotation"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Scale (default 1)") }).optional().describe("Where the tool sits for the boolean (default identity)"),
   translate: z.record(z.unknown()).optional().describe("UV-space offset {u, v}"),
   triangleCount: z.number().int().optional().describe("Triangle count to reduce to (simplifyMode triangleCount or editorTriangleCount)"),
-  type: z.string().optional().describe("MakePinType string for add_field (default bool) and set_field_type (edit_user_defined_struct). FPrimaryAssetType to list (omit for every type) (get_primary_asset_ids)"),
+  type: z.string().optional().describe("Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips (edit_user_defined_struct). FPrimaryAssetType to list (omit for every type) (get_primary_asset_ids)"),
   typeFilter: z.string().optional().describe("Alias for classFilter"),
   unreferencedAction: z.string().optional().describe("quarantine (default, undoable) | delete (permanent, no rollback)"),
   uvChannel: z.number().int().optional().describe("UV channel to return (default 0)"),

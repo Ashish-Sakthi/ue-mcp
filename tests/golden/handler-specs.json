@@ -11451,7 +11451,7 @@
               "name": "type",
               "type": "string",
               "required": false,
-              "description": "MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor"
+              "description": "Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>"
             }
           ]
         },
@@ -12811,7 +12811,7 @@
           "name": "type",
           "type": "string",
           "required": false,
-          "description": "MakePinType string for add_field (default bool) and set_field_type"
+          "description": "Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips"
         }
       ]
     },
