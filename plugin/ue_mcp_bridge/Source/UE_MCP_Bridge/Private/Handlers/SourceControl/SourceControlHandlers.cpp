@@ -18,6 +18,8 @@
 #include "Misc/FileHelper.h"
 #include "Misc/PackageName.h"
 #include "Misc/Paths.h"
+#include "Framework/Application/SlateApplication.h"
+#include "MCPEngineStatus.h"
 #include "Modules/ModuleManager.h"
 #include "PackageTools.h"
 #include "Runtime/Launch/Resources/Version.h"
@@ -26,6 +28,32 @@
 
 // ISourceControlProvider::CanExecuteOperation, asked before an operation runs.
 #define UE_MCP_SCC_HAS_CAN_EXECUTE (ENGINE_MAJOR_VERSION > 5 || (ENGINE_MAJOR_VERSION == 5 && ENGINE_MINOR_VERSION >= 3))
+
+// ─── Provider progress windows ─────────────────────────────────────────────
+
+namespace MCPSourceControlState
+{
+	/**
+	 * A synchronous provider operation shows the engine's progress window
+	 * ("Connecting to Revision Control...", with Continue and Cancel) and only
+	 * requests its destruction when it finishes, so the window outlives the
+	 * call until the next Slate tick. The bridge's dialog gate would refuse the
+	 * next request on the strength of it. Scoped over every provider call here:
+	 * on the way out it destroys the windows already queued for destruction
+	 * and recaptures the engine status.
+	 */
+	struct FSettleProviderWindows
+	{
+		~FSettleProviderWindows()
+		{
+			if (FSlateApplication::IsInitialized() && !FSlateApplication::Get().IsTicking())
+			{
+				FSlateApplication::Get().DestroyWindowsImmediately();
+			}
+			FMCPEngineStatus::Get().CaptureNow();
+		}
+	};
+}
 
 // ─── Checkout on write ─────────────────────────────────────────────────────
 
@@ -56,6 +84,7 @@ void MCPSourceControl::SetAutoCheckoutEnabled(bool bEnabled)
 
 bool MCPSourceControl::TryAutoCheckout(const FString& FileName, FString& OutNote)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	OutNote.Reset();
 	if (!IsAutoCheckoutEnabled()) return false;
 
@@ -584,6 +613,7 @@ using namespace MCPSourceControlDetail;
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::GetProvider(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	TSharedPtr<FJsonObject> Result = MCPSuccess();
 	ISourceControlModule& Module = ISourceControlModule::Get();
 	const bool bEnabled = Module.IsEnabled();
@@ -638,6 +668,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::GetProvider(const TSharedPtr<FJso
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::GetStatus(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	const int32 Limit = FMath::Max(1, OptionalInt(Params, TEXT("limit"), 500));
@@ -689,6 +720,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::GetStatus(const TSharedPtr<FJsonO
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::ListChanges(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	const bool bHasPaths = TryGetArrayParam(Params, TEXT("paths"), PathValues) && PathValues;
 	const int32 Limit = FMath::Max(1, OptionalInt(Params, TEXT("limit"), 500));
@@ -776,6 +808,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::ListChanges(const TSharedPtr<FJso
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::Checkout(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	TArray<FResolvedPath> Paths;
@@ -852,6 +885,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Checkout(const TSharedPtr<FJsonOb
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::MarkForAdd(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	TArray<FResolvedPath> Paths;
@@ -918,6 +952,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::MarkForAdd(const TSharedPtr<FJson
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::Revert(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	const bool bDryRun = OptionalBool(Params, TEXT("dryRun"), false);
@@ -1021,6 +1056,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Revert(const TSharedPtr<FJsonObje
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::Diff(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	FString InPath;
 	if (auto Err = RequireString(Params, TEXT("path"), InPath)) return Err;
 	const bool bOpenEditor = OptionalBool(Params, TEXT("openEditor"), false);
@@ -1124,6 +1160,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Diff(const TSharedPtr<FJsonObject
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::Submit(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	FString Description;
@@ -1197,6 +1234,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Submit(const TSharedPtr<FJsonObje
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::SetCheckoutMode(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	FString Mode;
 	if (auto Err = RequireString(Params, TEXT("mode"), Mode)) return Err;
 	const bool bAuto = Mode.Equals(TEXT("auto"), ESearchCase::IgnoreCase);
@@ -1220,6 +1258,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::SetCheckoutMode(const TSharedPtr<
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::MarkForDelete(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	TArray<FResolvedPath> Paths;
@@ -1310,6 +1349,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::MarkForDelete(const TSharedPtr<FJ
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::Sync(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const TArray<TSharedPtr<FJsonValue>>* PathValues = nullptr;
 	const bool bHasPaths = TryGetArrayParam(Params, TEXT("paths"), PathValues) && PathValues;
 	TArray<FResolvedPath> Paths;
@@ -1398,6 +1438,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Sync(const TSharedPtr<FJsonObject
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::History(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	FString InPath;
 	if (auto Err = RequireString(Params, TEXT("path"), InPath)) return Err;
 	const int32 Limit = FMath::Clamp(OptionalInt(Params, TEXT("limit"), 20), 1, 1000);
@@ -1459,6 +1500,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::History(const TSharedPtr<FJsonObj
 
 TSharedPtr<FJsonValue> FSourceControlHandlers::Connect(const TSharedPtr<FJsonObject>& Params)
 {
+	const MCPSourceControlState::FSettleProviderWindows Settle;
 	const FString Password = OptionalString(Params, TEXT("password"), FString());
 	ISourceControlModule& Module = ISourceControlModule::Get();
 	if (!Module.IsEnabled())

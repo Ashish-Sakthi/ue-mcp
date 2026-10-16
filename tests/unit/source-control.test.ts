@@ -140,6 +140,14 @@ describe("source_control", () => {
     expect(body("Sync")).toContain("UPackageTools::ReloadPackages");
   });
 
+  it("clears the provider's progress window before answering, so the dialog gate does not refuse the next call", () => {
+    for (const want of Object.values(ACTIONS)) {
+      expect(body(want.method), want.method).toContain("const MCPSourceControlState::FSettleProviderWindows Settle;");
+    }
+    const settle = HANDLERS.slice(HANDLERS.indexOf("struct FSettleProviderWindows"));
+    expect(settle.indexOf("DestroyWindowsImmediately()")).toBeLessThan(settle.indexOf("CaptureNow()"));
+  });
+
   it("sends a connect password to the provider and never back on the result", () => {
     const connect = body("Connect");
     expect(connect).toContain("Operation->SetPassword(Password)");
