@@ -41,6 +41,7 @@
 #include "Misc/MessageDialog.h"     // #603 re-show real dialog
 #include "GenericPlatform/GenericPlatformMisc.h" // EAppMsgCategory
 #include "HAL/PlatformTime.h"
+#include "HAL/PlatformMisc.h"
 #include "Framework/Application/SlateApplication.h"
 #include "Widgets/SWindow.h"
 #include "Widgets/Text/STextBlock.h"
@@ -49,7 +50,8 @@
 
 // Static member definitions
 TArray<FDialogHandlers::FDialogPolicy> FDialogHandlers::Policies;
-FDelegateHandle FDialogHandlers::OriginalDelegateHandle;
+decltype(FCoreDelegates::ModalMessageDialog) FDialogHandlers::PreviousModalMessageDialog;
+FDelegateHandle FDialogHandlers::OurDialogHandle;
 bool FDialogHandlers::bHookInstalled = false;
 
 // A NAMED namespace, not an anonymous one: this module is a unity build, so an
@@ -312,7 +314,9 @@ void FDialogHandlers::InstallDialogHook()
 	// This delegate is only half the coverage. Slate modal WINDOWS never reach
 	// it; ApplyPolicyToActiveModal answers those, driven from the modal-loop
 	// tick hook installed by FMCPEngineStatusHooks.
+	PreviousModalMessageDialog = FCoreDelegates::ModalMessageDialog;
 	FCoreDelegates::ModalMessageDialog.BindStatic(&FDialogHandlers::HandleModalDialogV2);
+	OurDialogHandle = FCoreDelegates::ModalMessageDialog.GetHandle();
 	bHookInstalled = true;
 
 	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog hook installed (ModalMessageDialog delegate bound)"));
@@ -325,16 +329,22 @@ void FDialogHandlers::RemoveDialogHook()
 		return;
 	}
 
-	FCoreDelegates::ModalMessageDialog.Unbind();
+	// Put back what was there, unless something rebound the delegate since.
+	if (FCoreDelegates::ModalMessageDialog.GetHandle() == OurDialogHandle)
+	{
+		FCoreDelegates::ModalMessageDialog = PreviousModalMessageDialog;
+	}
+	PreviousModalMessageDialog.Unbind();
+	OurDialogHandle.Reset();
 	bHookInstalled = false;
 	Policies.Empty();
 
 	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog hook removed"));
 }
 
-EAppReturnType::Type FDialogHandlers::HandleModalDialogV2(EAppMsgCategory /*Category*/, EAppMsgType::Type MsgType, const FText& Text, const FText& Title)
+EAppReturnType::Type FDialogHandlers::HandleModalDialogV2(EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title)
 {
-	return HandleModalDialog(MsgType, Text, Title);
+	return HandleModalDialog(Category, MsgType, Text, Title);
 }
 
 auto FDialogHandlers::FindMatchingPolicy(const FString& Title, const FString& Message) -> const FDialogPolicy*
@@ -543,7 +553,7 @@ TArray<FDialogHandlers::FAnsweredDialog> FDialogHandlers::AnsweredDialogsSince(i
 	return Out;
 }
 
-EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type MsgType, const FText& Text, const FText& Title)
+EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title)
 {
 	FString MessageStr = Text.ToString();
 	FString TitleStr = Title.ToString();
@@ -565,27 +575,17 @@ EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type MsgTyp
 			*TitleStr, *Policy->Pattern, *Reason);
 	}
 
-	// Nothing a caller armed matches, so nobody has said how to answer this and
-	// this module does not get to decide. Detach the hook and re-show the real
-	// dialog.
-	//
-	// #603 did this only for a dialog the person at the keyboard raised, and
-	// SYNTHESIZED an answer for one a bridge request raised, so the request would
-	// not block. That synthesis was the bug in its purest form: on a save prompt
-	// the invented answer was "No", which discards, and the caller was told the
-	// request succeeded while a question they never saw had been answered for
-	// them. Blocking is the honest outcome. The dialog is now on screen, the
-	// status snapshot publishes its title and buttons, and editor(list_dialogs)
-	// and editor(respond_to_dialog) both run while the game thread is parked
-	// inside the modal loop, so the caller can read the exact question and press
-	// the button they choose.
+	// Nothing a caller armed answers this, so it goes to the binding the hook
+	// replaced: the editor's Slate dialog, which the modal-loop tick, the
+	// status snapshot, list_dialogs and respond_to_dialog all reach. Unbinding
+	// and calling FMessageDialog::Open instead fell through to a native
+	// platform box none of them could see (#1272).
 	UE_LOG(LogMCPBridge, Warning,
 		TEXT("[UE-MCP] Modal dialog raised with no policy armed for it, so it is left for a person to answer: title='%s' message='%s'. Read it with editor(list_dialogs) and answer it with editor(respond_to_dialog)."),
 		*TitleStr, *MessageStr);
-	FCoreDelegates::ModalMessageDialog.Unbind();
-	const EAppReturnType::Type UserAnswer = FMessageDialog::Open(MsgType, Text, Title);
-	// Reattach for subsequent dialogs.
-	FCoreDelegates::ModalMessageDialog.BindStatic(&FDialogHandlers::HandleModalDialogV2);
+	const EAppReturnType::Type UserAnswer = PreviousModalMessageDialog.IsBound()
+		? PreviousModalMessageDialog.Execute(Category, MsgType, Text, Title)
+		: FPlatformMisc::MessageBoxExt(MsgType, *MessageStr, *TitleStr);
 	NoteAnsweredDialog(TitleStr, MessageStr, ResponseTypeToString(UserAnswer), TEXT("person"));
 	return UserAnswer;
 }

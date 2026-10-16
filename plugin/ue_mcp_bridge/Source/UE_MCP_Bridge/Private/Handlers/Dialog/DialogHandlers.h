@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Dom/JsonValue.h"
 #include "Dom/JsonObject.h"
+#include "Misc/CoreDelegates.h"
 
 class SButton;
 class SCheckBox;
@@ -171,7 +172,7 @@ private:
 	static TSharedPtr<FJsonValue> RespondToDialog(const TSharedPtr<FJsonObject>& Params);
 
 	// The hooked dialog handler
-	static EAppReturnType::Type HandleModalDialog(EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
+	static EAppReturnType::Type HandleModalDialog(EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
 	// FCoreDelegates::ModalMessageDialog (UE 5.7) signature includes an EAppMsgCategory.
 	static EAppReturnType::Type HandleModalDialogV2(enum EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
 
@@ -212,8 +213,13 @@ private:
 	// Active policies
 	static TArray<FDialogPolicy> Policies;
 
-	// Original delegate handle (so we can unbind)
-	static FDelegateHandle OriginalDelegateHandle;
+	// The binding InstallDialogHook replaced, normally the editor's own Slate
+	// dialog. A prompt no policy answers goes to it, so it stays a Slate modal
+	// list_dialogs and respond_to_dialog can reach (#1272).
+	static decltype(FCoreDelegates::ModalMessageDialog) PreviousModalMessageDialog;
+
+	// Our own binding, so RemoveDialogHook restores only what it replaced.
+	static FDelegateHandle OurDialogHandle;
 
 	// Whether we've installed our hook
 	static bool bHookInstalled;
