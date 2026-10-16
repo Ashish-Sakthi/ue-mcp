@@ -203,7 +203,16 @@ export async function dispatchCategoryCall(
   const { sessions, loads } = deps;
   let rawParams: Record<string, unknown>;
   try {
-    rawParams = envelope ? validateCategoryParams(tool, unwrapArgsEnvelope(tool, callArgs)) : callArgs;
+    if (envelope) {
+      const flat = unwrapArgsEnvelope(tool, callArgs);
+      rawParams = validateCategoryParams(tool, flat);
+      // At one editor `editor` is not in the shape, so validation would strip a
+      // stale name before routing could refuse it (#1278).
+      const held = flat[EDITOR_TARGET_PARAM];
+      if (held !== undefined && !(EDITOR_TARGET_PARAM in rawParams)) rawParams = { ...rawParams, [EDITOR_TARGET_PARAM]: held };
+    } else {
+      rawParams = callArgs;
+    }
   } catch (e) {
     // Thrown to the SDK, which words it exactly as its own validation did.
     if (e instanceof SdkMcpError) throw e;
@@ -433,10 +442,13 @@ export async function dispatchFlowCall(
     const nested = rawParams.params && typeof rawParams.params === "object"
       ? (rawParams.params as Record<string, unknown>)
       : undefined;
-    const target = flowTool.injectedEditorParam
+    // A name is resolved strictly at one editor too, so a stale one refuses
+    // rather than running the flow against the active editor (#1278).
+    const routable = flowTool.injectedEditorParam || !(EDITOR_TARGET_PARAM in flowTool.schema);
+    const target = routable
       ? rawParams[EDITOR_TARGET_PARAM] ?? nested?.[EDITOR_TARGET_PARAM]
       : undefined;
-    const session = flowTool.injectedEditorParam ? sessions.resolve(target) : sessions.active;
+    const session = routable ? sessions.resolve(target) : sessions.active;
     const params = stripEditorTarget(rawParams);
     if (nested) params.params = stripEditorTarget(nested);
 
