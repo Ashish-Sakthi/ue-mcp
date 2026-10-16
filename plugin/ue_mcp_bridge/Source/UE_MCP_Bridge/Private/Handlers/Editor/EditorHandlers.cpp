@@ -1085,7 +1085,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::ExecutePython(const TSharedPtr<FJsonObje
 	// before it ran, and there is no inverse script to name.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("Arbitrary Python has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when they are transactional, or write the undo script yourself."));
+		TEXT("Arbitrary Python has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_transaction) and roll back with editor(cancel_transaction) when they are transactional, or write the undo script yourself."));
 
 	return MCPResult(Result);
 }
@@ -1228,7 +1228,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	// captured before it ran, and there is no inverse script to name.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("An arbitrary script file has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when they are transactional, or ship an undo script alongside it."));
+		TEXT("An arbitrary script file has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_transaction) and roll back with editor(cancel_transaction) when they are transactional, or ship an undo script alongside it."));
 
 	return MCPResult(Result);
 }

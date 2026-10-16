@@ -3384,7 +3384,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateAssetByClass(const TSharedPtr<FJson
 	if (AssetClass->IsChildOf(AActor::StaticClass()) || AssetClass->IsChildOf(UActorComponent::StaticClass()))
 	{
 		return MCPClassUnusableError(ClassName, AssetClass, TEXT("not_an_asset"),
-			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component_to_actor)."));
+			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component)."));
 	}
 
 	const FString FullPath = FString::Printf(TEXT("%s/%s.%s"), *PackagePath, *Name, *Name);

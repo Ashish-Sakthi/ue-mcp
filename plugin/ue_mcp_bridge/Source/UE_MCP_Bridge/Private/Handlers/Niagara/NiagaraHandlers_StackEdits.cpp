@@ -556,7 +556,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::ListDynamicInputs(const TSharedPtr<FJso
 	if (!ModuleFilter.IsEmpty() && ModuleRows.Num() == 0)
 	{
 		return MCPError(FString::Printf(
-			TEXT("No module named '%s' in stackContext '%s' of emitter '%s'. Modules present: [%s]. Add one with niagara(add_niagara_module)."),
+			TEXT("No module named '%s' in stackContext '%s' of emitter '%s'. Modules present: [%s]. Add one with niagara(add_module)."),
 			*ModuleFilter, *StackContext, Emitter ? *Emitter->GetName() : TEXT("?"),
 			SeenModules.Num() ? *FString::Join(SeenModules, TEXT(", ")) : TEXT("none")));
 	}
@@ -569,7 +569,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::ListDynamicInputs(const TSharedPtr<FJso
 	Res->SetNumberField(TEXT("dynamicInputCount"), TotalDynamic);
 	Res->SetArrayField(TEXT("modulesSeen"), MCPStringListToJson(SeenModules));
 	Res->SetStringField(TEXT("note"),
-		TEXT("'overrides' is the authored override map, not the module's full input list. kind=localValue is a plain value, kind=dynamicInput is a wired script (its own inputs are under nestedOverrides), kind=customHlsl is an inline expression. Use niagara(list_niagara_module_inputs) for the inputs that have no override at all."));
+		TEXT("'overrides' is the authored override map, not the module's full input list. kind=localValue is a plain value, kind=dynamicInput is a wired script (its own inputs are under nestedOverrides), kind=customHlsl is an inline expression. Use niagara(list_module_inputs) for the inputs that have no override at all."));
 	return MCPResult(Res);
 }
 
@@ -616,7 +616,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 	if (!FC)
 	{
 		return MCPError(FString::Printf(
-			TEXT("No module named '%s' in the %s stack. Modules present: [%s]. Add one with niagara(add_niagara_module)."),
+			TEXT("No module named '%s' in the %s stack. Modules present: [%s]. Add one with niagara(add_module)."),
 			*ModuleName, *Slot.Context, SeenModules.Num() ? *FString::Join(SeenModules, TEXT(", ")) : TEXT("none")));
 	}
 
@@ -644,7 +644,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 		TArray<FString> Names;
 		for (const FNiagaraVariable& V : InputVars) Names.Add(LeafOf(V.GetName().ToString()));
 		return MCPError(FString::Printf(
-			TEXT("Module '%s' has no input named '%s'. Its inputs are: [%s]. niagara(list_niagara_module_inputs) reports them with types."),
+			TEXT("Module '%s' has no input named '%s'. Its inputs are: [%s]. niagara(list_module_inputs) reports them with types."),
 			*ModuleName, *InputName, Names.Num() ? *FString::Join(Names, TEXT(", ")) : TEXT("none")));
 	}
 
@@ -652,13 +652,13 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 	if (!DynScript)
 	{
 		return MCPError(FString::Printf(
-			TEXT("Dynamic input script not found: '%s'. Stock dynamic inputs live under /Niagara/DynamicInputs/...; niagara(list_niagara_modules) reports the scripts the project can see."),
+			TEXT("Dynamic input script not found: '%s'. Stock dynamic inputs live under /Niagara/DynamicInputs/...; niagara(list_modules) reports the scripts the project can see."),
 			*DynamicInputScript));
 	}
 	if (DynScript->GetUsage() != ENiagaraScriptUsage::DynamicInput)
 	{
 		return MCPError(FString::Printf(
-			TEXT("'%s' is a Niagara script but its usage is %d, not DynamicInput (%d). Only a dynamic-input script can be wired into a module input; a module script goes through niagara(add_niagara_module) instead."),
+			TEXT("'%s' is a Niagara script but its usage is %d, not DynamicInput (%d). Only a dynamic-input script can be wired into a module input; a module script goes through niagara(add_module) instead."),
 			*DynScript->GetPathName(), (int32)DynScript->GetUsage(), (int32)ENiagaraScriptUsage::DynamicInput));
 	}
 
@@ -690,7 +690,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 					Same->SetStringField(TEXT("dynamicInputScript"), PreviousScriptPath);
 					Same->SetStringField(TEXT("dynamicInputName"), PrevFC->GetFunctionName());
 					Same->SetStringField(TEXT("note"),
-						TEXT("That dynamic input is already wired into this input; nothing was changed. Set its own inputs with niagara(set_niagara_module_input) using moduleName = dynamicInputName."));
+						TEXT("That dynamic input is already wired into this input; nothing was changed. Set its own inputs with niagara(set_module_input) using moduleName = dynamicInputName."));
 					return MCPResult(Same);
 				}
 			}
@@ -762,7 +762,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 	if (!PreviousScriptPath.IsEmpty()) Res->SetStringField(TEXT("previousDynamicInputScript"), PreviousScriptPath);
 	if (ReplacedNodes > 0) Res->SetNumberField(TEXT("replacedNodes"), ReplacedNodes);
 	Res->SetStringField(TEXT("note"), FString::Printf(
-		TEXT("The dynamic input's own inputs are addressed as a module: niagara(set_niagara_module_input) with moduleName='%s'. niagara(list_niagara_dynamic_inputs) shows the resulting tree."),
+		TEXT("The dynamic input's own inputs are addressed as a module: niagara(set_module_input) with moduleName='%s'. niagara(list_dynamic_inputs) shows the resulting tree."),
 		*NewDynamic->GetFunctionName()));
 
 	// Rollback. A previous dynamic input can be restored exactly. A previous
@@ -779,7 +779,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 		MCPSetRollback(Res, TEXT("set_niagara_dynamic_input"), RbPayload);
 		Res->SetBoolField(TEXT("rollbackRestoresScriptOnly"), true);
 		Res->SetStringField(TEXT("rollbackNote"), FString::Printf(
-			TEXT("Rollback rewires '%s' but does not restore the inputs that were set ON that dynamic input; re-set them with niagara(set_niagara_module_input)."),
+			TEXT("Rollback rewires '%s' but does not restore the inputs that were set ON that dynamic input; re-set them with niagara(set_module_input)."),
 			*PreviousScriptPath));
 	}
 	else
@@ -790,7 +790,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetDynamicInput(const TSharedPtr<FJsonO
 			Res->SetBoolField(TEXT("rollbackRestoresModuleDefaultOnly"), true);
 			Res->SetStringField(TEXT("previousLocalValue"), PreviousLocalValue);
 			Res->SetStringField(TEXT("rollbackNote"), FString::Printf(
-				TEXT("Rollback removes the wiring and restores the module's own default, NOT the local value '%s' that was overridden here. Re-apply it with niagara(set_niagara_module_input)."),
+				TEXT("Rollback removes the wiring and restores the module's own default, NOT the local value '%s' that was overridden here. Re-apply it with niagara(set_module_input)."),
 				*PreviousLocalValue));
 		}
 		else if (PreviousKind == TEXT("customHlsl") || PreviousKind == TEXT("linkedParameter"))
@@ -945,7 +945,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::RemoveDynamicInput(const TSharedPtr<FJs
 	if (!RemovedHlsl.IsEmpty()) Res->SetStringField(TEXT("removedHlsl"), RemovedHlsl);
 	Res->SetNumberField(TEXT("removedNodes"), RemovedNodes);
 	Res->SetStringField(TEXT("note"),
-		TEXT("The override pin was dropped, so the input is back on the module script's own default. Give it a plain value with niagara(set_niagara_module_input)."));
+		TEXT("The override pin was dropped, so the input is back on the module script's own default. Give it a plain value with niagara(set_module_input)."));
 
 	if (RemovedKind == TEXT("dynamicInput") && !RemovedScriptPath.IsEmpty())
 	{
@@ -959,7 +959,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::RemoveDynamicInput(const TSharedPtr<FJs
 		{
 			Res->SetBoolField(TEXT("rollbackRestoresScriptOnly"), true);
 			Res->SetStringField(TEXT("rollbackNote"),
-				TEXT("Rollback rewires the same dynamic-input script but not the inputs that were set on it, which this removal destroyed. Re-set them with niagara(set_niagara_module_input)."));
+				TEXT("Rollback rewires the same dynamic-input script but not the inputs that were set on it, which this removal destroyed. Re-set them with niagara(set_module_input)."));
 		}
 	}
 	else
@@ -1053,7 +1053,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::AddSimulationStage(const TSharedPtr<FJs
 	Res->SetStringField(TEXT("scriptUsage"), TEXT("ParticleSimulationStageScript"));
 	Res->SetNumberField(TEXT("simulationStageCount"), Data->GetSimulationStages().Num());
 	Res->SetStringField(TEXT("note"),
-		TEXT("Stage created with its backing script, an output node stamped with a fresh usage id, and a parameter-map input node, so it compiles. Set IterationSource, NumIterations, ExecuteBehavior, DirectDispatchType and the ElementCount bindings with asset(set_property) on simulationStageObjectPath; add modules to it with niagara(add_niagara_module)."));
+		TEXT("Stage created with its backing script, an output node stamped with a fresh usage id, and a parameter-map input node, so it compiles. Set IterationSource, NumIterations, ExecuteBehavior, DirectDispatchType and the ElementCount bindings with asset(set_property) on simulationStageObjectPath; add modules to it with niagara(add_module)."));
 
 	TSharedPtr<FJsonObject> RbPayload = NiaAdvAddressPayload(SystemPath, EmitterName, EmitterIndex);
 	RbPayload->SetStringField(TEXT("stageName"), StageName);
@@ -1146,7 +1146,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::RemoveSimulationStage(const TSharedPtr<
 	MCPSetRollback(Res, TEXT("add_niagara_simulation_stage"), RbPayload);
 	Res->SetBoolField(TEXT("rollbackRestoresEmptyStageOnly"), true);
 	Res->SetStringField(TEXT("rollbackNote"), FString::Printf(
-		TEXT("Rollback recreates an EMPTY stage with a NEW usage id. The %d module(s) [%s] and every property set on the stage are lost; re-add them with niagara(add_niagara_module) and asset(set_property)."),
+		TEXT("Rollback recreates an EMPTY stage with a NEW usage id. The %d module(s) [%s] and every property set on the stage are lost; re-add them with niagara(add_module) and asset(set_property)."),
 		LostModules.Num(), LostModules.Num() ? *FString::Join(LostModules, TEXT(", ")) : TEXT("none")));
 	return MCPResult(Res);
 }
@@ -1178,7 +1178,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::AddEventHandler(const TSharedPtr<FJsonO
 	if (!SourceEmitterId.IsEmpty() && !FGuid::Parse(SourceEmitterId, ParsedSourceId))
 	{
 		return MCPError(FString::Printf(
-			TEXT("sourceEmitterId '%s' is not a GUID. Leave it out to consume events generated by this emitter, or pass the id niagara(get_niagara_info) reports for the generating emitter handle."),
+			TEXT("sourceEmitterId '%s' is not a GUID. Leave it out to consume events generated by this emitter, or pass the id niagara(get_info) reports for the generating emitter handle."),
 			*SourceEmitterId));
 	}
 
@@ -1238,7 +1238,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::AddEventHandler(const TSharedPtr<FJsonO
 		FString::Printf(TEXT("VersionData[%d].EventHandlerScriptProps[%d]"), VersionIdx, NewIndex));
 	if (ParsedSourceId.IsValid()) Res->SetStringField(TEXT("sourceEmitterId"), ParsedSourceId.ToString());
 	Res->SetStringField(TEXT("note"), FString::Printf(
-		TEXT("Handler created with its ParticleEventScript, an output node stamped with a fresh usage id, and a parameter-map input node, so it compiles. ExecutionMode, SpawnNumber, MaxEventsPerFrame, bRandomSpawnNumber and SourceEmitterID are plain properties: asset(set_property) with assetPath='%s' and propertyName='VersionData[%d].EventHandlerScriptProps[%d].SpawnNumber'. Add modules to the handler stack with niagara(add_niagara_module)."),
+		TEXT("Handler created with its ParticleEventScript, an output node stamped with a fresh usage id, and a parameter-map input node, so it compiles. ExecutionMode, SpawnNumber, MaxEventsPerFrame, bRandomSpawnNumber and SourceEmitterID are plain properties: asset(set_property) with assetPath='%s' and propertyName='VersionData[%d].EventHandlerScriptProps[%d].SpawnNumber'. Add modules to the handler stack with niagara(add_module)."),
 		*Emitter->GetPathName(), VersionIdx, NewIndex));
 
 	TSharedPtr<FJsonObject> RbPayload = NiaAdvAddressPayload(SystemPath, EmitterName, EmitterIndex);
@@ -1465,8 +1465,8 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::GetCustomHlsl(const TSharedPtr<FJsonObj
 	Res->SetArrayField(TEXT("customHlslNodes"), Rows);
 	Res->SetNumberField(TEXT("nodeCount"), Nodes.Num());
 	Res->SetStringField(TEXT("note"), Nodes.Num() == 0
-		? TEXT("This graph holds no CustomHLSL node. niagara(create_niagara_module_from_hlsl) creates a module script with one.")
-		: TEXT("Pins are derived from the HLSL body by Niagara's parser; niagara(set_niagara_custom_hlsl) rewrites the body and regenerates them."));
+		? TEXT("This graph holds no CustomHLSL node. niagara(create_module_from_hlsl) creates a module script with one.")
+		: TEXT("Pins are derived from the HLSL body by Niagara's parser; niagara(set_custom_hlsl) rewrites the body and regenerates them."));
 	return MCPResult(Res);
 }
 
@@ -1493,14 +1493,14 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetCustomHlsl(const TSharedPtr<FJsonObj
 	if (Nodes.Num() == 0)
 	{
 		return MCPError(
-			TEXT("This graph holds no CustomHLSL node to write to. Create a module script that carries one with niagara(create_niagara_module_from_hlsl), or wire a custom expression into a module input first."));
+			TEXT("This graph holds no CustomHLSL node to write to. Create a module script that carries one with niagara(create_module_from_hlsl), or wire a custom expression into a module input first."));
 	}
 
 	const int32 NodeIndex = OptionalInt(Params, TEXT("nodeIndex"), 0);
 	if (NodeIndex < 0 || NodeIndex >= Nodes.Num())
 	{
 		return MCPError(FString::Printf(
-			TEXT("nodeIndex %d is out of range: this graph holds %d CustomHLSL node(s), so valid values are 0-%d. niagara(get_niagara_custom_hlsl) lists them."),
+			TEXT("nodeIndex %d is out of range: this graph holds %d CustomHLSL node(s), so valid values are 0-%d. niagara(get_custom_hlsl) lists them."),
 			NodeIndex, Nodes.Num(), Nodes.Num() - 1));
 	}
 
@@ -1759,7 +1759,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::RemoveModule(const TSharedPtr<FJsonObje
 		{
 			Res->SetBoolField(TEXT("rollbackRestoresModuleOnly"), true);
 			Res->SetStringField(TEXT("rollbackNote"), FString::Printf(
-				TEXT("Rollback re-adds the module script at index %d but NOT the %d override(s) removed with it, which are echoed under removedOverrides. Re-apply them with niagara(set_niagara_module_input) and niagara(set_niagara_dynamic_input)."),
+				TEXT("Rollback re-adds the module script at index %d but NOT the %d override(s) removed with it, which are echoed under removedOverrides. Re-apply them with niagara(set_module_input) and niagara(set_dynamic_input)."),
 				TargetIdx, LostOverrides.Num()));
 		}
 	}
@@ -1780,7 +1780,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetModuleEnabled(const TSharedPtr<FJson
 	if (auto Err = RequireString(Params, TEXT("moduleName"), ModuleName)) return Err;
 	if (!HasParam(Params, TEXT("enabled")))
 	{
-		return MCPError(TEXT("Missing required parameter 'enabled' (boolean). Pass true to enable the module or false to disable it; niagara(list_niagara_dynamic_inputs) reports the current state per module."));
+		return MCPError(TEXT("Missing required parameter 'enabled' (boolean). Pass true to enable the module or false to disable it; niagara(list_dynamic_inputs) reports the current state per module."));
 	}
 	const bool bEnabled = OptionalBool(Params, TEXT("enabled"), true);
 	const FString EmitterName = OptionalString(Params, TEXT("emitterName"), TEXT(""));
@@ -1809,7 +1809,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetModuleEnabled(const TSharedPtr<FJson
 	if (!FC)
 	{
 		return MCPError(FString::Printf(
-			TEXT("No module named '%s' in the %s stack. Modules present: [%s]. Add one with niagara(add_niagara_module)."),
+			TEXT("No module named '%s' in the %s stack. Modules present: [%s]. Add one with niagara(add_module)."),
 			*ModuleName, *Slot.Context, SeenModules.Num() ? *FString::Join(SeenModules, TEXT(", ")) : TEXT("none")));
 	}
 
@@ -1846,7 +1846,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetModuleEnabled(const TSharedPtr<FJson
 	Res->SetBoolField(TEXT("enabled"), bEnabled);
 	Res->SetBoolField(TEXT("previousEnabled"), bWasEnabled);
 	Res->SetStringField(TEXT("note"),
-		TEXT("A disabled module keeps its node, its inputs and its position in the stack; it is skipped at compile time. This is the reversible way to test whether a module is responsible for a behaviour, as opposed to niagara(remove_niagara_module)."));
+		TEXT("A disabled module keeps its node, its inputs and its position in the stack; it is skipped at compile time. This is the reversible way to test whether a module is responsible for a behaviour, as opposed to niagara(remove_module)."));
 
 	TSharedPtr<FJsonObject> RbPayload = NiaAdvAddressPayload(SystemPath, EmitterName, EmitterIndex);
 	RbPayload->SetStringField(TEXT("stackContext"), Slot.Context);
