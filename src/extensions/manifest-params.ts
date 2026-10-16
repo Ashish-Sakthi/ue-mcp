@@ -65,3 +65,19 @@ export function requiringParams(ctor: TaskConstructor, action: string, required:
   }
   return RequiringParams as unknown as TaskConstructor;
 }
+
+/**
+ * A declared parameter whose name the dispatcher consumes (`action`,
+ * `timeoutMs`, ...), so no call could ever deliver it to the plugin. Returns
+ * the first such name, or undefined.
+ */
+export function reservedParamName(names: Iterable<string>, reserved: readonly string[]): string | undefined {
+  for (const n of names) if (reserved.includes(n)) return n;
+  return undefined;
+}
+
+/** Why a declared parameter can never arrive, worded for the plugin author. */
+export function reservedParamReason(param: string): string {
+  return `declares a parameter named '${param}', which every category's dispatcher consumes before a handler runs, `
+    + `so no call can deliver it. Rename it (for example '${param}_path' or '${param}Name')`;
+}

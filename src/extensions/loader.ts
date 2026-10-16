@@ -27,7 +27,8 @@ import { mergeInjectionsIntoTool, type InjectionPlan } from "./injection.js";
 import { buildProvidedTool, type ProvisionPlan } from "./provision.js";
 import { readDeployedBridgeApiVersion } from "./bridge-api.js";
 import { resolveServerImportsToSelf } from "./self-resolve.js";
-import { requiredFieldNames, requiringParams } from "./manifest-params.js";
+import { requiredFieldNames, requiringParams, reservedParamName, reservedParamReason } from "./manifest-params.js";
+import { ROUTING_PARAM_NAMES } from "../surface/routing-params.js";
 import {
   partitionFlowsByGroup,
   runtimeConfigFor,
@@ -454,6 +455,35 @@ async function loadOne(
     for (const method of Object.keys(nativeSpecs)) {
       if (manifest.nativeModule.handlers[method]) continue;
       base.degraded.push(`${manifest.nativeModule.specs}: spec for '${method}', which nativeModule.handlers does not declare`);
+    }
+  }
+
+  // #1216: a parameter named after a routing key can never reach the plugin,
+  // so the action declaring it is refused here rather than failing every call.
+  const reserved = (names: Iterable<string>) => reservedParamName(names, ROUTING_PARAM_NAMES);
+  const refuse = (unit: string, param: string, drop: () => void) => {
+    drop();
+    base.degraded.push(`${unit}: ${reservedParamReason(param)}`);
+    warn("plugin", `${entry.name}: dropped ${unit} - ${reservedParamReason(param)}`);
+  };
+  for (const [category, actions] of Object.entries(manifest.inject)) {
+    for (const [bare, spec] of Object.entries(actions)) {
+      const bad = reserved(Object.keys(spec.schema ?? {}));
+      if (bad) refuse(`inject.${category}.${bare}`, bad, () => delete actions[bare]);
+    }
+  }
+  for (const [category, provided] of Object.entries(manifest.provides)) {
+    for (const [action, spec] of Object.entries(provided.actions)) {
+      const bad = reserved(Object.keys(spec.schema ?? {}));
+      if (bad) refuse(`provides.${category}.actions.${action}`, bad, () => delete provided.actions[action]);
+    }
+  }
+  if (manifest.nativeModule) {
+    const handlers = manifest.nativeModule.handlers;
+    for (const [hName, hSpec] of Object.entries(handlers)) {
+      const recorded = nativeSpecs?.[hName]?.params ?? [];
+      const bad = reserved([...Object.keys(hSpec.schema ?? {}), ...recorded.flatMap((p) => [p.name, ...(p.aliases ?? [])])]);
+      if (bad) refuse(`nativeModule.handlers.${hName}`, bad, () => delete handlers[hName]);
     }
   }
 
