@@ -15,7 +15,8 @@ import { daemonDir, projectKey, readLiveDiscovery, writeDiscovery, type DaemonDi
 import { isOlder } from "../../src/daemon/daemon.js";
 import { ensureDaemon } from "../../src/daemon/shim.js";
 import { packageVersion } from "../../src/core/package-root.js";
-import { USER_SANDBOX_VARS, userSandboxEnv } from "../helpers/user-sandbox.js";
+import { userSandboxEnv } from "../helpers/user-sandbox.js";
+import { covers } from "../helpers/covers.js";
 import {
   liveStartLock, releaseStartLock, startLockPath, tryTakeStartLock, waitForStartTurn, START_LOCK_STALE_MS,
 } from "../../src/daemon/start-lock.js";
@@ -162,6 +163,8 @@ describe("several `daemon run` processes at once", () => {
   });
 
   it("leave exactly one daemon running, the one that published", async () => {
+
+    covers("daemon.start-lock", "cli.daemon.run");
     const projectDir = path.join(dir, "Raced");
     fs.mkdirSync(path.join(projectDir, "Content"), { recursive: true });
     const uproject = path.join(projectDir, "Raced.uproject");

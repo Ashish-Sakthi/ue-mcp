@@ -100,6 +100,9 @@ export class Sandbox {
       UE_MCP_REGISTRY: DEAD_ORIGIN,
       UE_MCP_FEEDBACK: DEAD_ORIGIN,
       UE_MCP_FEEDBACK_ENDPOINT: `${DEAD_ORIGIN}/`,
+      UE_MCP_GITHUB_OAUTH: DEAD_ORIGIN,
+      UE_MCP_GITHUB_API: DEAD_ORIGIN,
+      UE_MCP_NPM_REGISTRY: DEAD_ORIGIN,
       UE_MCP_BINARIES: path.join(this.root, "no-binaries"),
       UE_MCP_PROTECTED_ENGINE_ROOTS: "",
       NPM_FAKE_LOG: this.npmLog,
@@ -204,6 +207,8 @@ export interface ServerOptions {
   port?: number | null;
   env?: Record<string, string | undefined>;
   cwd?: string;
+  /** Node arguments before the projects. Defaults to the source entry under tsx; a test of the built package names its dist/index.js. */
+  entry?: string[];
 }
 
 export interface CallResult {
@@ -234,7 +239,7 @@ export class McpServer {
     const client = new Client({ name: "ue-mcp-integration", version: "1.0.0" }, { capabilities: {} });
     const transport = new StdioClientTransport({
       command: process.execPath,
-      args: ["--import", TSX, ENTRY, ...opts.projects],
+      args: [...(opts.entry ?? ["--import", TSX, ENTRY]), ...opts.projects],
       cwd: opts.cwd ?? sb.root,
       env: sb.env(extra),
       stderr: logFd,
