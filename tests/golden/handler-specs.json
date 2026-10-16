@@ -3207,6 +3207,24 @@
           "type": "string",
           "required": false,
           "description": "skip (default) reports the existing entry; error refuses"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "Category shown in My Blueprint and the details panel"
+        },
+        {
+          "name": "tooltip",
+          "type": "string",
+          "required": false,
+          "description": "Tooltip"
+        },
+        {
+          "name": "instanceEditable",
+          "type": "boolean",
+          "required": false,
+          "description": "true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default"
         }
       ]
     },
@@ -35412,6 +35430,12 @@
           "type": "any",
           "required": true,
           "description": "New default value, as a string"
+        },
+        {
+          "name": "propagateToInstances",
+          "type": "boolean",
+          "required": false,
+          "description": "Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"
         }
       ]
     },

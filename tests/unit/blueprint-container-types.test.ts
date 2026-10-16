@@ -42,6 +42,21 @@ describe("blueprint container type specs", () => {
     expect(params).toMatchObject({ blueprintPath: BP, name: "OnTeamChanged", parameters });
   });
 
+  it("add_variable forwards category, tooltip and instanceEditable (#1209)", async () => {
+    const [method, params] = await route({
+      action: "add_variable", assetPath: BP, name: "Scores", varType: "map<int,enum:/Game/E.E>",
+      category: "Scalability", tooltip: "Per level", instanceEditable: true,
+    });
+    expect(method).toBe("add_variable");
+    expect(params).toMatchObject({ category: "Scalability", tooltip: "Per level", instanceEditable: true });
+  });
+
+  it("set_variable_default forwards propagateToInstances (#1209)", async () => {
+    const [method, params] = await route({ action: "set_variable_default", assetPath: BP, name: "Scores", value: "()", propagateToInstances: true });
+    expect(method).toBe("set_variable_default");
+    expect(params).toMatchObject({ name: "Scores", value: "()", propagateToInstances: true });
+  });
+
   it("documents the container syntax on every action that takes a type", () => {
     for (const action of ["add_variable", "add_local_variable", "add_function_parameter", "add_event_dispatcher"]) {
       const description = blueprintTool.actions[action].description ?? "";

@@ -26,6 +26,7 @@
 #include "UObject/UnrealType.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Package.h"
+#include "UObject/UObjectIterator.h"
 #include "UObject/TopLevelAssetPath.h"
 #include "Components/ActorComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -100,7 +101,9 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableProperties(const TSharedPt
 	const bool bPrevInstanceEditable =
 		(FoundVar->PropertyFlags & CPF_Edit) != 0 &&
 		(FoundVar->PropertyFlags & CPF_DisableEditOnInstance) == 0;
-	FString PrevCategory;
+	// The Category field is what My Blueprint and list_variables read; the
+	// metadata key of the same name overrides it at compile, so both are kept.
+	FString PrevCategory = FoundVar->Category.ToString();
 	if (FoundVar->HasMetaData(FBlueprintMetadata::MD_FunctionCategory))
 	{
 		PrevCategory = FoundVar->GetMetaData(FBlueprintMetadata::MD_FunctionCategory);
@@ -200,6 +203,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableProperties(const TSharedPt
 	}
 	if (bHasCategory)
 	{
+		FoundVar->Category = FText::FromString(CategoryStr);
 		FoundVar->SetMetaData(FBlueprintMetadata::MD_FunctionCategory, *CategoryStr);
 	}
 	if (bHasTooltip)
@@ -866,6 +870,51 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddFunctionParameter(const TSharedPtr
 // Bypasses CDO restrictions by setting via FBlueprintEditorUtils on the BP variable description
 // Params: assetPath, name, value
 // ---------------------------------------------------------------------------
+// Copy a Blueprint variable's new compiled default onto every loaded instance
+// that still holds the old default. Instances that override it are left alone
+// and counted. Level packages are dirtied, not saved.
+static void MCPPropagateVariableDefault(UBlueprint* Blueprint, const FString& VarName, bool bHaveOldText, const FString& OldText, TSharedPtr<FJsonObject> Result)
+{
+	UClass* GenClass = Blueprint->GeneratedClass;
+	UObject* CDO = GenClass ? GenClass->GetDefaultObject() : nullptr;
+	FProperty* CDOProp = GenClass ? GenClass->FindPropertyByName(FName(*VarName)) : nullptr;
+	TArray<TSharedPtr<FJsonValue>> Updated;
+	int32 Overridden = 0;
+	if (!CDO || !CDOProp || !bHaveOldText)
+	{
+		Result->SetArrayField(TEXT("propagatedTo"), Updated);
+		Result->SetStringField(TEXT("propagateNote"), TEXT("The compiled default could not be read, so no instance was touched"));
+		return;
+	}
+
+	FString NewText;
+	CDOProp->ExportTextItem_Direct(NewText, CDOProp->ContainerPtrToValuePtr<void>(CDO), nullptr, nullptr, PPF_None);
+
+	for (TObjectIterator<UObject> It; It; ++It)
+	{
+		UObject* Obj = *It;
+		if (!Obj || Obj == CDO || Obj->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || !Obj->IsA(GenClass)) continue;
+		if (Obj->GetOutermost()->HasAnyPackageFlags(PKG_PlayInEditor) || Obj->GetOutermost() == GetTransientPackage()) continue;
+		FProperty* Prop = Obj->GetClass()->FindPropertyByName(FName(*VarName));
+		if (!Prop) continue;
+		void* Addr = Prop->ContainerPtrToValuePtr<void>(Obj);
+		FString Current;
+		Prop->ExportTextItem_Direct(Current, Addr, nullptr, nullptr, PPF_None);
+		if (Current == NewText) continue;
+		if (Current != OldText) { ++Overridden; continue; }
+
+		FString ImportError;
+		Obj->Modify();
+		if (!MCPPropertyText::ImportTextIntoProperty(Prop, Addr, NewText, Obj, ImportError)) continue;
+		FPropertyChangedEvent Changed(Prop);
+		Obj->PostEditChangeProperty(Changed);
+		Obj->MarkPackageDirty();
+		Updated.Add(MakeShared<FJsonValueString>(Obj->GetPathName()));
+	}
+	Result->SetArrayField(TEXT("propagatedTo"), Updated);
+	Result->SetNumberField(TEXT("instancesOverriding"), Overridden);
+}
+
 TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -876,6 +925,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<F
 
 	FString Value;
 	if (auto Err = RequireString(Params, TEXT("value"), Value)) return Err;
+	const bool bPropagate = OptionalBool(Params, TEXT("propagateToInstances"), false);
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
@@ -985,6 +1035,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<F
 		}
 	}
 
+	// The compiled default before the write: an instance still holding exactly
+	// this value has not overridden it, so propagation may replace it.
+	FString OldCDOText;
+	bool bHaveOldCDOText = false;
+	if (bPropagate && Blueprint->GeneratedClass)
+	{
+		FProperty* OldProp = Blueprint->GeneratedClass->FindPropertyByName(FName(*VarName));
+		UObject* OldCDO = Blueprint->GeneratedClass->GetDefaultObject();
+		if (OldProp && OldCDO)
+		{
+			OldProp->ExportTextItem_Direct(OldCDOText, OldProp->ContainerPtrToValuePtr<void>(OldCDO), nullptr, nullptr, PPF_None);
+			bHaveOldCDOText = true;
+		}
+	}
+
 	FoundVar->DefaultValue = StoredValue;
 
 	// Compile and save
@@ -1028,11 +1093,17 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<F
 	Result->SetStringField(TEXT("variableName"), VarName);
 	Result->SetStringField(TEXT("value"), StoredValue);
 
+	if (bPropagate)
+	{
+		MCPPropagateVariableDefault(Blueprint, VarName, bHaveOldCDOText, OldCDOText, Result);
+	}
+
 	// Rollback: self-inverse with previous value
 	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 	Payload->SetStringField(TEXT("path"), AssetPath);
 	Payload->SetStringField(TEXT("name"), VarName);
 	Payload->SetStringField(TEXT("value"), PrevValue);
+	if (bPropagate) Payload->SetBoolField(TEXT("propagateToInstances"), true);
 	MCPSetRollback(Result, TEXT("set_variable_default"), Payload);
 
 	return MCPResult(Result);

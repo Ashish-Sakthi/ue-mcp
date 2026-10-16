@@ -333,6 +333,24 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "skip (default) reports the existing entry; error refuses"
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "required": false,
+        "description": "Category shown in My Blueprint and the details panel"
+      },
+      {
+        "name": "tooltip",
+        "type": "string",
+        "required": false,
+        "description": "Tooltip"
+      },
+      {
+        "name": "instanceEditable",
+        "type": "boolean",
+        "required": false,
+        "description": "true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default"
       }
     ]
   },
@@ -2894,6 +2912,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "any",
         "required": true,
         "description": "New default value, as a string"
+      },
+      {
+        "name": "propagateToInstances",
+        "type": "boolean",
+        "required": false,
+        "description": "Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"
       }
     ]
   },
@@ -2979,7 +3003,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   add_local_variable: "Params: assetPath (or path), functionName, name, varType? (or type)",
   add_node: "Params: assetPath (or path), graphName?, nodeClass, nodeParams?",
   add_timeline_track: "Params: assetPath (or path), timelineName, trackName, trackType?, keyframes?",
-  add_variable: "Params: assetPath (or path), name, varType? (or type), onConflict?",
+  add_variable: "Params: assetPath (or path), name, varType? (or type), onConflict?, category?, tooltip?, instanceEditable?",
   audit_blueprint_dead_code: "Params: directory?, assetPaths?, recursive?, includeLevelScripts?, scanReferencers?, maxBlueprints?, maxSamples?, limit?, dumpToFile?, outputPath?",
   auto_layout_graph: "Params: assetPath (or path), graphName?, columnGap?, rowGap?, previousPositionsLimit?, capturePreviousPositions?",
   cleanup_graph: "Params: assetPath (or path), graphName?",
@@ -3060,7 +3084,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_node_position: "Params: assetPath (or path), graphName?, nodeId (or nodeName), posX?, posY?",
   set_node_property: "Params: assetPath (or path), graphName?, nodeId (or nodeName), propertyName (or pinName), value (or defaultValue)",
   set_struct_field_default: "Params: assetPath (or path), defaultValue, fieldName?, fieldGuid?",
-  set_variable_default: "Params: assetPath (or path), name, value",
+  set_variable_default: "Params: assetPath (or path), name, value, propagateToInstances?",
   set_variable_properties: "Params: assetPath (or path), name, editFlag?, instanceEditable?, private?, category?, tooltip?, exposeOnSpawn?",
   validate_blueprint: "Params: assetPath (or path)",
 };
@@ -3080,7 +3104,7 @@ export const schema: Record<string, z.ZodType> = {
   bStartWithTickEnabled: z.boolean().optional().describe("PrimaryActorTick.bStartWithTickEnabled"),
   callInEditor: z.boolean().optional().describe("Expose a details-panel button that runs it on a selected instance"),
   capturePreviousPositions: z.boolean().optional().describe("Capture previousPositions regardless of previousPositionsLimit (default false)"),
-  category: z.string().optional().describe("Node category: utilities (default), math, string, gameplay, actor and so on (list_node_types). Category (set_function_properties, set_variable_properties)"),
+  category: z.string().optional().describe("Category shown in My Blueprint and the details panel (add_variable). Node category: utilities (default), math, string, gameplay, actor and so on (list_node_types). Category (set_function_properties, set_variable_properties)"),
   channel: z.string().optional().describe("Narrow the answer to one collision channel: its configured name, the C++ enumerator, or the container index"),
   childActorClass: z.string().optional().describe("ChildActorClass for an added ChildActorComponent: a Blueprint path with or without _C, or a C++ class"),
   classFilter: z.string().optional().describe("Case-insensitive substring match on node class name (read_blueprint_graph, read_blueprint_graph_summary). Alias for className (search_node_types)"),
@@ -3125,7 +3149,7 @@ export const schema: Record<string, z.ZodType> = {
   includeT3D: z.boolean().optional().describe("Also write one T3D file per graph (default false)"),
   includeValues: z.boolean().optional().describe("Also resolve each variable's default off the generated-class CDO, and report whether the package holds unsaved changes (default false)"),
   inputs: z.array(z.record(z.unknown())).optional().describe("Input parameters [{name, type}]"),
-  instanceEditable: z.boolean().optional().describe("Two-state shorthand for editFlag; mutually exclusive with it"),
+  instanceEditable: z.boolean().optional().describe("true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default (add_variable). Two-state shorthand for editFlag; mutually exclusive with it (set_variable_properties)"),
   interfacePath: z.string().optional().describe("Interface class path (add_blueprint_interface). Implement this interface first when it is not present (override_function). Interface class path, as list_interfaces reports it (remove_blueprint_interface)"),
   isConst: z.boolean().optional().describe("const: the function only reads state"),
   isOutput: z.boolean().optional().describe("An output parameter rather than an input (default false) (add_function_parameter). Edit the return side (default false) (edit_graph_parameters)"),
@@ -3177,6 +3201,7 @@ export const schema: Record<string, z.ZodType> = {
   previousPositionsLimit: z.number().int().optional().describe("Capture each node's pre-layout coordinates only when the graph has at most this many nodes (default 200)"),
   private: z.boolean().optional().describe("The Blueprint editor's Private checkbox, independent of editFlag"),
   profileName: z.string().optional().describe("Collision profile to resolve, e.g. Pawn, BlockAll, or one the project defined"),
+  propagateToInstances: z.boolean().optional().describe("Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"),
   propertyName: z.string().optional().describe("Property name (get_blueprint_component_property, set_blueprint_component_property, set_cdo_property, set_class_default). Pin or reflected node property name (read_node_property). Pin or struct property name (set_node_property)"),
   propertyNames: z.array(z.string()).optional().describe("Property names to read (omit for all)"),
   pure: z.boolean().optional().describe("BlueprintPure: no side effects, and the node loses its exec pins"),

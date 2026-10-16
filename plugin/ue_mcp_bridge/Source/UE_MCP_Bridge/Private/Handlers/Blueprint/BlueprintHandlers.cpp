@@ -140,6 +140,9 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecVarName,
 		SpecVarType,
 		SpecOnConflict,
+		MCPParam::Optional(TEXT("category"), EType::String, TEXT("Category shown in My Blueprint and the details panel")),
+		MCPParam::Optional(TEXT("tooltip"), EType::String, TEXT("Tooltip")),
+		MCPParam::Optional(TEXT("instanceEditable"), EType::Boolean, TEXT("true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default")),
 	});
 	Registry.RegisterHandler(TEXT("add_component"), &AddComponent, {
 		SpecAssetPath,
@@ -341,6 +344,7 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecAssetPath,
 		SpecVarName,
 		MCPParam::Required(TEXT("value"), EType::Any, TEXT("New default value, as a string")),
+		MCPParam::Optional(TEXT("propagateToInstances"), EType::Boolean, TEXT("Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("get_blueprint_variable_default"), &GetVariableDefault, {
 		SpecAssetPath,
@@ -2012,6 +2016,12 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddVariable(const TSharedPtr<FJsonObj
 
 	FString VarType = OptionalString(Params, TEXT("varType"), TEXT("Float"));
 	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip"));
+	FString CategoryStr;
+	const bool bHasCategory = TryGetStringParam(Params, TEXT("category"), CategoryStr);
+	FString TooltipStr;
+	const bool bHasTooltip = TryGetStringParam(Params, TEXT("tooltip"), TooltipStr);
+	bool bInstanceEditable = false;
+	const bool bHasInstanceEditable = TryGetBoolParam(Params, TEXT("instanceEditable"), bInstanceEditable);
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
@@ -2050,6 +2060,25 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddVariable(const TSharedPtr<FJsonObj
 
 	if (bSuccess)
 	{
+		// Same writes set_variable_properties makes, applied before the one compile.
+		for (FBPVariableDescription& Var : Blueprint->NewVariables)
+		{
+			if (Var.VarName != VarNameFName) continue;
+			if (bHasCategory) Var.SetMetaData(FBlueprintMetadata::MD_FunctionCategory, *CategoryStr);
+			if (bHasCategory) Var.Category = FText::FromString(CategoryStr);
+			if (bHasTooltip) Var.SetMetaData(FBlueprintMetadata::MD_Tooltip, *TooltipStr);
+			if (bHasInstanceEditable && bInstanceEditable)
+			{
+				Var.PropertyFlags |= CPF_Edit;
+				Var.PropertyFlags &= ~(CPF_DisableEditOnInstance | CPF_DisableEditOnTemplate);
+			}
+			else if (bHasInstanceEditable)
+			{
+				Var.PropertyFlags |= CPF_Edit | CPF_DisableEditOnInstance;
+				Var.PropertyFlags &= ~CPF_DisableEditOnTemplate;
+			}
+			break;
+		}
 		FKismetEditorUtilities::CompileBlueprint(Blueprint);
 		FString SaveError;
 		const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
@@ -2062,6 +2091,9 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddVariable(const TSharedPtr<FJsonObj
 		Result->SetStringField(TEXT("variableType"), VarType);
 		bool bTypeRoundTrips = true;
 		Result->SetStringField(TEXT("resolvedType"), PinTypeSpec(PinType, bTypeRoundTrips));
+		if (bHasCategory) Result->SetStringField(TEXT("category"), CategoryStr);
+		if (bHasTooltip) Result->SetStringField(TEXT("tooltip"), TooltipStr);
+		if (bHasInstanceEditable) Result->SetBoolField(TEXT("instanceEditable"), bInstanceEditable);
 
 		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetStringField(TEXT("path"), AssetPath);
