@@ -166,6 +166,9 @@ private:
 	static TSharedPtr<FJsonValue> SetIKRetargeterRig(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AutoAlignRetargetPose(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ResetRetargetPose(const TSharedPtr<FJsonObject>& Params);
+	// Retarget pose cleanup through UIKRetargeterController, UE 5.7+ (#1288).
+	static TSharedPtr<FJsonValue> RemoveRetargetPose(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> RenameRetargetPose(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> BatchRetargetAnimations(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetAnimBlueprintSkeleton(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadBoneTrack(const TSharedPtr<FJsonObject>& Params);

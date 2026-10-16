@@ -600,6 +600,18 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		RetargeterPath(),
 		Side(),
 	});
+	// UE 5.7+; older engines read their parameters ahead and refuse.
+	Registry.RegisterHandler(TEXT("remove_retarget_pose"), &RemoveRetargetPose, {
+		RetargeterPath(),
+		MCPParam::Required(TEXT("poseName"), EType::String, TEXT("Retarget pose to remove; the default pose is refused")),
+		Side(),
+	});
+	Registry.RegisterHandler(TEXT("rename_retarget_pose"), &RenameRetargetPose, {
+		RetargeterPath(),
+		MCPParam::Required(TEXT("poseName"), EType::String, TEXT("Retarget pose to rename; the default pose is refused")),
+		MCPParam::Required(TEXT("newName"), EType::String, TEXT("New pose name, not already taken on that side")),
+		Side(),
+	});
 	// UE 5.8 only; the older-engine stub reads its parameters ahead and refuses.
 	Registry.RegisterHandlerWithTimeout(TEXT("batch_retarget_animations"), &BatchRetargetAnimations, 300.0f, {
 		MCPParam::Required(TEXT("retargeterPath"), EType::String, TEXT("IKRetargeter to bake through")).Alias(TEXT("assetPath")),

@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1082,
+  "handlerCount": 1084,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -26304,6 +26304,32 @@
         }
       ]
     },
+    "remove_retarget_pose": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "retargeterPath",
+          "type": "string",
+          "required": true,
+          "description": "Existing IKRetargeter to edit",
+          "aliases": [
+            "assetPath"
+          ]
+        },
+        {
+          "name": "poseName",
+          "type": "string",
+          "required": true,
+          "description": "Retarget pose to remove; the default pose is refused"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "description": "source | target (default target)"
+        }
+      ]
+    },
     "remove_sense": {
       "category": "gameplay",
       "params": [
@@ -27038,6 +27064,38 @@
           "type": "string",
           "required": true,
           "description": "New name"
+        }
+      ]
+    },
+    "rename_retarget_pose": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "retargeterPath",
+          "type": "string",
+          "required": true,
+          "description": "Existing IKRetargeter to edit",
+          "aliases": [
+            "assetPath"
+          ]
+        },
+        {
+          "name": "poseName",
+          "type": "string",
+          "required": true,
+          "description": "Retarget pose to rename; the default pose is refused"
+        },
+        {
+          "name": "newName",
+          "type": "string",
+          "required": true,
+          "description": "New pose name, not already taken on that side"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "description": "source | target (default target)"
         }
       ]
     },

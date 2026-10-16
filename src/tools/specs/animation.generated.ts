@@ -4007,6 +4007,32 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "remove_retarget_pose": {
+    "category": "animation",
+    "params": [
+      {
+        "name": "retargeterPath",
+        "type": "string",
+        "required": true,
+        "description": "Existing IKRetargeter to edit",
+        "aliases": [
+          "assetPath"
+        ]
+      },
+      {
+        "name": "poseName",
+        "type": "string",
+        "required": true,
+        "description": "Retarget pose to remove; the default pose is refused"
+      },
+      {
+        "name": "side",
+        "type": "string",
+        "required": false,
+        "description": "source | target (default target)"
+      }
+    ]
+  },
   "remove_state": {
     "category": "animation",
     "params": [
@@ -4105,6 +4131,38 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": true,
         "description": "Virtual bone to remove"
+      }
+    ]
+  },
+  "rename_retarget_pose": {
+    "category": "animation",
+    "params": [
+      {
+        "name": "retargeterPath",
+        "type": "string",
+        "required": true,
+        "description": "Existing IKRetargeter to edit",
+        "aliases": [
+          "assetPath"
+        ]
+      },
+      {
+        "name": "poseName",
+        "type": "string",
+        "required": true,
+        "description": "Retarget pose to rename; the default pose is refused"
+      },
+      {
+        "name": "newName",
+        "type": "string",
+        "required": true,
+        "description": "New pose name, not already taken on that side"
+      },
+      {
+        "name": "side",
+        "type": "string",
+        "required": false,
+        "description": "source | target (default target)"
       }
     ]
   },
@@ -5374,10 +5432,12 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   remove_anim_notify_state: "Params: assetPath (or path), notifyName?, notifyStateClass?",
   remove_montage_section: "Params: assetPath (or path), sectionName",
   remove_montage_segment: "Params: assetPath (or path), segmentIndex, slotName?, slotIndex?",
+  remove_retarget_pose: "Params: retargeterPath (or assetPath), poseName, side?",
   remove_state: "Params: assetPath (or path), stateMachineName, stateName",
   remove_state_machine: "Params: assetPath (or path), stateMachineName",
   remove_transition: "Params: assetPath (or path), stateMachineName, transitionGuid?, fromState?, toState?",
   remove_virtual_bone: "Params: skeletonPath, virtualBoneName",
+  rename_retarget_pose: "Params: retargeterPath (or assetPath), poseName, newName, side?",
   reset_retarget_pose: "Params: retargeterPath (or assetPath), side?",
   reverse_sequence: "Params: sourcePath, destinationPath?, name?, packagePath?, inPlace?, cycleOffsetFrames?, cycleOffsetSeconds?, onConflict?",
   sample_pose: "Params: assetPath (or path), boneNames?, frames?, times?, space?, skeletalMeshPath?, incorporateRootMotion?, blendPosition?, rotationFormat?",
@@ -5419,7 +5479,7 @@ export const schema: Record<string, z.ZodType> = {
   animPath: z.string().optional().describe("AnimSequence or PoseAsset whose curve names to compare"),
   animPaths: z.array(z.string()).optional().describe("AnimSequences to bake, without duplicates"),
   animSequencePath: z.string().optional().describe("AnimSequence or AnimComposite to append as a segment (add_montage_segment). AnimSequence the montage plays (create_anim_montage). AnimSequence to put in the slot (set_montage_sequence)"),
-  assetPath: z.string().optional().describe("AnimSequence or AnimMontage asset path (add_anim_notify, add_anim_notify_state, remove_anim_notify, remove_anim_notify_state). BlendSpace or BlendSpace1D asset path (add_blend_sample, populate_blendspace, read_blendspace, set_blend_sample). AnimSequence asset path (add_curve, analyze_animation, apply_animation_modifier, bake_keyframes_batch, bake_root_motion_from_bone, list_anim_modifiers, read_bone_track, remove_anim_curve, set_anim_curve_keys, set_bone_keyframes, set_root_motion_settings, set_sync_markers). AnimMontage asset path (add_montage_section, add_montage_segment, list_montage_segments, read_anim_montage, remove_montage_section, remove_montage_segment, set_montage_properties, set_montage_sequence, set_montage_slot). AnimBlueprint asset path (add_motion_matching_node, add_pose_history_node, add_sequence_evaluator, add_state, add_transition, bind_anim_node_function, create_state_machine, inspect_anim_nodes, read_anim_blueprint, read_anim_graph, read_state_machine, remove_state, remove_state_machine, remove_transition, set_anim_blueprint_skeleton, set_motion_matching_chooser, set_state_animation, set_state_machine_entry, set_transition_blend, set_transition_condition). Alias for schemaPath (add_pose_search_schema_pose_channel, add_pose_search_schema_trajectory_channel, read_pose_search_schema). PoseSearchDatabase asset path (add_pose_search_sequence, build_pose_search_index, read_pose_search_database, set_pose_search_clips, set_pose_search_database_settings, set_pose_search_schema). Alias for retargeterPath (auto_align_retarget_pose, batch_retarget_animations, reset_retarget_pose, set_ik_retargeter_rig). Alias for animPath (compare_curves_to_morph_targets). Alias for skeletonPath (get_bone_transforms). PhysicsAsset asset path, or a SkeletalMesh whose assigned PhysicsAsset to read (get_physics_asset_constraints). SkeletalMesh asset path (get_physics_asset_info, list_animation_sockets). SkeletalMesh, or a Skeleton, asset path (get_skeleton_info). Control Rig Blueprint asset path (list_control_rig_variables, read_control_rig_graph, read_control_rig_hierarchy). AnimSequence or BlendSpace asset path (measure_natural_speed). AnimSequence to read; omit when reading a batch (read_anim_sequence). IKRetargeter asset path (read_ik_retargeter). IKRigDefinition asset path (read_ik_rig). MirrorDataTable asset path (read_mirror_data_table). AnimSequence or BlendSpace asset path; a montage is refused (sample_pose). Alias for rigPath (set_ik_rig_mesh)"),
+  assetPath: z.string().optional().describe("AnimSequence or AnimMontage asset path (add_anim_notify, add_anim_notify_state, remove_anim_notify, remove_anim_notify_state). BlendSpace or BlendSpace1D asset path (add_blend_sample, populate_blendspace, read_blendspace, set_blend_sample). AnimSequence asset path (add_curve, analyze_animation, apply_animation_modifier, bake_keyframes_batch, bake_root_motion_from_bone, list_anim_modifiers, read_bone_track, remove_anim_curve, set_anim_curve_keys, set_bone_keyframes, set_root_motion_settings, set_sync_markers). AnimMontage asset path (add_montage_section, add_montage_segment, list_montage_segments, read_anim_montage, remove_montage_section, remove_montage_segment, set_montage_properties, set_montage_sequence, set_montage_slot). AnimBlueprint asset path (add_motion_matching_node, add_pose_history_node, add_sequence_evaluator, add_state, add_transition, bind_anim_node_function, create_state_machine, inspect_anim_nodes, read_anim_blueprint, read_anim_graph, read_state_machine, remove_state, remove_state_machine, remove_transition, set_anim_blueprint_skeleton, set_motion_matching_chooser, set_state_animation, set_state_machine_entry, set_transition_blend, set_transition_condition). Alias for schemaPath (add_pose_search_schema_pose_channel, add_pose_search_schema_trajectory_channel, read_pose_search_schema). PoseSearchDatabase asset path (add_pose_search_sequence, build_pose_search_index, read_pose_search_database, set_pose_search_clips, set_pose_search_database_settings, set_pose_search_schema). Alias for retargeterPath (auto_align_retarget_pose, batch_retarget_animations, remove_retarget_pose, rename_retarget_pose, reset_retarget_pose, set_ik_retargeter_rig). Alias for animPath (compare_curves_to_morph_targets). Alias for skeletonPath (get_bone_transforms). PhysicsAsset asset path, or a SkeletalMesh whose assigned PhysicsAsset to read (get_physics_asset_constraints). SkeletalMesh asset path (get_physics_asset_info, list_animation_sockets). SkeletalMesh, or a Skeleton, asset path (get_skeleton_info). Control Rig Blueprint asset path (list_control_rig_variables, read_control_rig_graph, read_control_rig_hierarchy). AnimSequence or BlendSpace asset path (measure_natural_speed). AnimSequence to read; omit when reading a batch (read_anim_sequence). IKRetargeter asset path (read_ik_retargeter). IKRigDefinition asset path (read_ik_rig). MirrorDataTable asset path (read_mirror_data_table). AnimSequence or BlendSpace asset path; a montage is refused (sample_pose). Alias for rigPath (set_ik_rig_mesh)"),
   assetPaths: z.array(z.string()).optional().describe("Batch: up to 1000 AnimSequence paths, one row each (read_anim_sequence). Scan exactly these AnimSequences instead of a directory (scan_animation_tracks). AnimSequences to write, or montages when resolveFromMontages is on (set_sequence_properties). AnimSequences to rewrite, at most 500 (transform_bone_tracks)"),
   autoMapChains: z.boolean().optional().describe("Assign the rigs to every op and auto-map chains (default true)"),
   autoMapMode: z.string().optional().describe("Native chain auto-map: exact | fuzzy | clear"),
@@ -5543,6 +5603,7 @@ export const schema: Record<string, z.ZodType> = {
   name: z.string().optional().describe("Name for the virtual bone; the engine's 'VB ' prefix is added when missing (default the engine-generated name) (add_virtual_bone). New AnimSequence name (compose_pose_sequence). AnimBlueprint asset name (create_anim_blueprint). AnimComposite asset name (create_anim_composite). AnimMontage asset name (create_anim_montage). BlendSpace asset name (create_blendspace). BlendSpace1D asset name (create_blendspace_1d). Asset name (default <Source>_CtrlRig) (create_control_rig). IKRetargeter asset name (create_ik_retargeter). IKRigDefinition asset name (create_ik_rig). MirrorDataTable asset name (create_mirror_data_table). PoseSearchDatabase asset name (create_pose_search_database). PoseSearchNormalizationSet asset name (create_pose_search_normalization_set). PoseSearchSchema asset name (create_pose_search_schema). AnimSequence asset name (create_sequence). Skeleton asset name (create_skeleton). State machine name (default NewStateMachine) (create_state_machine). Name of the reversed copy (default <Source>_Reversed) (reverse_sequence)"),
   nameFilter: z.string().optional().describe("With directory: case-insensitive substring, or * ? wildcard, the asset name must match"),
   negate: z.boolean().optional().describe("Enter when the variable is false (default false)"),
+  newName: z.string().optional().describe("New pose name, not already taken on that side"),
   newProfileName: z.string().optional().describe("New name when operation=rename"),
   nodeClass: z.string().optional().describe("Node class substring filter, e.g. PoseDriver"),
   nodeGuid: z.string().optional().describe("Anim graph node to bind, from add_sequence_evaluator or an add_*_node action"),
@@ -5568,6 +5629,7 @@ export const schema: Record<string, z.ZodType> = {
   playRate: z.number().optional().describe("Segment play rate; negative plays in reverse (default 1)"),
   pose: z.object({ side: z.string().describe("source | target"), name: z.string().describe("Retarget pose name"), create: z.boolean().optional().describe("Create the pose (default false)"), reset: z.boolean().optional().describe("Reset the pose first, which whole-pose auto-align requires on an existing pose"), autoAlign: z.string().optional().describe("chain_to_chain | mesh_to_mesh | local_axes | global_axes; needs both preview meshes"), bones: z.array(z.string()).optional().describe("Bones to auto-align; omitted aligns every bone, which replaces the pose"), rotationOffsets: z.array(z.record(z.unknown())).optional().describe("Offsets as [{bone, rotationQuaternion {x, y, z, w}}], normalized"), rootOffsetZ: z.number().optional().describe("Root height offset; exclusive with snapBoneToGround"), snapBoneToGround: z.string().optional().describe("Bone to snap to the ground; exclusive with rootOffsetZ") }).optional().describe("Named source or target retarget pose to author"),
   poseCount: z.number().optional().describe("History poses to retain"),
+  poseName: z.string().optional().describe("Retarget pose to remove; the default pose is refused (remove_retarget_pose). Retarget pose to rename; the default pose is refused (rename_retarget_pose)"),
   poseSearchMode: z.string().optional().describe("bruteforce | pcakdtree | vptree | eventonly"),
   position: z.object({ x: z.number().optional().describe("Horizontal axis value"), y: z.number().optional().describe("Vertical axis value") }).optional().describe("Sample position on the blendspace axes; wins over flat x and y (add_blend_sample). New sample position; wins over flat x and y, and an omitted axis keeps its value (set_blend_sample)"),
   prefix: z.string().optional().describe("Output name prefix"),
@@ -5584,7 +5646,7 @@ export const schema: Record<string, z.ZodType> = {
   requireCompleteMapping: z.boolean().optional().describe("Refuse when any target chain is unmapped (default false)"),
   resolveFromMontages: z.boolean().optional().describe("Resolve a montage to its first AnimSequence (default true)"),
   restore: z.array(z.object({ bone: z.string().describe("Bone to restore"), mode: z.string().describe("Mode to restore it to") })).optional().describe("Per-bone modes to put back, which is how this action's rollback replays; wins over mode"),
-  retargeterPath: z.string().optional().describe("Existing IKRetargeter to edit (auto_align_retarget_pose, reset_retarget_pose, set_ik_retargeter_rig). IKRetargeter to bake through (batch_retarget_animations). Existing IKRetargeter to configure (configure_ik_retargeter)"),
+  retargeterPath: z.string().optional().describe("Existing IKRetargeter to edit (auto_align_retarget_pose, remove_retarget_pose, rename_retarget_pose, reset_retarget_pose, set_ik_retargeter_rig). IKRetargeter to bake through (batch_retarget_animations). Existing IKRetargeter to configure (configure_ik_retargeter)"),
   retargetRoot: z.string().optional().describe("Retarget root bone"),
   rigMode: z.string().optional().describe("fk (default) | asset. Use asset with the verified baseline controlRigPath; use fk only when generated raw FK controls are the intended editing surface"),
   rigPath: z.string().optional().describe("Existing IKRigDefinition to configure (configure_ik_rig). IKRigDefinition to assign (set_ik_retargeter_rig). Existing IKRigDefinition to edit (set_ik_rig_mesh)"),
