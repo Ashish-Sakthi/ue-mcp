@@ -552,6 +552,9 @@ function describeAction(src, masked, start, end, specBuilders = new Map()) {
  * to another category. Its description is the canonical action's, read from
  * the category file `someTool` is imported from, behind the same prefix
  * src/surface/moved-action.ts writes. Null when the value is not that call.
+ * The declared return type breaks the inference cycle through readCategory.
+ *
+ * @returns {string | null}
  */
 function describeMoved(file, src, masked, start, end) {
   const call = masked.slice(start, end).match(/(?:^|[^\w$])movedAction\s*\(/);
