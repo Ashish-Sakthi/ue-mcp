@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1090,
+  "handlerCount": 1098,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -20936,6 +20936,178 @@
           "description": "Save the written asset (default true)"
         }
       ]
+    },
+    "metahuman_assemble": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "pipelineType",
+          "type": "string",
+          "required": false,
+          "description": "Cinematic | Optimized (default) | UEFN"
+        },
+        {
+          "name": "quality",
+          "type": "string",
+          "required": false,
+          "description": "Pipeline quality level, e.g. Cinematic | High | Medium (default) | Low"
+        },
+        {
+          "name": "nameOverride",
+          "type": "string",
+          "required": false,
+          "description": "Name for the assembled assets instead of the character's"
+        },
+        {
+          "name": "commonFolderPath",
+          "type": "string",
+          "required": false,
+          "description": "Content folder for the shared MetaHuman assets"
+        }
+      ]
+    },
+    "metahuman_create_character": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Name of the new MetaHumanCharacter asset"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default /Game/MetaHumans)"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "skip (default) returns an existing asset untouched, error refuses"
+        }
+      ],
+      "contractExempt": "creates a MetaHumanCharacter asset"
+    },
+    "metahuman_read_character": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "includeBody",
+          "type": "boolean",
+          "required": false,
+          "description": "Open the character for editing to read body constraints, wardrobe and canBuild (default true)"
+        }
+      ]
+    },
+    "metahuman_request_rig": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "rigType",
+          "type": "string",
+          "required": false,
+          "description": "JointsOnly (default) | JointsAndBlendshapes"
+        },
+        {
+          "name": "blocking",
+          "type": "boolean",
+          "required": false,
+          "description": "Wait for the cloud service to return the rig (default true)"
+        }
+      ]
+    },
+    "metahuman_request_textures": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "blocking",
+          "type": "boolean",
+          "required": false,
+          "description": "Wait for the cloud service to return the textures (default true)"
+        }
+      ]
+    },
+    "metahuman_set_body": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "constraints",
+          "type": "object",
+          "required": true,
+          "description": "{ConstraintName: target} or {ConstraintName: {target, active}}, e.g. {\"Height\": 180, \"Muscularity\": 0.9}"
+        }
+      ]
+    },
+    "metahuman_set_wardrobe": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "items",
+          "type": "object",
+          "required": true,
+          "description": "{slotName: wardrobeItemPath}, e.g. {\"Top Garment\": \"/Game/Fab/MetaHuman/WI_Crewneck\"}"
+        }
+      ]
+    },
+    "metahuman_status": {
+      "category": "metahuman",
+      "params": []
     },
     "metasound_add_graph_input": {
       "category": "audio",

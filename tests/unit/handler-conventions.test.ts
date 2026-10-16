@@ -66,7 +66,8 @@ const BASELINE = {
   // 131: blueprint(export_batch) writes files, which nothing can delete (#1166).
   // 132: pcg(update_level_assets) overwrites assets with a fresh export and has no inverse (#1244).
   // 134: datasmith(import) creates an asset set and actors, and datasmith(reimport) rewrites them from source (#1383).
-  mutationsWithoutRollback: 134,
+  // 138: metahuman(set_wardrobe, request_rig, request_textures, assemble) replace or create character data with no inverse (#1354).
+  mutationsWithoutRollback: 138,
   // Zero, and held there by a flat assertion. Every mutation with no inverse
   // now says so in its own result body with the reason, which is the half a
   // caller can act on.
