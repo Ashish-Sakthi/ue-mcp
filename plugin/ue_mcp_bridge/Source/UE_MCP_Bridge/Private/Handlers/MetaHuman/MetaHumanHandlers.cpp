@@ -360,8 +360,13 @@ TSharedPtr<FJsonValue> FMetaHumanHandlers::CreateCharacter(const TSharedPtr<FJso
 	if (Created.EarlyReturn) return Created.EarlyReturn;
 	UObject* Character = Created.Asset;
 
+	// Saved like every other create, so the character survives the session that made it.
+	FString SaveReason;
+	const bool bSaved = SaveAssetPackageChecked(Character, SaveReason);
+
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
+	MCPNoteSaveOutcome(Result, Character->GetPathName(), bSaved, SaveReason);
 	Result->SetStringField(TEXT("assetPath"), Character->GetPathName());
 	Result->SetObjectField(TEXT("state"), AssetState(Character));
 	MCPSetDeleteAssetRollback(Result, Character->GetPathName());
