@@ -1269,9 +1269,12 @@ TSharedPtr<FJsonValue> FStateTreeHandlers::SetStateLink(const TSharedPtr<FJsonOb
 	else
 	{
 		State->Modify();
+		// SetLinkedState and SetLinkedStateAsset assert the state is already of
+		// the matching linked type, so a plain state clears both links directly.
 		State->Type = EStateTreeStateType::State;
-		State->SetLinkedState(FStateTreeStateLink());
-		State->SetLinkedStateAsset(nullptr);
+		State->LinkedSubtree = FStateTreeStateLink();
+		State->LinkedAsset = nullptr;
+		State->UpdateParametersFromLinkedSubtree();
 	}
 
 	UStateTreeEditingSubsystem::ValidateStateTree(ST);
