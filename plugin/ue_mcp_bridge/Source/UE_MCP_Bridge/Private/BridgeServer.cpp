@@ -428,6 +428,25 @@ FString FMCPBridgeServer::CreateJsonRpcResponse(const TSharedPtr<FJsonObject>& R
 	FString OutputString;
 	TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&OutputString);
 	FJsonSerializer::Serialize(Response.ToSharedRef(), Writer);
+
+	// A result of hundreds of megabytes took the MCP server down while parsing and re-encoding it (#1277).
+	// Past the bound the caller gets a refusal it can act on instead.
+	constexpr int32 MaxResponseChars = 32 * 1024 * 1024;
+	if (OutputString.Len() > MaxResponseChars)
+	{
+		TSharedPtr<FJsonObject> Refusal = MakeShared<FJsonObject>();
+		Refusal->SetBoolField(TEXT("success"), false);
+		Refusal->SetStringField(TEXT("reason"), TEXT("response_too_large"));
+		Refusal->SetNumberField(TEXT("responseChars"), OutputString.Len());
+		Refusal->SetNumberField(TEXT("maxResponseChars"), MaxResponseChars);
+		Refusal->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("The result was %d characters, over the %d-character bound, so it was not sent. Narrow the call: name one component or property, drop includeProperties, or page with limit."),
+			OutputString.Len(), MaxResponseChars));
+		Response->SetField(TEXT("result"), MakeShared<FJsonValueObject>(Refusal));
+		OutputString.Reset();
+		TSharedRef<TJsonWriter<>> RefusalWriter = TJsonWriterFactory<>::Create(&OutputString);
+		FJsonSerializer::Serialize(Response.ToSharedRef(), RefusalWriter);
+	}
 	return OutputString;
 }
 

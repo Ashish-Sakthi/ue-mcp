@@ -1457,7 +1457,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetActorDetails(const TSharedPtr<FJsonObj
 			// MCPExportPropertyValue returns a JSON array of one string per
 			// element when ArrayDim > 1 and a plain string otherwise, so the two
 			// cases stay distinguishable rather than being conflated.
-			P->SetField(TEXT("value"), MCPExportPropertyValue(Prop, Actor));
+			MCPSetBoundedPropertyValue(P, Prop, Actor);
 			if (MCPPropertyIsFixedArray(Prop))
 			{
 				P->SetNumberField(TEXT("arrayDim"), Prop->ArrayDim);
@@ -1689,7 +1689,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetComponentTree(const TSharedPtr<FJsonOb
 				// exporting it without an index reports element 0 as though it
 				// were the whole value. Same helper as the actor dump, so the
 				// two cannot drift.
-				P->SetField(TEXT("value"), MCPExportPropertyValue(Prop, Comp));
+				MCPSetBoundedPropertyValue(P, Prop, Comp);
 				if (MCPPropertyIsFixedArray(Prop))
 				{
 					P->SetNumberField(TEXT("arrayDim"), Prop->ArrayDim);
