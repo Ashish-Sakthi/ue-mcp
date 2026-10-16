@@ -15,4 +15,6 @@ private:
 	static TSharedPtr<FJsonValue> ReadSkinWeights(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadBoneVertexBounds(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetSkinWeights(const TSharedPtr<FJsonObject>& Params);
+	// Auto-reduced LODs through RegenerateLOD, in SkeletalMeshHandlers_Lods.cpp (#1372).
+	static TSharedPtr<FJsonValue> GenerateSkeletalMeshLods(const TSharedPtr<FJsonObject>& Params);
 };

@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1099,
+  "handlerCount": 1105,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -3260,6 +3260,12 @@
           "type": "string",
           "required": true,
           "description": "Bone the virtual bone points at"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Name for the virtual bone; the engine's 'VB ' prefix is added when missing (default the engine-generated name)"
         }
       ]
     },
@@ -8321,6 +8327,134 @@
         }
       ]
     },
+    "compose_pose_sequence": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "New AnimSequence name"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default the first source's folder)"
+        },
+        {
+          "name": "sources",
+          "type": "array",
+          "required": true,
+          "description": "Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton",
+          "items": "object",
+          "fields": [
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": true,
+              "description": "AnimSequence to sample"
+            },
+            {
+              "name": "frame",
+              "type": "integer",
+              "required": false,
+              "description": "Frame to sample (default 0); exclusive with time"
+            },
+            {
+              "name": "time",
+              "type": "number",
+              "required": false,
+              "description": "Time in seconds to sample; exclusive with frame"
+            }
+          ]
+        },
+        {
+          "name": "layers",
+          "type": "array",
+          "required": false,
+          "description": "Per-bone blends over the base pose, applied in order, at most 64",
+          "items": "object",
+          "fields": [
+            {
+              "name": "source",
+              "type": "integer",
+              "required": true,
+              "description": "Index into sources to blend toward"
+            },
+            {
+              "name": "weight",
+              "type": "number",
+              "required": false,
+              "description": "0 to 1 (default 1): rotation slerps, translation and scale lerp"
+            },
+            {
+              "name": "bones",
+              "type": "array",
+              "required": false,
+              "description": "Bones by exact name",
+              "items": "string"
+            },
+            {
+              "name": "nameContains",
+              "type": "array",
+              "required": false,
+              "description": "Bones whose name contains any of these, case-insensitive",
+              "items": "string"
+            },
+            {
+              "name": "excludeContains",
+              "type": "array",
+              "required": false,
+              "description": "Drop matched bones whose name contains any of these",
+              "items": "string"
+            },
+            {
+              "name": "includeDescendants",
+              "type": "boolean",
+              "required": false,
+              "description": "Also match every descendant of a matched bone (default false)"
+            },
+            {
+              "name": "rotationOnly",
+              "type": "boolean",
+              "required": false,
+              "description": "Blend rotation only, keeping translation and scale (default false)"
+            }
+          ]
+        },
+        {
+          "name": "numFrames",
+          "type": "number",
+          "required": false,
+          "description": "Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys"
+        },
+        {
+          "name": "frameRate",
+          "type": "number",
+          "required": false,
+          "description": "Frames per second (default 30)"
+        },
+        {
+          "name": "easeToSource",
+          "type": "integer",
+          "required": false,
+          "description": "Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame"
+        },
+        {
+          "name": "easeCurve",
+          "type": "string",
+          "required": false,
+          "description": "linear (default) | smooth"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "skip (default) returns an existing asset untouched, error refuses; it never overwrites"
+        }
+      ]
+    },
     "configure_ai_perception_sense": {
       "category": "gameplay",
       "params": [
@@ -13377,7 +13511,7 @@
           "name": "edits",
           "type": "array",
           "required": true,
-          "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}",
+          "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation",
           "items": "object"
         },
         {
@@ -14872,6 +15006,89 @@
       "category": "project",
       "params": [],
       "contractExempt": "runs the project file generator"
+    },
+    "generate_skeletal_mesh_lods": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": false,
+          "description": "One SkeletalMesh"
+        },
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "SkeletalMeshes, at most 500",
+          "items": "string"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Every SkeletalMesh in this folder"
+        },
+        {
+          "name": "recursive",
+          "type": "boolean",
+          "required": false,
+          "description": "With directory, include subfolders (default true)"
+        },
+        {
+          "name": "lodCount",
+          "type": "integer",
+          "required": true,
+          "description": "Total LODs including LOD 0, 1 to 8"
+        },
+        {
+          "name": "trianglePercentages",
+          "type": "array",
+          "required": false,
+          "description": "Triangle percentage of LOD 0 for each LOD after it, lodCount - 1 values above 0 and at most 100 (default the engine's reduction settings)",
+          "items": "number"
+        },
+        {
+          "name": "regenerateImported",
+          "type": "boolean",
+          "required": false,
+          "description": "Also regenerate LODs that were imported rather than generated (default false)"
+        },
+        {
+          "name": "skipExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip a mesh already at lodCount (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Report each mesh's LODs and what would happen without changing anything"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save each changed mesh (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ],
+            [
+              "directory"
+            ]
+          ]
+        }
+      ]
     },
     "get_action_value": {
       "category": "gameplay",
@@ -17405,7 +17622,7 @@
           "name": "assetPath",
           "type": "string",
           "required": true,
-          "description": "SkeletalMesh asset path",
+          "description": "SkeletalMesh, or a Skeleton, asset path",
           "aliases": [
             "path"
           ]
@@ -17849,17 +18066,24 @@
         {
           "name": "filePath",
           "type": "string",
-          "required": true,
-          "description": "Source file on disk",
+          "required": false,
+          "description": "Source FBX on disk; exclusive with filePaths",
           "aliases": [
             "filename"
           ]
         },
         {
+          "name": "filePaths",
+          "type": "array",
+          "required": false,
+          "description": "Batch: up to 200 FBX files imported into one folder with the same settings",
+          "items": "string"
+        },
+        {
           "name": "name",
           "type": "string",
           "required": false,
-          "description": "Asset name (default: the file name)",
+          "description": "Asset name for a single filePath (default: the file name)",
           "aliases": [
             "assetName"
           ]
@@ -17896,6 +18120,19 @@
           "type": "object",
           "required": false,
           "description": "FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "filePath"
+            ],
+            [
+              "filePaths"
+            ]
+          ]
         }
       ]
     },
@@ -20850,6 +21087,24 @@
           "type": "boolean",
           "required": false,
           "description": "Include rest-pose transforms (default true)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Bones per page (default every bone)"
+        },
+        {
+          "name": "offset",
+          "type": "number",
+          "required": false,
+          "description": "First bone index of the page (default 0)"
+        },
+        {
+          "name": "includeBones",
+          "type": "boolean",
+          "required": false,
+          "description": "false returns only scaleSummary and boneCount, with no bones (default true)"
         }
       ]
     },
@@ -24358,6 +24613,36 @@
           "description": "Graph name or the selector list_graphs reports (default EventGraph)"
         },
         {
+          "name": "transitionGuid",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: read this transition's rule graph, by the guid read_state_machine and add_transition report. Wins over graphName"
+        },
+        {
+          "name": "fromState",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: with toState, read the rule graph of the transition between these states; refused when more than one matches"
+        },
+        {
+          "name": "toState",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: the transition's destination state, with fromState"
+        },
+        {
+          "name": "stateMachineName",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: narrow fromState and toState to one state machine"
+        },
+        {
+          "name": "includeLinks",
+          "type": "boolean",
+          "required": false,
+          "description": "List what each pin is wired to, as {nodeId, pin} (default false)"
+        },
+        {
           "name": "offset",
           "type": "integer",
           "required": false,
@@ -24466,6 +24751,18 @@
           "required": false,
           "description": "Frames to sample (default: first, middle and last)",
           "items": "number"
+        },
+        {
+          "name": "rotationFormat",
+          "type": "string",
+          "required": false,
+          "description": "euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat"
+        },
+        {
+          "name": "space",
+          "type": "string",
+          "required": false,
+          "description": "local (default) | component, which composes the parent chain"
         }
       ]
     },
@@ -27388,6 +27685,32 @@
         }
       ]
     },
+    "remove_retarget_pose": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "retargeterPath",
+          "type": "string",
+          "required": true,
+          "description": "Existing IKRetargeter to edit",
+          "aliases": [
+            "assetPath"
+          ]
+        },
+        {
+          "name": "poseName",
+          "type": "string",
+          "required": true,
+          "description": "Retarget pose to remove; the default pose is refused"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "description": "source | target (default target)"
+        }
+      ]
+    },
     "remove_sense": {
       "category": "gameplay",
       "params": [
@@ -28122,6 +28445,38 @@
           "type": "string",
           "required": true,
           "description": "New name"
+        }
+      ]
+    },
+    "rename_retarget_pose": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "retargeterPath",
+          "type": "string",
+          "required": true,
+          "description": "Existing IKRetargeter to edit",
+          "aliases": [
+            "assetPath"
+          ]
+        },
+        {
+          "name": "poseName",
+          "type": "string",
+          "required": true,
+          "description": "Retarget pose to rename; the default pose is refused"
+        },
+        {
+          "name": "newName",
+          "type": "string",
+          "required": true,
+          "description": "New pose name, not already taken on that side"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "description": "source | target (default target)"
         }
       ]
     },
@@ -29408,6 +29763,12 @@
               "description": "Third axis value (default 0)"
             }
           ]
+        },
+        {
+          "name": "rotationFormat",
+          "type": "string",
+          "required": false,
+          "description": "euler (default) | quaternion | both, which adds rotationQuat"
         }
       ]
     },
@@ -31741,6 +32102,26 @@
         }
       ],
       "contractExempt": "writes an INI file under the project's Config folder"
+    },
+    "set_control_rig_preview_mesh": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Control Rig Blueprint asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "skeletalMeshPath",
+          "type": "string",
+          "required": true,
+          "description": "SkeletalMesh to preview the rig on"
+        }
+      ]
     },
     "set_current_edit_level": {
       "category": "level",
@@ -35605,7 +35986,7 @@
           "name": "properties",
           "type": "object",
           "required": true,
-          "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}"
+          "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call"
         },
         {
           "name": "resolveFromMontages",
@@ -38929,6 +39310,112 @@
           "type": "string",
           "required": false,
           "description": "Runtime world scope: auto (default) | pie | editor"
+        }
+      ]
+    },
+    "transform_bone_tracks": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": true,
+          "description": "AnimSequences to rewrite, at most 500",
+          "items": "string"
+        },
+        {
+          "name": "trackOps",
+          "type": "array",
+          "required": true,
+          "description": "Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written",
+          "items": "object",
+          "fields": [
+            {
+              "name": "op",
+              "type": "string",
+              "required": true,
+              "description": "rotate | offset | copy_from_donor | reference_delta"
+            },
+            {
+              "name": "bones",
+              "type": "array",
+              "required": false,
+              "description": "Bones the op writes; required except for reference_delta",
+              "items": "string"
+            },
+            {
+              "name": "rotation",
+              "type": "object",
+              "required": false,
+              "description": "rotate: {x,y,z,w} or {pitch,yaw,roll}"
+            },
+            {
+              "name": "order",
+              "type": "string",
+              "required": false,
+              "description": "rotate: pre (default) multiplies in parent space, post in bone space"
+            },
+            {
+              "name": "rotateTranslation",
+              "type": "boolean",
+              "required": false,
+              "description": "rotate with order pre: also rotate each key's translation (default false)"
+            },
+            {
+              "name": "translation",
+              "type": "object",
+              "required": false,
+              "description": "offset: {x,y,z} added to every key"
+            },
+            {
+              "name": "donorPath",
+              "type": "string",
+              "required": false,
+              "description": "copy_from_donor (required) and reference_delta: AnimSequence to read the pose from"
+            },
+            {
+              "name": "donorFrame",
+              "type": "integer",
+              "required": false,
+              "description": "Donor frame (default 0); exclusive with donorTime"
+            },
+            {
+              "name": "donorTime",
+              "type": "number",
+              "required": false,
+              "description": "Donor time in seconds; exclusive with donorFrame"
+            },
+            {
+              "name": "keepTranslation",
+              "type": "boolean",
+              "required": false,
+              "description": "copy_from_donor: keep each key's own translation (default true)"
+            },
+            {
+              "name": "keepScale",
+              "type": "boolean",
+              "required": false,
+              "description": "copy_from_donor: keep each key's own scale (default true)"
+            },
+            {
+              "name": "sourceBone",
+              "type": "string",
+              "required": false,
+              "description": "reference_delta: bone whose rotation relative to its reference pose is applied"
+            },
+            {
+              "name": "targetBone",
+              "type": "string",
+              "required": false,
+              "description": "reference_delta: bone set to its reference pose times that delta"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save each sequence (default true)"
         }
       ]
     },

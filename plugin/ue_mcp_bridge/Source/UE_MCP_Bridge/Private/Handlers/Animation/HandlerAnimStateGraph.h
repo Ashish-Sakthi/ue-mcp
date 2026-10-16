@@ -82,6 +82,31 @@ namespace MCPAnimStateGraph
 		return O;
 	}
 
+	/** Every transition node in the Blueprint, nested state machines included. */
+	inline TArray<UAnimStateTransitionNode*> AllTransitions(UBlueprint* BP)
+	{
+		TArray<UAnimStateTransitionNode*> Out;
+		if (!BP) return Out;
+		TArray<UEdGraph*> Graphs;
+		BP->GetAllGraphs(Graphs);
+		for (UEdGraph* Graph : Graphs)
+		{
+			if (!Graph) continue;
+			for (UEdGraphNode* Node : Graph->Nodes)
+			{
+				if (UAnimStateTransitionNode* T = Cast<UAnimStateTransitionNode>(Node)) Out.AddUnique(T);
+			}
+		}
+		return Out;
+	}
+
+	/** The state machine a transition sits in, by the graph name read_state_machine takes. */
+	inline FString TransitionMachineName(const UAnimStateTransitionNode* T)
+	{
+		const UEdGraph* Graph = T ? T->GetGraph() : nullptr;
+		return Graph ? Graph->GetName() : FString();
+	}
+
 	/** What RemoveStateWithTransitions took with it. */
 	struct FStateTeardown
 	{

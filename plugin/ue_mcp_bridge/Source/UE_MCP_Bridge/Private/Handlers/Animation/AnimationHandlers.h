@@ -139,6 +139,7 @@ private:
 	static TSharedPtr<FJsonValue> ReadControlRigHierarchy(const TSharedPtr<FJsonObject>& Params);
 	// #1133 Control Rig Blueprint from a skeletal mesh or skeleton, via the engine factory.
 	static TSharedPtr<FJsonValue> CreateControlRig(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetControlRigPreviewMesh(const TSharedPtr<FJsonObject>& Params);
 
 	// UE 5.8 Control Rig editing in Sequencer. Source AnimSequences are read-only;
 	// edits live in a LevelSequence until explicitly baked to a new AnimSequence.
@@ -166,9 +167,16 @@ private:
 	static TSharedPtr<FJsonValue> SetIKRetargeterRig(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AutoAlignRetargetPose(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ResetRetargetPose(const TSharedPtr<FJsonObject>& Params);
+	// Retarget pose cleanup through UIKRetargeterController, UE 5.7+ (#1288).
+	static TSharedPtr<FJsonValue> RemoveRetargetPose(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> RenameRetargetPose(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> BatchRetargetAnimations(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetAnimBlueprintSkeleton(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadBoneTrack(const TSharedPtr<FJsonObject>& Params);
+	// Read-modify-write of raw bone tracks across sequences, in AnimationHandlers_BoneTracks.cpp (#1227).
+	static TSharedPtr<FJsonValue> TransformBoneTracks(const TSharedPtr<FJsonObject>& Params);
+	// A new sequence blended per bone from other sequences' poses, in AnimationHandlers_Compose.cpp (#1230).
+	static TSharedPtr<FJsonValue> ComposePoseSequence(const TSharedPtr<FJsonObject>& Params);
 
 	// v1.0.0-rc.2 - animation authoring gaps (#153, #154)
 	static TSharedPtr<FJsonValue> SetSequenceProperties(const TSharedPtr<FJsonObject>& Params);

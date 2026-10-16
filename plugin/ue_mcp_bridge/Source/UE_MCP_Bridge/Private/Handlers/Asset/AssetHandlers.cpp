@@ -604,14 +604,15 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
 	});
 	Registry.RegisterHandler(TEXT("import_animation"), &ImportAnimation, {
-		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
-		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("Source FBX on disk; exclusive with filePaths")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("filePaths"), EType::Array, TEXT("Batch: up to 200 FBX files imported into one folder with the same settings")).Items(EType::String),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name for a single filePath (default: the file name)")).Alias(TEXT("assetName")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Animations)")).Alias(TEXT("destinationPath")),
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("Skeleton the animation targets")),
 		MCPParam::Optional(TEXT("importCustomAttribute"), EType::Boolean, TEXT("Import FBX custom attributes as curves (default true)")),
 		MCPParam::Optional(TEXT("removeRedundantKeys"), EType::Boolean, TEXT("Strip keys that do not change the value (default true)")),
 		MCPParam::Optional(TEXT("importSettings"), EType::Object, TEXT("FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path")),
-	});
+	}, MCPSpec::ExactlyOne({ { TEXT("filePath") }, { TEXT("filePaths") } }));
 	Registry.RegisterHandler(TEXT("import_file"), &ImportFile, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Required(TEXT("packagePath"), EType::String, TEXT("Destination folder")).Alias(TEXT("destinationPath")),
@@ -985,6 +986,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("list_skeleton_bones"), &ListSkeletonBones, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("SkeletalMesh or Skeleton asset path")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("includeTransforms"), EType::Boolean, TEXT("Include rest-pose transforms (default true)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Bones per page (default every bone)")),
+		MCPParam::Optional(TEXT("offset"), EType::Number, TEXT("First bone index of the page (default 0)")),
+		MCPParam::Optional(TEXT("includeBones"), EType::Boolean, TEXT("false returns only scaleSummary and boneCount, with no bones (default true)")),
 	});
 	// #595: Chaos cloth read/write.
 	Registry.RegisterHandler(TEXT("read_cloth_data"), &ReadClothData, {
