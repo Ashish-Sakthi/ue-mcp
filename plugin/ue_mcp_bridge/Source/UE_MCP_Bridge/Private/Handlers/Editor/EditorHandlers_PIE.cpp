@@ -983,15 +983,30 @@ namespace
 			{
 				if (AActor* AsActor = Cast<AActor>(CurObject))
 				{
+					// #1204: the instance name, case-insensitive, or else the
+					// component class when exactly one component has it.
+					UActorComponent* Match = nullptr;
+					UActorComponent* ClassMatch = nullptr;
+					int32 ClassMatches = 0;
 					for (UActorComponent* Comp : AsActor->GetComponents())
 					{
-						if (Comp && Comp->GetName() == Seg)
+						if (!Comp) continue;
+						if (Comp->GetName().Equals(Seg, ESearchCase::IgnoreCase)) { Match = Comp; break; }
+						const FString ClassName = Comp->GetClass()->GetName();
+						if (ClassName.Equals(Seg, ESearchCase::IgnoreCase)
+							|| ClassName.Equals(Seg + TEXT("Component"), ESearchCase::IgnoreCase))
 						{
-							CurContainer = Comp;
-							CurStruct = Comp->GetClass();
-							CurObject = Comp;
-							goto NextSegment;
+							ClassMatch = Comp;
+							++ClassMatches;
 						}
+					}
+					if (!Match && ClassMatches == 1) Match = ClassMatch;
+					if (Match)
+					{
+						CurContainer = Match;
+						CurStruct = Match->GetClass();
+						CurObject = Match;
+						goto NextSegment;
 					}
 				}
 			}
@@ -1008,9 +1023,27 @@ namespace
 				return;
 			}
 
-			OutErr = FString::Printf(
-				TEXT("Segment '%s' is neither a property, component, nor a UFUNCTION on %s. A UFUNCTION that takes arguments is written '%s(value)'."),
-				*Seg, *CurStruct->GetName(), *Seg);
+			{
+				// #1204: name what this segment could have been.
+				TArray<FString> PropertyNames;
+				for (TFieldIterator<FProperty> It(CurStruct, EFieldIteratorFlags::IncludeSuper); It && PropertyNames.Num() < 40; ++It)
+				{
+					PropertyNames.Add(It->GetName());
+				}
+				FString ComponentList;
+				if (AActor* AsActor = (i == 0) ? Cast<AActor>(CurObject) : nullptr)
+				{
+					TArray<FString> ComponentNames;
+					for (UActorComponent* Comp : AsActor->GetComponents())
+					{
+						if (Comp) ComponentNames.Add(FString::Printf(TEXT("%s (%s)"), *Comp->GetName(), *Comp->GetClass()->GetName()));
+					}
+					ComponentList = FString::Printf(TEXT(" Components: [%s]."), *FString::Join(ComponentNames, TEXT(", ")));
+				}
+				OutErr = FString::Printf(
+					TEXT("Segment '%s' is neither a property, component, nor a UFUNCTION on %s. A UFUNCTION that takes arguments is written '%s(value)'.%s Properties: [%s]."),
+					*Seg, *CurStruct->GetName(), *Seg, *ComponentList, *FString::Join(PropertyNames, TEXT(", ")));
+			}
 			return;
 
 		NextSegment:;
