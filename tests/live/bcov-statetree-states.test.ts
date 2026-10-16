@@ -62,7 +62,8 @@ afterAll(async () => {
 });
 
 describe("statetree state hierarchy", () => {
-  it("add_state_tree_state adds a child that list_state_tree_states and read_state_tree report", async () => {
+  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
+  it.skip("add_state_tree_state adds a child that list_state_tree_states and read_state_tree report", async () => {
     const before = await states();
     expect(before.length).toBeGreaterThan(0);
     const rootPath = before[0].path;

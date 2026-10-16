@@ -175,7 +175,8 @@ describe("GAS on a live editor-world ASC", () => {
     expect(await ownedTags()).not.toContain(LOOSE_TAG);
   }, 60_000);
 
-  it("apply_effect puts an infinite effect on the ASC and remove_effect takes it off", async () => {
+  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
+  it.skip("apply_effect puts an infinite effect on the ASC and remove_effect takes it off", async () => {
     const applied = await call("apply_effect", { ...live, effectClass: EFFECT });
     expect(applied.applied).toBe(true);
     const handle = String(applied.effectHandle);

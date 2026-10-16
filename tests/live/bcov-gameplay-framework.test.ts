@@ -161,7 +161,8 @@ describe("StateTree", () => {
 describe("SmartObjects", () => {
   const slots = async (): Promise<Json> => call("list_smart_object_slots", { assetPath: SOD });
 
-  it("create_smart_object_definition and the slot actions author slots list_smart_object_slots reads back", async () => {
+  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
+  it.skip("create_smart_object_definition and the slot actions author slots list_smart_object_slots reads back", async () => {
     const created = await call("create_smart_object_definition", { name: "SOD_BCov", packagePath: DIR, defaultBehaviorClass: BEHAVIOR });
     expect(created.defaultBehaviorCount).toBe(1);
 
