@@ -5,7 +5,7 @@ description: Use when driving Unreal Engine editor via the ue-mcp MCP server. Co
 
 # ue-mcp workflow
 
-The `ue-mcp` MCP exposes 26 category tools (action-dispatch style) that drive a live Unreal Engine editor via a C++ bridge plugin. Every tool takes an `action` parameter.
+The `ue-mcp` MCP exposes 27 category tools (action-dispatch style) that drive a live Unreal Engine editor via a C++ bridge plugin. Every tool takes an `action` parameter.
 
 How a call is spelled depends on the project's context strategy. These skills write `level(action="get_outliner", limit=5)`; send it as:
 

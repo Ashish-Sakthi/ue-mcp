@@ -31,6 +31,7 @@ import { chooserTool } from "./tools/chooser.js";
 import { pluginsTool } from "./tools/plugins.js";
 import { epicTool } from "./tools/epic.js";
 import { fabTool } from "./tools/fab.js";
+import { datasmithTool } from "./tools/datasmith.js";
 import { dataflowTool } from "./tools/dataflow.js";
 import { conversationTool } from "./tools/conversation.js";
 
@@ -59,6 +60,7 @@ export const ALL_TOOLS: ToolDef[] = [
   pluginsTool,
   epicTool,
   fabTool,
+  datasmithTool,
   dataflowTool,
   conversationTool,
 ];

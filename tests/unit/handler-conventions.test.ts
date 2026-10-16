@@ -65,7 +65,8 @@ const BASELINE = {
   // 130: asset(compile_customizable_object) compiles derived data and has no inverse (#1059).
   // 131: blueprint(export_batch) writes files, which nothing can delete (#1166).
   // 132: pcg(update_level_assets) overwrites assets with a fresh export and has no inverse (#1244).
-  mutationsWithoutRollback: 132,
+  // 134: datasmith(import) creates an asset set and actors, and datasmith(reimport) rewrites them from source (#1383).
+  mutationsWithoutRollback: 134,
   // Zero, and held there by a flat assertion. Every mutation with no inverse
   // now says so in its own result body with the reason, which is the half a
   // caller can act on.

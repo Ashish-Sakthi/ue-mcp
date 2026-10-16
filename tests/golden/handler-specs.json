@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1085,
+  "handlerCount": 1090,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -11565,6 +11565,127 @@
         }
       ],
       "contractExempt": "Creates and saves a Widget Blueprint under the contract values; nothing it reads fails first"
+    },
+    "datasmith_import": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Absolute path of the .udatasmith file to import"
+        },
+        {
+          "name": "destinationPath",
+          "type": "string",
+          "required": true,
+          "description": "Content folder for the scene asset and its assets, e.g. /Game/Datasmith/Site"
+        },
+        {
+          "name": "options",
+          "type": "object",
+          "required": false,
+          "description": "{dotted.option.path: value} on DatasmithImportOptions, e.g. {\"BaseOptions.bIncludeLight\": false, \"BaseOptions.SceneHandling\": \"AssetsOnly\"}; datasmith(inspect) lists them"
+        }
+      ]
+    },
+    "datasmith_inspect": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Absolute path of the .udatasmith (or other Datasmith-translatable) file"
+        }
+      ]
+    },
+    "datasmith_query_actors": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "tagPrefix",
+          "type": "string",
+          "required": false,
+          "description": "Match actors with a tag starting with this, e.g. Revit.Element.Id."
+        },
+        {
+          "name": "tags",
+          "type": "array",
+          "required": false,
+          "description": "Match actors carrying any of these exact tags",
+          "items": "string"
+        },
+        {
+          "name": "metadataKey",
+          "type": "string",
+          "required": false,
+          "description": "Match actors whose Datasmith metadata has this key"
+        },
+        {
+          "name": "metadataValue",
+          "type": "string",
+          "required": false,
+          "description": "With metadataKey, match only this value"
+        },
+        {
+          "name": "includeMetadata",
+          "type": "boolean",
+          "required": false,
+          "description": "Return each actor's Datasmith user-data metadata (default true)"
+        },
+        {
+          "name": "includeBounds",
+          "type": "boolean",
+          "required": false,
+          "description": "Return each actor's world bounds and the union (default true)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Rows to return (default 200, max 5000); matchedCount counts them all"
+        }
+      ]
+    },
+    "datasmith_reimport": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "sceneAssetPath",
+          "type": "string",
+          "required": true,
+          "description": "The DatasmithScene asset to reimport"
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": false,
+          "description": "New source file path, when the source moved or changed name"
+        },
+        {
+          "name": "syncActors",
+          "type": "boolean",
+          "required": false,
+          "description": "Update the scene's actors in the level from the new source (default true)"
+        },
+        {
+          "name": "respawnDeleted",
+          "type": "boolean",
+          "required": false,
+          "description": "Respawn scene actors that were deleted from the level (default false)"
+        },
+        {
+          "name": "options",
+          "type": "object",
+          "required": false,
+          "description": "{dotted.option.path: value} applied before the reimport"
+        }
+      ]
+    },
+    "datasmith_status": {
+      "category": "datasmith",
+      "params": []
     },
     "delete_actor": {
       "category": "level",

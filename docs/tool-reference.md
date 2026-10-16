@@ -2,7 +2,7 @@
 
 This page lists ue-mcp's own category tools and actions. For the official Unreal 5.8 tools that ue-mcp wraps (surfaced inside these same categories), see [Native Tools](native-tools.md).
 
-UE-MCP exposes **<!-- count:tools -->26<!-- /count --> category tools** covering **<!-- count:actions -->1981+<!-- /count --> actions**, plus a `flow` tool for running multi-step YAML workflows. Every category tool takes an `action` parameter that selects the operation and an `args` object holding that action's parameters: `level(action="place_actor", args={actorClass: "PointLight"})`. Under the default `micro` [context strategy](configuration.md#context-strategy-full-lean-micro) the same call goes through the gateway: `tools(action="call", category="level", method="place_actor", args={...})`.
+UE-MCP exposes **<!-- count:tools -->27<!-- /count --> category tools** covering **<!-- count:actions -->1986+<!-- /count --> actions**, plus a `flow` tool for running multi-step YAML workflows. Every category tool takes an `action` parameter that selects the operation and an `args` object holding that action's parameters: `level(action="place_actor", args={actorClass: "PointLight"})`. Under the default `micro` [context strategy](configuration.md#context-strategy-full-lean-micro) the same call goes through the gateway: `tools(action="call", category="level", method="place_actor", args={...})`.
 
 !!! tip "First call in any session"
     Start with `project(action="get_status")` to check the connection, then `level(action="get_outliner")` or `asset(action="list")` to explore.
@@ -2337,6 +2337,20 @@ Nothing outside these modes ever answers a dialog by itself. `editor(set_dialog_
 | `cache_info()` | Report the Fab download cache location, total size, and entry count. Params: `none` |
 | `clear_cache()` | Delete the local Fab download cache to reclaim disk. Does not affect assets already imported into the project. Reports unchanged=true when the cache was already empty (where the native Fab API is linked). No inverse: the downloads come back only by downloading them again. Params: `none` |
 | `import_file(source\|sourceFile, destination\|destPath)` | Import a source file into the project through the Fab Interchange import pipeline. Use for owned assets that are downloaded/cached locally, or any local source file (fbx, textures). Single files import synchronously and report the created asset paths; pack/quixel workflows may run asynchronously. A synchronous import rolls back by deleting exactly the assets it created, taken from the paths the importer reported (a force delete, because the imported set references itself). An ASYNCHRONOUS import emits no inverse: its paths are not known yet, and a record naming the destination folder would delete whatever else already lives there. Params: `source (or sourceFile), destination (or destPath)` |
+
+---
+
+## datasmith
+
+*Datasmith scenes (Revit, SketchUp, CAD exports): inspect a .udatasmith file's options and element counts, import it into a content folder and the level, reimport a scene asset with actor sync, and query level actors by tag with their Datasmith metadata and bounds.*
+
+| Action | Description |
+|--------|-------------|
+| `status()` | Report whether the DatasmithImporter and DatasmithContent plugins are enabled and loaded, and list the DatasmithSceneActors in the editor level with their scene asset and related actor count. Call this first. Params: `none` |
+| `inspect(filePath)` | Open a .udatasmith file without importing it and return the exporter header (host, vendor, product, version), element counts (meshes, mesh actors, lights, cameras, materials, textures) and every import options object with its current values. The option names it returns are what import and reimport take in options. Params: `filePath` |
+| `import(filePath, destinationPath, options?:o)` | Import a .udatasmith file into destinationPath and the current level. Returns the DatasmithScene asset path, the spawned DatasmithSceneActor, the scene's asset counts (static meshes, materials, textures) and actor count, and the source element counts. options sets DatasmithImportOptions fields by dotted path, e.g. {"BaseOptions.bIncludeLight": false}. A failed import is an error that points at LogDatasmithImport. No inverse: it creates the asset set and the actors. Params: `filePath, destinationPath, options?` |
+| `reimport(sceneAssetPath, filePath?, syncActors?:b, respawnDeleted?:b, options?:o)` | Reimport an existing DatasmithScene asset from its source (or from filePath when the source moved), updating its actors in the level (syncActors, default true) and optionally respawning deleted ones (respawnDeleted). Returns asset counts before and after and the per-actor changes keyed by Datasmith id: added, removed, moved and kept. No inverse. Params: `sceneAssetPath, filePath?, syncActors?, respawnDeleted?, options?` |
+| `query_actors(tagPrefix?, tags?:[s], metadataKey?, metadataValue?, includeMetadata?:b, includeBounds?:b, limit?:i)` | Find level actors by tag prefix (e.g. Revit.Element.Id.), exact tags, or a Datasmith metadata key/value, and return each one's matched tags, UDatasmithAssetUserData metadata and world bounds, plus the union bounds. Tags and bounds work without the Datasmith plugin; metadata needs it. Params: `tagPrefix?, tags?, metadataKey?, metadataValue?, includeMetadata?, includeBounds?, limit?` |
 
 ---
 

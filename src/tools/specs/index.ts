@@ -10,6 +10,7 @@ import { handlerSpecs as asset } from "./asset.generated.js";
 import { handlerSpecs as audio } from "./audio.generated.js";
 import { handlerSpecs as blueprint } from "./blueprint.generated.js";
 import { handlerSpecs as chooser } from "./chooser.generated.js";
+import { handlerSpecs as datasmith } from "./datasmith.generated.js";
 import { handlerSpecs as demo } from "./demo.generated.js";
 import { handlerSpecs as editor } from "./editor.generated.js";
 import { handlerSpecs as epic } from "./epic.generated.js";
@@ -37,6 +38,7 @@ export const RECORDED_HANDLER_SPECS: HandlerSpecs = {
   ...audio,
   ...blueprint,
   ...chooser,
+  ...datasmith,
   ...demo,
   ...editor,
   ...epic,
