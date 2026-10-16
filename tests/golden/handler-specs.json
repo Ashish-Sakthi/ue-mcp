@@ -14053,7 +14053,19 @@
           "name": "format",
           "type": "string",
           "required": false,
-          "description": "DataTable/CompositeDataTable: json | csv (default: from the required .json/.csv outputPath extension); other assets use their registered exporter"
+          "description": "DataTable: json | csv; MaterialInstance: json (resolved parameters and overrides). Meshes use the FBX exporter; textures use PNG, selected by outputPath extension"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
+        },
+        {
+          "name": "replaceExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Overwrite the output file (default true)"
         }
       ]
     },
@@ -15530,6 +15542,26 @@
           "type": "string",
           "required": false,
           "description": "One package path, used when packages is omitted"
+        },
+        {
+          "name": "includeDetails",
+          "type": "boolean",
+          "required": false,
+          "description": "Classify Blueprint and map/external-actor references, following Blueprint referencers (default false)"
+        },
+        {
+          "name": "maxDepth",
+          "type": "integer",
+          "required": false,
+          "description": "Maximum reference depth for includeDetails (default 2)",
+          "minimum": 1,
+          "maximum": 8
+        },
+        {
+          "name": "includeMeshInfo",
+          "type": "boolean",
+          "required": false,
+          "description": "Include mesh summary and static mesh collision for each queried asset (default false)"
         }
       ]
     },
@@ -18017,10 +18049,30 @@
         {
           "name": "assetPath",
           "type": "string",
-          "required": true,
+          "required": false,
           "description": "Texture2D asset path",
           "aliases": [
             "path"
+          ]
+        },
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Texture2D asset paths, 1-500; use instead of assetPath",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ]
           ]
         }
       ]
@@ -18989,7 +19041,7 @@
           "name": "skeletonPath",
           "type": "string",
           "required": false,
-          "description": "Existing Skeleton to import onto"
+          "description": "Existing Skeleton to target; omit to create one. An invalid path is refused before import"
         },
         {
           "name": "importMaterials",
@@ -19026,6 +19078,29 @@
           "type": "boolean",
           "required": false,
           "description": "Replace an asset already at the destination (default true)"
+        },
+        {
+          "name": "importer",
+          "type": "string",
+          "required": false,
+          "description": "auto uses Interchange on 5.8 and later, legacy on older versions; interchange passes an explicit pipeline stack",
+          "enum": [
+            "auto",
+            "interchange",
+            "legacy"
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save all imported assets (default false)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
         }
       ]
     },
@@ -19238,29 +19313,34 @@
           "name": "items",
           "type": "array",
           "required": true,
-          "description": "Textures to import: [{filePath, packagePath?, name?, replaceExisting?}]",
+          "description": "Textures to import, 1-500: {filePath, packagePath?, name?, replaceExisting?, preset?: normal|masks|color, settings?: {compressionSettings?, lodGroup?, sRGB?, neverStream?, flipGreenChannel?, maxTextureSize?}}. Settings may also be given directly on each item; direct fields win. All entries are validated before import",
           "items": "object"
         },
         {
           "name": "packagePath",
           "type": "string",
           "required": false,
-          "description": "Folder for items that name none (default /Game/Textures)"
+          "description": "Folder for entries that name none (default /Game/Textures)"
         },
         {
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported textures (default true)"
+          "description": "Save changed assets (default true)"
         },
         {
           "name": "automated",
           "type": "boolean",
           "required": false,
           "description": "Suppress interactive dialogs (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
         }
-      ],
-      "contractExempt": "Runs an import batch under the contract values; an empty batch is not refused"
+      ]
     },
     "init_asc": {
       "category": "gas",
@@ -20176,6 +20256,43 @@
           "type": "number",
           "required": false,
           "description": "Refused: the row offset was replaced by cursor paging, because a row number cannot report that the folder changed. Use cursor and limit"
+        },
+        {
+          "name": "classPaths",
+          "type": "array",
+          "required": false,
+          "description": "Full class paths such as /Script/Engine.AnimSequence and /Script/Engine.AnimMontage (at most 32)",
+          "items": "string"
+        },
+        {
+          "name": "recursiveClasses",
+          "type": "boolean",
+          "required": false,
+          "description": "Include subclasses of classPaths (default true)"
+        },
+        {
+          "name": "nameRegex",
+          "type": "string",
+          "required": false,
+          "description": "Regular expression matched against the asset name (up to 512 characters)"
+        },
+        {
+          "name": "regexIgnoreCase",
+          "type": "boolean",
+          "required": false,
+          "description": "Case-insensitive nameRegex (default true)"
+        },
+        {
+          "name": "skeletonPath",
+          "type": "string",
+          "required": false,
+          "description": "Only assets whose Skeleton registry tag names this skeleton; accepts package or object paths"
+        },
+        {
+          "name": "includeMetadata",
+          "type": "boolean",
+          "required": false,
+          "description": "Include registry metadata: skeletonPath and playLength in seconds; unavailable playLength is null (default false)"
         }
       ]
     },
@@ -37817,29 +37934,47 @@
         {
           "name": "assetPath",
           "type": "string",
-          "required": true,
+          "required": false,
           "description": "Texture2D asset path",
           "aliases": [
             "path"
           ]
         },
         {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Texture2D asset paths, 1-500; use instead of assetPath",
+          "items": "string"
+        },
+        {
+          "name": "preset",
+          "type": "string",
+          "required": false,
+          "description": "normal: Normalmap linear with no green flip; masks: Masks linear; color: Default sRGB. Explicit settings override the preset",
+          "enum": [
+            "normal",
+            "masks",
+            "color"
+          ]
+        },
+        {
           "name": "settings",
           "type": "object",
           "required": false,
-          "description": "The four settings below as one object; a key also given at the top level wins over it"
+          "description": "Texture settings {compressionSettings?, lodGroup?, sRGB?, neverStream?, flipGreenChannel?, maxTextureSize?}; top-level fields override this object"
         },
         {
           "name": "compressionSettings",
           "type": "string",
           "required": false,
-          "description": "Default, Normalmap, Grayscale, Displacementmap, VectorDisplacementmap, HDR, EditorIcon, Alpha, DistanceFieldFont, HDR_Compressed or BC7"
+          "description": "Compression enum name, with or without TC_: Default, Normalmap, Masks, BC7 and the other engine values"
         },
         {
           "name": "lodGroup",
           "type": "string",
           "required": false,
-          "description": "Texture LOD group: World, WorldNormalMap, Character, UI, Lightmap, Effects and the rest"
+          "description": "Texture group, with or without TEXTUREGROUP_: World, Weapon, WeaponNormalMap, WeaponSpecular and the other engine values"
         },
         {
           "name": "sRGB",
@@ -37852,6 +37987,45 @@
           "type": "boolean",
           "required": false,
           "description": "Keep every mip resident"
+        },
+        {
+          "name": "flipGreenChannel",
+          "type": "boolean",
+          "required": false,
+          "description": "Flip the normal green channel; normal preset defaults to false"
+        },
+        {
+          "name": "maxTextureSize",
+          "type": "integer",
+          "required": false,
+          "description": "Maximum texture size; 0 uses the source size",
+          "minimum": 0,
+          "maximum": 32768
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save changed textures (default false; otherwise leave the packages dirty)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ]
+          ]
         }
       ]
     },
