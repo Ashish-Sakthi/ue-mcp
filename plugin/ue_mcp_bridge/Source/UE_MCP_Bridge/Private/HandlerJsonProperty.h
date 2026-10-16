@@ -737,7 +737,14 @@ namespace MCPJsonProperty
 		if (Value->TryGetString(Str)) {}
 		else if (Value->Type == EJson::Number) Str = FString::SanitizeFloat(Value->AsNumber());
 		else if (Value->Type == EJson::Boolean) Str = Value->AsBool() ? TEXT("true") : TEXT("false");
-		else Str = Value->AsString();
+		else if (Value->Type == EJson::Null) Str.Reset();
+		else
+		{
+			// An array or object has no text form here; AsString would log a JSON type error and import "".
+			OutError = FString::Printf(TEXT("%s takes a %s value, not a JSON %s"), *Prop->GetName(), *Prop->GetCPPType(),
+				Value->Type == EJson::Array ? TEXT("array") : TEXT("object"));
+			return false;
+		}
 
 		return MCPPropertyText::ImportTextIntoProperty(Prop, ValueAddr, Str, nullptr, OutError);
 	}
