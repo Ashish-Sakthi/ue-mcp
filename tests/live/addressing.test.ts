@@ -138,8 +138,9 @@ describe("the union surface", () => {
     try {
       const search = resultJson<any>(await lean.call("catalog", { action: "search", query: "niagara", editor: SECOND }));
       expect(search.results.some((hit: any) => hit.category === "niagara")).toBe(false);
-      const schema = resultJson<any>(await lean.call("catalog", { action: "describe", category: "niagara", editor: SECOND }));
-      expect(schema.error).toContain("Unknown category");
+      const schema = await lean.call("catalog", { action: "describe", category: "niagara", editor: SECOND });
+      expect(schema.isError).toBe(true);
+      expect(schema.text).toContain("Unknown category");
     } finally { await lean.close(); }
   }, 240_000);
 

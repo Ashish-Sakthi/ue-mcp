@@ -8,8 +8,8 @@ The machine form is `tests/coverage/integration-surfaces.json` (the manifest) an
 
 - Surfaces: 116
 - Covered before this work (existing spawned-process and live suites): 11
-- Covered now: 115
-- Grandfathered gaps: 1
+- Covered now: 116
+- Grandfathered gaps: 0
 - Exempt: 0
 
 Suites: `tests/integration` runs in CI (`npm run test:integration`, parallel forks). `tests/live` runs at release against tests/ue_mcp. A few spawned-process suites under `tests/unit` also count.
@@ -28,7 +28,7 @@ Suites: `tests/integration` runs in CI (`npm run test:integration`, parallel for
 | `cli.init.dry-run` | ue-mcp init --yes --dry-run prints the plan and writes nothing | gap | `integration/cli-install.test.ts` "prints the plan and writes nothing, and a blocked plan exits 1" |
 | `cli.init.binary` | ue-mcp init --install binary --binaries <local> installs prebuilt bridge binaries | gap | `integration/cli-install.test.ts` "installs prebuilt binaries from a local directory with a binary marker and no source" |
 | `cli.init.rerun` | running ue-mcp init a second time is idempotent | gap | `integration/cli-install.test.ts` "is idempotent: a second run with the same flags changes no file" |
-| `cli.init.interactive` | ue-mcp init without --yes walks the interactive prompts on a terminal | gap | **gap** |
+| `cli.init.interactive` | ue-mcp init without --yes walks the interactive prompts on a terminal | gap | `integration/init-interactive.test.ts` "asks each question on a terminal and writes what was answered"; `integration/init-interactive.test.ts` "init refuses at once, names the flags that answer it, and writes nothing" |
 | `cli.init.bin` | the ue-mcp-init package bin runs init | gap | `integration/cli-basics.test.ts` "is what each package bin prints too" |
 | `cli.update` | ue-mcp update installs the newest server from npm, then redeploys and rebuilds the bridge | gap | `integration/cli-install.test.ts` "installs the newest package through npm, then redeploys the bridge"; `integration/cli-install.test.ts` "stops at the deploy with --no-build and leaves the engine alone" |
 | `cli.update.apply-only` | ue-mcp update --apply-only redeploys the bridge from this package or local binaries | gap | `integration/cli-install.test.ts` "installs binaries named by --binaries in either spelling, run from the project directory"; `integration/cli-install.test.ts` "redeploys a source install from this package" |
@@ -71,7 +71,7 @@ Suites: `tests/integration` runs in CI (`npm run test:integration`, parallel for
 | `cli.plugin.update` | ue-mcp plugin update reinstalls plugins at their newest version | gap | `integration/plugin-cli.test.ts` "update moves the plugin to the newest version, its pin, native files and skills with it" |
 | `cli.plugin.check-skills` | ue-mcp plugin check-skills validates a plugin's shipped skills | gap | `integration/plugin-cli.test.ts` "check-skills fails on a skill that names an action nothing provides"; `integration/plugin-cli.test.ts` "create scaffolds a package whose skills pass check-skills" |
 | `cli.plugin.create` | ue-mcp plugin create scaffolds a new plugin package | gap | `integration/plugin-cli.test.ts` "create scaffolds a package whose skills pass check-skills" |
-| `cli.plugin.config` | ue-mcp plugin config enables and disables a plugin's groups | gap | `integration/plugin-cli.test.ts` "config lists the plugin's flow groups and writes a toggle to the chosen layer" |
+| `cli.plugin.config` | ue-mcp plugin config enables and disables a plugin's groups | gap | `integration/init-interactive.test.ts` "plugin config without --enable or --disable refuses and names them"; `integration/plugin-cli.test.ts` "config lists the plugin's flow groups and writes a toggle to the chosen layer" |
 | `cli.plugin.publish` | ue-mcp plugin publish uploads a plugin listing to the registry | gap | `integration/plugin-cli.test.ts` "publish posts the merged listing with the token as a bearer" |
 | `cli.plugin.publish.dry-run` | ue-mcp plugin publish --dry-run prints the listing diff without a token or a write | gap | `integration/plugin-cli.test.ts` "publish --dry-run prints the listing diff without a token and posts nothing" |
 | `cli.plugin.record-specs` | ue-mcp plugin record-specs records a native module's handler specs from a running bridge | gap | `integration/plugin-cli.test.ts` "record-specs refuses without a project to read from"; `integration/plugin-cli.test.ts` "record-specs writes the handler contracts a running bridge publishes, and --check compares" |
@@ -109,10 +109,10 @@ Suites: `tests/integration` runs in CI (`npm run test:integration`, parallel for
 | Surface | What a user drives | Before | Now: tests |
 |---|---|---|---|
 | `flow.list` | flow(list) lists built-in, plugin and ue-mcp.yml flows | gap | `integration/flows.test.ts` "lists built-in, plugin and ue-mcp.yml flows" |
-| `flow.plan` | flow(plan) resolves a flow's steps without running them | gap | `integration/flows.test.ts` "plans a flow's steps without running any of them" |
-| `flow.run.yaml` | flow(run) runs a flow defined in ue-mcp.yml and reports each step | `live/dispatch-leak.test.ts` | `integration/flows.test.ts` "reports the failing step and runs nothing after it"; `integration/flows.test.ts` "runs a plugin's flow"; `integration/flows.test.ts` "runs a ue-mcp.yml flow, threading one step's output into the next"; `live/dispatch-leak.test.ts` "flows: neither the run's params nor a step's own options carry it through" |
+| `flow.plan` | flow(plan) resolves a flow's steps without running them | gap | `integration/flow-step-keys.test.ts` "are refused by flow(plan) and flow(run) with the run-order rule"; `integration/flows.test.ts` "plans a flow's steps without running any of them" |
+| `flow.run.yaml` | flow(run) runs a flow defined in ue-mcp.yml and reports each step | `live/dispatch-leak.test.ts` | `integration/flow-step-keys.test.ts` "are refused by flow(plan) and flow(run) with the run-order rule"; `integration/flows.test.ts` "reports the failing step and runs nothing after it"; `integration/flows.test.ts` "runs a plugin's flow"; `integration/flows.test.ts` "runs a ue-mcp.yml flow, threading one step's output into the next"; `live/dispatch-leak.test.ts` "flows: neither the run's params nor a step's own options carry it through" |
 | `flow.run.builtin` | flow(run) runs a built-in flow against an editor | gap | `integration/flows.test.ts` "runs the built-in niagara_fire against the editor, each step on the asset the last one made" |
-| `flow.http` | the opt-in flow HTTP server lists, plans and runs flows behind its token | `live/dispatch-leak.test.ts` | `integration/flows.test.ts` "lists, plans and runs flows behind its token and Host allowlist"; `live/dispatch-leak.test.ts` "the HTTP flow surface resolves the target instead of forwarding it" |
+| `flow.http` | the opt-in flow HTTP server lists, plans and runs flows behind its token | `live/dispatch-leak.test.ts` | `integration/flow-http-daemon.test.ts` "is served by the daemon behind its token, and goes when the daemon stops"; `integration/flows.test.ts` "lists, plans and runs flows behind its token and Host allowlist"; `live/dispatch-leak.test.ts` "the HTTP flow surface resolves the target instead of forwarding it" |
 | `guards.config` | guards configured in ue-mcp.yml allow or refuse a real tool call | gap | `integration/guards.test.ts` "guards a flow's steps the same way"; `integration/guards.test.ts` "refuses the calls it covers before they reach the editor and lets the rest through" |
 | `guards.write-detect` | write-method detection marks mutating calls so guards and gating see them | gap | `integration/guards.test.ts` "scopes a writes guard to calls that modify existing content, and names the file"; `integration/sessions.test.ts` "refuses an untargeted write and sends it nowhere, while an untargeted read runs in the active editor" |
 
@@ -161,7 +161,7 @@ Suites: `tests/integration` runs in CI (`npm run test:integration`, parallel for
 | `plugin.load.native` | a plugin's native module handlers become bridge-backed actions | gap | `integration/plugin-load.test.ts` "surfaces native handlers as actions that reach the editor bridge" |
 | `plugin.load.version-gate` | a plugin whose minServerVersion is newer than the server is skipped with a reason | gap | `integration/plugin-load.test.ts` "is skipped, contributes nothing, and reports the version it needs" |
 | `plugin.load.reserved-params` | a plugin action that declares a reserved routing parameter is dropped with a reason | gap | `integration/plugin-load.test.ts` "drops an action that declares a routing parameter, and says why" |
-| `plugin.load.flows` | flows a plugin ships appear in flow(list) and run | gap | `integration/plugin-load.test.ts` "lists its flows in flow(list) and runs them" |
+| `plugin.load.flows` | flows a plugin ships appear in flow(list) and run | gap | `integration/flow-step-keys.test.ts` "make a plugin's manifest invalid, and say why"; `integration/plugin-load.test.ts` "lists its flows in flow(list) and runs them" |
 | `plugin.skills.sync` | plugin skills are installed into .claude/skills and pruned when the plugin goes | gap | `integration/plugin-cli.test.ts` "install copies the plugin's skills under its namespace and records who owns them"; `integration/plugin-cli.test.ts` "uninstall removes the package, its entry, its native module and its skills"; `integration/plugin-cli.test.ts` "update restores a listed plugin's deleted skill and prunes an unlisted plugin's" |
 
 ## feedback
@@ -179,10 +179,8 @@ Suites: `tests/integration` runs in CI (`npm run test:integration`, parallel for
 
 Eleven surfaces had a genuine end-to-end test: the daemon shim and start-lock suites (spawned daemon, real stdio and HTTP) and the live addressing and dispatch-leak suites (real editor). `tests/unit/golden-editor-down.test.ts` also spawned the full in-process server; its surface is now claimed by `tests/integration/server-startup.test.ts`. Every other CLI command, every plugin, feedback and auth path, and the gateway had unit tests of internals or `--help` checks only. Six spawned-process unit suites also set `UE_MCP_STATE_DIR`/`UE_MCP_CONFIG_DIR`, which nothing reads, so they ran against the developer's real `~/.ue-mcp`.
 
-## Remaining gaps and partial coverage
+## Partial coverage
 
-- `cli.init.interactive`: the select prompts need a real terminal (raw mode). No pty is available to the spawned tests. Grandfathered gap.
-- `cli.feedback.review`: only the non-terminal outcomes (refusal with a queue, exit 0 when empty) are driven; the interactive walk needs a terminal.
 - `cli.update`: the npm install and redeploy are driven; the rebuild step after it is only covered by `cli.build` against a stub engine, because tests never reach a real engine.
 - `flow.run.builtin` runs `niagara_fire` against a fake bridge with realistic answers; the live suite still owns the in-editor effect.
 
@@ -209,11 +207,13 @@ Eleven surfaces had a genuine end-to-end test: the daemon shim and start-lock su
 
 New overrides added so fakes can stand in: `UE_MCP_GITHUB_OAUTH`, `UE_MCP_GITHUB_API`, `UE_MCP_NPM_REGISTRY`.
 
-## Noted, not fixed
+## Found later and fixed in the follow-up
 
-- `src/cli/ui/select.ts` calls `setRawMode` with no TTY check, so interactive `init` and `plugin config` throw a TypeError without a terminal.
-- The guard hot-reload watch list in `src/flow/guard-config.ts` still uses the old overlay rule; aligning it breaks exact-read-count unit tests.
-- `tools(describe)` with an unknown category answers `isError: false` with an `error` field; live tests rely on that shape.
-- A plugin flow with named (not numbered) step keys passes manifest validation and fails at run time inside flowkit.
-- `http.enabled` starts the flow HTTP server only in process; the daemon serves flows on its own port instead, and the docs do not say so.
-- `resolve --ci` only changes a log line.
+- The select prompts called `setRawMode` with no terminal check, so interactive `init`, `plugin config` and the init sign-in step threw a TypeError on a pipe. They now refuse with the flag that answers them, and interactive `init` refuses up front with exit 2.
+- The guard reload watch list chose the overlay by the old rule, so edits to an `env:`-selected overlay or a local-only config were not picked up until restart.
+- `tools(describe)` and `catalog(describe)` answered an unknown category with `isError: false`.
+- A flow with named step keys passed validation and crashed inside the runner. Plugin manifests now refuse it, and `flow(plan)`/`flow(run)` refuse a project flow with one.
+- `http.enabled` started the flow HTTP server only in process; the daemon now serves it too.
+- `resolve --ci` implied a mode that did not exist; the usage drops it and the flag says it has no effect.
+
+Interactive `init` and the `feedback review` walk are covered through node-pty, a dev dependency with prebuilt Windows and macOS binaries; on the Linux CI runner it compiles at install.

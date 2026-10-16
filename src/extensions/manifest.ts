@@ -1,5 +1,6 @@
 import * as fs from "node:fs";
 import { GuardsSchema } from "../flow/guard-schema.js";
+import { FlowStepKeySchema } from "../flow/schema.js";
 import * as path from "node:path";
 import { z } from "zod";
 import yaml from "js-yaml";
@@ -86,7 +87,7 @@ const FlowEntrySchema = z.object({
   // prefix before the first underscore (`niagara_fire` -> `niagara`). Users
   // enable/disable whole groups via `ue-mcp.pluginConfig.<slug>.groups`.
   group: z.string().optional(),
-  steps: z.record(FlowStepEntrySchema),
+  steps: z.record(FlowStepKeySchema, FlowStepEntrySchema),
 });
 
 /**

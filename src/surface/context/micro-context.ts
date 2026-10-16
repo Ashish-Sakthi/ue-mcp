@@ -153,7 +153,10 @@ export function buildMicroGateway(tools: ToolDef[]): ToolDef {
         const declared = byName.get(category);
         const tool = declared && withholdFromTool(declared, registeredMethodsOf(ctx?.bridge));
         if (!tool) {
-          return { error: `Unknown category "${category}".`, categories: summaries.map((s) => s.category) };
+          throw new McpError(
+            ErrorCode.UNKNOWN_ACTION,
+            `Unknown category "${category}". Categories: ${summaries.map((s) => s.category).join(", ")}.`,
+          );
         }
         if (typeof p.method === "string" && p.method) return actionSchema(tool, p.method);
         return describeCategory(tool, readOffset(p));

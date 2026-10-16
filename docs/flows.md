@@ -415,7 +415,7 @@ ue-mcp:
     port: 7723   # default
 ```
 
-The server prints its bearer token to stderr on startup (or honors `UE_MCP_HTTP_TOKEN`). All routes require it.
+The server prints its bearer token to stderr on startup (or honors `UE_MCP_HTTP_TOKEN`). All routes require it. In the default daemon mode the project's daemon serves it, so it stays up across MCP client restarts and stops with the daemon; in process, the server does.
 
 **Subscribe** to the event stream:
 

@@ -28,6 +28,7 @@ import type { EditorSession } from "../sessions/session.js";
 import { createRuntime, type Runtime } from "../server/runtime.js";
 import { startVersionCheck } from "../core/version-check.js";
 import { createMcpServer } from "../server/mcp-server.js";
+import { startFlowHttpServer } from "../flow/http-server.js";
 import {
   DAEMON_API_VERSION,
   newToken,
@@ -80,6 +81,8 @@ export interface Daemon {
   ui: UiBundleStore;
   /** A same-or-newer daemon that published first; this one did not publish and should close. */
   superseded: DaemonDiscovery | null;
+  /** Serve the flow HTTP surface if ue-mcp.http enables it. Called once this daemon owns the project. */
+  startFlowHttp(): void;
   close(): Promise<void>;
 }
 
@@ -640,6 +643,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     await shutdown("handed off to a newer daemon");
   }
 
+  /** The opt-in flow HTTP surface (ue-mcp.http), served by whichever process serves the project. */
+  let flowHttp: { close(cb: () => void): void } | null = null;
+
   function shutdown(reason: string): Promise<void> {
     if (closing) return closing;
     closing = (async () => {
@@ -656,6 +662,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       for (const res of sse) res.end();
       for (const ws of wss.clients) ws.close(1001, "daemon stopping");
       for (const s of rt.sessions.list()) s.bridge.disconnect();
+      if (flowHttp) await new Promise<void>((r) => flowHttp!.close(() => r()));
       await new Promise<void>((r) => httpServer.close(() => r()));
     })();
     return closing;
@@ -664,6 +671,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // Bridges last, so every connect event lands on a listener.
   await rt.connectBridges();
   rt.logSummary();
+
 
   const discovery: DaemonDiscovery = {
     pid: process.pid,
@@ -701,6 +709,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     extensions,
     ui,
     superseded,
+    startFlowHttp(): void {
+      const http = rt.project.config.http;
+      if (!http?.enabled || flowHttp) return;
+      try {
+        flowHttp = startFlowHttpServer(rt.flowTool, rt.baseCtx, { port: http.port, host: http.host }).server;
+      } catch (e) {
+        error("http", "Failed to start the flow HTTP server", e);
+      }
+    },
     close: () => shutdown("closed"),
   };
 }
@@ -758,6 +775,8 @@ export async function runDaemon(projects: string[]): Promise<number> {
     return 0;
   }
 
+  // Only now, so a daemon taking over binds the port after the old one let it go.
+  daemon.startFlowHttp();
   const stop = (): void => void daemon.close().then(() => process.exit(0));
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);

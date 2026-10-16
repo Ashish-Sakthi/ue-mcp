@@ -1067,7 +1067,7 @@ async function cmdConfigInteractive(
     label: g,
     checked: isGroupEnabled({ groups: effectiveState }, g),
   }));
-  const states = await checkboxSelect(`${slug}: enable flow groups`, items);
+  const states = await checkboxSelect(`${slug}: enable flow groups`, items, "Pass --enable <groups> or --disable <groups>.");
   const chosen: Record<string, boolean> = {};
   groups.forEach((g, i) => (chosen[g] = states[i]));
 
@@ -1076,7 +1076,7 @@ async function cmdConfigInteractive(
     { label: "you, this project  (ue-mcp.local.yml, untracked)", target: "local" },
     { label: "the team, tracked  (ue-mcp.yml)", target: "project" },
   ];
-  const idx = await singleSelect("Save preference to", targetLabels.map((t) => t.label));
+  const idx = await singleSelect("Save preference to", targetLabels.map((t) => t.label), "Pass --global, --local or --project with --enable or --disable.");
   const target = targetLabels[idx].target;
 
   writeLayerGroups(targetFile(proj.projectDir, target), slug, () => chosen);

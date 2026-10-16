@@ -77,9 +77,10 @@ describe("discovery", () => {
     expect(one.bridge).toBe("nudge_component");
     expect(one.params.find((p) => p.name === "componentName")?.required).toBe(true);
 
-    const unknown = json<{ error: string; categories: string[] }>(await gateway({ action: "describe", category: "no_such_category" }));
-    expect(unknown.error).toContain("Unknown category");
-    expect(unknown.categories).toContain("blueprint");
+    const unknown = await gateway({ action: "describe", category: "no_such_category" });
+    expect(unknown.isError).toBe(true);
+    expect(unknown.text).toContain('Unknown category "no_such_category"');
+    expect(unknown.text).toContain("blueprint");
   });
 });
 
