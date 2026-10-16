@@ -26,6 +26,7 @@ import { McpError as SdkMcpError, ErrorCode as SdkErrorCode } from "@modelcontex
 import { EDITOR_TARGET_PARAM, MIGRATE_TARGET_PARAM, ROUTING_PARAM_NAMES } from "../routing-params.js";
 import type { ToolDef } from "../../core/types.js";
 import { McpError, ErrorCode } from "../../core/errors.js";
+import { actionAccepts, undeclaredMessage } from "../action-schema.js";
 
 /** The key a category call nests its action's parameters under. */
 export const ARGS_KEY = "args";
@@ -115,6 +116,15 @@ export function flatValidationMessage(tool: ToolDef, flat: Record<string, unknow
   // nested fields it exists to refuse. The bag goes on untouched and prepareCall holds it to the contract.
   const named = typeof flat.action === "string" && Object.hasOwn(tool.actions, flat.action) ? tool.actions[flat.action] : undefined;
   if (named?.strictParams && named.paramSpec) return { data: flat };
+  // A key outside the shape would be stripped here before the per-action check
+  // could refuse it, so it is refused now (#1336).
+  const accepts = named ? actionAccepts(named) : undefined;
+  if (accepts) {
+    const stray = Object.keys(flat).filter((k) => flat[k] !== undefined && !(k in tool.schema) && !accepts.keys.has(k) && !ROUTING.has(k));
+    if (stray.length > 0) {
+      return { message: undeclaredMessage(flat.action as string, stray, accepts) };
+    }
+  }
   const parsed = sdkSafeParse(flatObject(tool.schema) as never, flat) as { success: boolean; data?: unknown; error?: unknown };
   if (parsed.success) return { data: parsed.data as Record<string, unknown> };
   return { message: `Input validation error: Invalid arguments for tool ${tool.name}: ${getParseErrorMessage(parsed.error)}` };

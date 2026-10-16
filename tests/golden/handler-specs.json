@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1082,
+  "handlerCount": 1091,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -1726,6 +1726,12 @@
           "type": "object",
           "required": false,
           "description": "Node-specific settings, such as functionName and className for a CallFunction node"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -1758,6 +1764,12 @@
           "type": "number",
           "required": false,
           "description": "Graph editor Y position for the new node"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused"
         }
       ]
     },
@@ -6614,8 +6626,40 @@
           "name": "renames",
           "type": "array",
           "required": true,
-          "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-          "items": "object"
+          "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourcePath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+            },
+            {
+              "name": "destinationPath",
+              "type": "string",
+              "required": false,
+              "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+            },
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to rename in place, with newName"
+            },
+            {
+              "name": "newPackagePath",
+              "type": "string",
+              "required": false,
+              "description": "Destination folder, with sourcePath and newName"
+            },
+            {
+              "name": "newName",
+              "type": "string",
+              "required": false,
+              "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+            }
+          ]
         }
       ]
     },
@@ -7615,6 +7659,18 @@
       "params": [],
       "contractExempt": "closes the open Sequencer"
     },
+    "close_window": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to close, by the id list_windows reported"
+        }
+      ],
+      "contractExempt": "closes an open editor window"
+    },
     "commit_skeleton_edit": {
       "category": "animation",
       "params": [
@@ -8539,6 +8595,12 @@
           "type": "boolean",
           "required": false,
           "description": "Break every existing link on the target pin first"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -10505,6 +10567,12 @@
           "type": "string",
           "required": false,
           "description": "When the level exists: skip (default) returns it untouched, error refuses"
+        },
+        {
+          "name": "worldPartition",
+          "type": "boolean",
+          "required": false,
+          "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
         }
       ],
       "contractExempt": "creates and opens a level"
@@ -10705,6 +10773,41 @@
         }
       ],
       "contractExempt": "Creates and saves a graph under the contract values; nothing it reads fails first"
+    },
+    "create_pcg_graph_instance": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Graph instance asset name"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph or PCGGraphInstance the instance runs"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the new instance (default /Game/PCG)"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "{parameterName: value} overrides to set on the new instance"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the asset exists: skip (default, report it) | error"
+        }
+      ]
     },
     "create_player_controller": {
       "category": "gameplay",
@@ -11977,6 +12080,12 @@
           "aliases": [
             "nodeName"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -13078,6 +13187,18 @@
           "type": "integer",
           "required": false,
           "description": "Write the component's Seed before generating; the old one is reported as previousSeed"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -13293,7 +13414,7 @@
           "name": "assetPath",
           "type": "string",
           "required": false,
-          "description": "Content folder for the PCG data asset (default: the level's folder)"
+          "description": "The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder)"
         },
         {
           "name": "assetName",
@@ -13899,7 +14020,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless"
+          "description": "Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference"
         },
         {
           "name": "allowProjectWide",
@@ -13968,6 +14089,18 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -16227,7 +16360,7 @@
           "name": "maxLines",
           "type": "integer",
           "required": false,
-          "description": "How far back into the ring buffer to read (default 100)"
+          "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
         },
         {
           "name": "filter",
@@ -16288,6 +16421,42 @@
     "get_pcg_components": {
       "category": "pcg",
       "params": []
+    },
+    "get_pcg_generation_state": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "This PCG component (default: the actor's first, the one execute regenerates)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
     },
     "get_perceived_actors": {
       "category": "gameplay",
@@ -17345,7 +17514,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported assets (default false)"
+          "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
         },
         {
           "name": "automated",
@@ -17550,7 +17719,7 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "[{name, class, posX?, posY?, settings?}]",
+          "description": "[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]",
           "items": "object"
         },
         {
@@ -17565,6 +17734,20 @@
           "type": "boolean",
           "required": false,
           "description": "Wipe existing user nodes first (default false)"
+        },
+        {
+          "name": "removeNodes",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: node names to remove before importing; a missing name is skipped",
+          "items": "string"
+        },
+        {
+          "name": "removeConnections",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: edges [{from, fromPin, to, toPin}] to cut before importing",
+          "items": "object"
         }
       ]
     },
@@ -20413,6 +20596,35 @@
         }
       ]
     },
+    "list_windows": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": false,
+          "description": "Describe only this window, by the id list_windows or list_dialogs reported"
+        },
+        {
+          "name": "maxTexts",
+          "type": "integer",
+          "required": false,
+          "description": "Texts reported per window (default 200)"
+        },
+        {
+          "name": "maxTextChars",
+          "type": "integer",
+          "required": false,
+          "description": "Characters kept per text (default 2000)"
+        },
+        {
+          "name": "maxButtons",
+          "type": "integer",
+          "required": false,
+          "description": "Buttons reported per window (default 200)"
+        }
+      ]
+    },
     "live_coding_compile": {
       "category": "project",
       "params": [
@@ -20497,6 +20709,21 @@
           "type": "string",
           "required": true,
           "description": "Map package to open"
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the open map and its dirty external actor packages before switching (default false)",
+          "aliases": [
+            "saveCurrent"
+          ]
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ],
       "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -21951,6 +22178,18 @@
           "aliases": [
             "path"
           ]
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: save the open map's unsaved packages before switching (default false)"
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ]
     },
@@ -22263,6 +22502,19 @@
               "type": "string",
               "required": false,
               "description": "Actor label"
+            },
+            {
+              "name": "tags",
+              "type": "array",
+              "required": false,
+              "description": "Actor tags to add",
+              "items": "string"
+            },
+            {
+              "name": "parentLabel",
+              "type": "string",
+              "required": false,
+              "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
             }
           ]
         }
@@ -22613,6 +22865,43 @@
           "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
         }
       ]
+    },
+    "press_window_button": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to press a button on, by the id list_windows reported"
+        },
+        {
+          "name": "buttonLabel",
+          "type": "string",
+          "required": false,
+          "description": "Label of the button to press, matched exactly first, then as a substring; refused when ambiguous"
+        },
+        {
+          "name": "buttonIndex",
+          "type": "number",
+          "required": false,
+          "description": "Index of the button to press, in the order list_windows reports"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "buttonLabel"
+            ],
+            [
+              "buttonIndex"
+            ]
+          ]
+        }
+      ],
+      "contractExempt": "presses a button on an open editor window"
     },
     "preview_animation": {
       "category": "animation",
@@ -24107,6 +24396,85 @@
           "description": "Pin or reflected node property name",
           "aliases": [
             "pinName"
+          ]
+        }
+      ]
+    },
+    "read_pcg_generated_output": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "Only this PCG component (default: every PCG component on the actor)"
+        },
+        {
+          "name": "pin",
+          "type": "string",
+          "required": false,
+          "description": "Only data on this output pin"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)",
+          "items": "string"
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "required": false,
+          "description": "First entry to return (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Entries to return per data (default 100, max 10000)"
+        },
+        {
+          "name": "nodeName",
+          "type": "string",
+          "required": false,
+          "description": "Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+)"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": false,
+          "description": "Graph holding nodeName, for a node in a subgraph (default: the component's graph)"
+        },
+        {
+          "name": "includeLocalComponents",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read a partitioned component's local components (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
           ]
         }
       ]
@@ -33198,6 +33566,12 @@
           "aliases": [
             "defaultValue"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -33280,6 +33654,158 @@
           "type": "boolean",
           "required": false,
           "description": "bOnlyRelevantToOwner (default false)"
+        }
+      ]
+    },
+    "set_pcg_graph_instance_overrides": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraphInstance asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": true,
+          "description": "{parameterName: value}; null clears that override"
+        }
+      ]
+    },
+    "set_pcg_graph_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "graphParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameters to add or change, by name",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one"
+            },
+            {
+              "name": "typeObject",
+              "type": "string",
+              "required": false,
+              "description": "Class for object/class (default Object), the enum for enum, the struct for struct"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "Default value, JSON or UE export text"
+            }
+          ]
+        },
+        {
+          "name": "removeParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter names to remove",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "graphParameters"
+            ],
+            [
+              "removeParameters"
+            ]
+          ]
+        }
+      ]
+    },
+    "set_pcg_graph_pins": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": true,
+          "description": "input | output: the graph node whose pins change"
+        },
+        {
+          "name": "pins",
+          "type": "array",
+          "required": true,
+          "description": "Pins matched by label",
+          "items": "object",
+          "fields": [
+            {
+              "name": "label",
+              "type": "string",
+              "required": true,
+              "description": "Pin label; edges are wired by it"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"
+            },
+            {
+              "name": "tooltip",
+              "type": "string",
+              "required": false,
+              "description": "Pin tooltip"
+            },
+            {
+              "name": "allowMultipleData",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one data (default true)"
+            },
+            {
+              "name": "allowMultipleConnections",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one edge (default true)"
+            }
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"
         }
       ]
     },

@@ -1693,7 +1693,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"), bPureFunction
 		? TEXT("A pure or const function writes nothing, so there is nothing to undo.")
-		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
+		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
 
 	// #973: the opt-in escape from the override above. Queued for the next
 	// engine tick, the send happens after the guard's scope has ended and the
@@ -1991,7 +1991,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeStaticFunction(const TSharedPtr<FJ
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"), bPureFunction
 		? TEXT("A pure or const function writes nothing, so there is nothing to undo.")
-		: TEXT("A static library call has no known inverse. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional."));
+		: TEXT("A static library call has no known inverse. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional."));
 
 	Cleanup();
 	return MCPResult(Result);

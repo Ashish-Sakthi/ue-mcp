@@ -200,6 +200,7 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecGraphName,
 		MCPParam::Required(TEXT("nodeClass"), EType::String, TEXT("Node class or short alias such as CallFunction, CallParent or CustomEvent")),
 		MCPParam::Optional(TEXT("nodeParams"), EType::Object, TEXT("Node-specific settings, such as functionName and className for a CallFunction node")),
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("read_blueprint_graph"), &ReadBlueprintGraph, {
 		SpecAssetPath,
@@ -253,12 +254,14 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("targetPin"), EType::String, TEXT("Target pin name")).Alias(TEXT("targetPinName")),
 		MCPParam::Optional(TEXT("breakExistingSource"), EType::Boolean, TEXT("Break every existing link on the source pin first")),
 		MCPParam::Optional(TEXT("breakExistingTarget"), EType::Boolean, TEXT("Break every existing link on the target pin first")),
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("delete_node"), &DeleteNode, {
 		SpecAssetPath,
 		SpecGraphName,
 		SpecGraphSelector,
 		SpecNodeId,
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("refresh_node"), &RefreshNode, {
 		SpecAssetPath,
@@ -282,6 +285,7 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecNodeId,
 		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Pin or struct property name")).Alias(TEXT("pinName")),
 		MCPParam::Required(TEXT("value"), EType::Any, TEXT("New pin default or property value, as a string")).Alias(TEXT("defaultValue")),
+		MCPParam::Optional(TEXT("deferCompile"), EType::Boolean, TEXT("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end")),
 	});
 	Registry.RegisterHandler(TEXT("list_blueprint_graphs"), &ListGraphs, {
 		SpecAssetPath,

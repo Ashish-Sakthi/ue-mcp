@@ -139,6 +139,20 @@ const NativeModuleSchema = z.object({
     .default({}),
 });
 
+/**
+ * The plugin's own words for its registry listing, published by
+ * `ue-mcp plugin publish` so a release can update the listing in the same
+ * commit as the code. Every field is optional; an absent one keeps the row's.
+ */
+const RegistryListingSchema = z.object({
+  tagline: z.string().min(4).max(140).optional(),
+  description: z.string().max(4000).optional(),
+  category: z.string().min(1).optional(),
+  tags: z.array(z.string().min(1).max(24)).max(12).optional(),
+});
+
+export type ManifestRegistryListing = z.infer<typeof RegistryListingSchema>;
+
 export const PluginManifestSchema = z.object({
   actionPrefix: z.string().regex(/^[a-z][a-z0-9_]*$/, {
     message: "actionPrefix must be a lowercase identifier (letters, digits, underscore; must start with a letter)",
@@ -160,6 +174,7 @@ export const PluginManifestSchema = z.object({
   tasks: z.record(TaskEntrySchema).default({}),
   flows: z.record(FlowEntrySchema).default({}),
   guards: GuardsSchema,
+  registry: RegistryListingSchema.optional(),
 });
 
 export type PluginManifest = z.infer<typeof PluginManifestSchema>;
@@ -209,6 +224,7 @@ function salvageableUnit(issuePath: ReadonlyArray<string | number>): Array<strin
   if (p[0] === "flows" && p.length >= 2) return p.slice(0, 2);
   if (p[0] === "tasks" && p.length >= 2) return p.slice(0, 2);
   if (p[0] === "knowledge" && p.length >= 2) return p.slice(0, 2);
+  if (p[0] === "registry") return ["registry"];
   return null;
 }
 
@@ -331,4 +347,27 @@ function zodForDeclaredType(
  */
 export function prefixedActionName(prefix: string, action: string): string {
   return `${prefix}_${action}`;
+}
+
+/**
+ * Every `<category>.<action>` the manifest adds, as a client calls it: inject
+ * actions prefixed, provided actions bare, and native handlers prefixed in a
+ * built-in category or bare in the category the plugin provisions.
+ */
+export function manifestActionNames(manifest: PluginManifest, builtInCategories: ReadonlySet<string>): string[] {
+  const names: string[] = [];
+  for (const [category, actions] of Object.entries(manifest.inject)) {
+    for (const a of Object.keys(actions)) names.push(`${category}.${prefixedActionName(manifest.actionPrefix, a)}`);
+  }
+  for (const [category, spec] of Object.entries(manifest.provides)) {
+    for (const a of Object.keys(spec.actions)) names.push(`${category}.${a}`);
+  }
+  const native = manifest.nativeModule;
+  if (native?.category) {
+    const injected = builtInCategories.has(native.category);
+    for (const h of Object.keys(native.handlers)) {
+      names.push(`${native.category}.${injected ? prefixedActionName(manifest.actionPrefix, h) : h}`);
+    }
+  }
+  return names;
 }

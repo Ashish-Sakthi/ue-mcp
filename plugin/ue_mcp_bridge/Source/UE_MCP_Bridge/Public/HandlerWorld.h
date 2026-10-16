@@ -30,7 +30,7 @@ inline FString MCPPlayInEditorLoadNote()
 	if (!MCPIsPlayInEditorActive()) return FString();
 	return TEXT(" A play-in-editor session is running, which changes how assets load: ")
 		TEXT("the editor's own asset loader refuses every call while in play mode. ")
-		TEXT("Stop play with editor(action=\"stop_pie\") and retry before treating this as an asset problem.");
+		TEXT("Stop play with editor(action=\"play_in_editor\", pieAction=\"stop\") and retry before treating this as an asset problem.");
 }
 
 /** A precondition refusal for an editor-world action while PIE is running,
@@ -41,7 +41,7 @@ inline TSharedPtr<FJsonValue> MCPRefuseDuringPlayInEditor(const TCHAR* ActionNam
 	return MCPError(FString::Printf(
 		TEXT("%s cannot run while a play-in-editor session is running: the editor's asset loader refuses every call in play mode, ")
 		TEXT("so the sequence would read as missing and captures would not follow the playhead. ")
-		TEXT("Stop play with editor(action=\"stop_pie\") and retry."),
+		TEXT("Stop play with editor(action=\"play_in_editor\", pieAction=\"stop\") and retry."),
 		ActionName));
 }
 

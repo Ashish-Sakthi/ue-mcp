@@ -15,7 +15,7 @@ import { bp } from "../../surface/category-tool.js";
 
 const S_epic_add_cue_tag = {"properties":{"cueTag":{"type":"string"},"comment":{"type":"string"}},"required":["cueTag"]} as const;
 const S_epic_create_cue_notify_asset = {"properties":{"cueTag":{"type":"string"},"packagePath":{"type":"string"},"assetName":{"type":"string"},"bIsActor":{"type":"boolean"}},"required":["cueTag","packagePath","assetName","bIsActor"]} as const;
-const S_epic_execute_cue_on_selected_actor = {"properties":{"cueTag":{"type":"string"},"normalizedMagnitude":{"type":"number"},"location":{"type":"object"},"normal":{"type":"object"}},"required":["cueTag","normalizedMagnitude","location","normal"]} as const;
+const S_epic_execute_cue_on_selected_actor = {"properties":{"cueTag":{"type":"string"},"normalizedMagnitude":{"type":"number"},"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"normal":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}},"required":["cueTag","normalizedMagnitude","location","normal"]} as const;
 const S_epic_find_attribute_set_classes = {"properties":{}} as const;
 const S_epic_find_cue_notify_assets = {"properties":{"parentTag":{"type":"string"}},"required":["parentTag"]} as const;
 const S_epic_find_cue_tags_without_notifies = {"properties":{}} as const;

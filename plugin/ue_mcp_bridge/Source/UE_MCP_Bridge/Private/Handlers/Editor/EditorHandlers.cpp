@@ -7,6 +7,7 @@
 #include "HandlerSkinnedAsset.h"
 #include "HandlerSceneCapture.h"
 #include "Handlers/Level/LevelHandlers.h"
+#include "Handlers/HandlerEditorState.h"
 #include "Misc/PackageName.h"
 
 #include "MessageLogModule.h"
@@ -70,6 +71,7 @@
 #include "Subsystems/EditorActorSubsystem.h"
 #include "Misc/OutputDeviceRedirector.h"
 #include "FileHelpers.h"
+#include "Engine/Level.h"
 #include "Settings/LevelEditorPlaySettings.h"
 #include "Misc/DateTime.h"
 #include "HAL/FileManager.h"
@@ -192,9 +194,10 @@ namespace
 		}
 		FString SaveError;
 		bool bSaved = false;
-		if (Package && Package->ContainsMap())
+		// A level's actors and components are not assets: save the map or external actor package itself (#1315).
+		if (Package && (Package->ContainsMap() || Asset->GetTypedOuter<ULevel>() != nullptr))
 		{
-			bSaved = !MCPPackageWriteBlocked(Asset, SaveError) && UEditorAssetLibrary::SaveLoadedAsset(Asset, /*bOnlyIfIsDirty=*/true);
+			bSaved = !MCPPackageWriteBlocked(Asset, SaveError) && UEditorLoadingAndSavingUtils::SavePackages({ Package }, /*bOnlyDirty=*/true);
 			if (!bSaved && SaveError.IsEmpty())
 			{
 				SaveError = TEXT("The editor refused to save the level package. The output log carries the reason.");
@@ -388,7 +391,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("get_editor_performance_stats"), &GetEditorPerformanceStats, NoParams);
 	Registry.RegisterHandler(TEXT("get_output_log"), &GetOutputLog, {
-		MCPParam::Optional(TEXT("maxLines"), EType::Integer, TEXT("How far back into the ring buffer to read (default 100)")),
+		MCPParam::Optional(TEXT("maxLines"), EType::Integer, TEXT("How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)")),
 		MCPParam::Optional(TEXT("filter"), EType::String, TEXT("Case-insensitive substring the message must contain")),
 		MCPParam::Optional(TEXT("category"), EType::String, TEXT("Case-insensitive substring the log category must contain")),
 		CursorParam(),
@@ -692,9 +695,12 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("levelPath"), EType::String, TEXT("Long package path of the new level, e.g. /Game/Maps/MyLevel. Validated before the engine is asked")),
 		MCPParam::Optional(TEXT("templateLevel"), EType::String, TEXT("Level to copy; omit, Empty or None for a blank level")),
 		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the level exists: skip (default) returns it untouched, error refuses")),
+		MCPParam::Optional(TEXT("worldPartition"), EType::Boolean, TEXT("Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself")),
 	}, MCPSpec::ContractExempt(TEXT("creates and opens a level")));
 	Registry.RegisterHandler(TEXT("open_asset"), &OpenAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to open in its editor")).Alias(TEXT("path")),
+		MCPParam::Optional(TEXT("saveFirst"), EType::Boolean, TEXT("For a map: save the open map's unsaved packages before switching (default false)")),
+		MCPParam::Optional(TEXT("discardUnsaved"), EType::Boolean, TEXT("For a map: switch even though the open map has unsaved changes, discarding them (default false)")),
 	});
 	// #1112: the inverse of open_asset - what is already open, and what has focus.
 	Registry.RegisterHandler(TEXT("get_open_asset_editors"), &GetOpenAssetEditors, NoParams);
@@ -928,6 +934,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObj
 	else
 	{
 		REQUIRE_EDITOR_WORLD(World);
+		// Open is game travel: in the editor world it does nothing yet would report success (#1393).
+		if (!World->IsGameWorld() && Command.TrimStart().StartsWith(TEXT("open "), ESearchCase::IgnoreCase))
+		{
+			return MCPError(TEXT("The Open console command does not switch the editor's map. Use level(load, levelPath), with saveFirst or discardUnsaved when the open map has unsaved changes."));
+		}
 		UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
 		Result->SetStringField(TEXT("world"), World->GetPathName());
 	}
@@ -1180,7 +1191,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::ExecutePython(const TSharedPtr<FJsonObje
 	// before it ran, and there is no inverse script to name.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("Arbitrary Python has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when they are transactional, or write the undo script yourself."));
+		TEXT("Arbitrary Python has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_transaction) and roll back with editor(cancel_transaction) when they are transactional, or write the undo script yourself."));
 
 	return MCPResult(Result);
 }
@@ -1323,7 +1334,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunPythonFile(const TSharedPtr<FJsonObje
 	// captured before it ran, and there is no inverse script to name.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("An arbitrary script file has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when they are transactional, or ship an undo script alongside it."));
+		TEXT("An arbitrary script file has no inverse and nothing was captured before it ran. Wrap the writes in editor(begin_transaction) and roll back with editor(cancel_transaction) when they are transactional, or ship an undo script alongside it."));
 
 	return MCPResult(Result);
 }
@@ -2358,9 +2369,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetEditorPerformanceStats(const TSharedP
 
 TSharedPtr<FJsonValue> FEditorHandlers::GetOutputLog(const TSharedPtr<FJsonObject>& Params)
 {
-	int32 MaxLines = OptionalInt(Params, TEXT("maxLines"), 100);
 	FString Filter = OptionalString(Params, TEXT("filter"));
 	FString Category = OptionalString(Params, TEXT("category"));
+	// A filtered read searches the whole buffer by default; a 100-line window missed older matches (#1315).
+	const bool bFiltered = !Filter.IsEmpty() || !Category.IsEmpty();
+	int32 MaxLines = OptionalInt(Params, TEXT("maxLines"), bFiltered ? 4096 : 100);
 
 	// T3: paged. `maxLines` still selects the recency WINDOW read out of the
 	// ring buffer, so the default call returns what it always did. What it no
@@ -3213,6 +3226,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 
 	TArray<TSharedPtr<FJsonValue>> Saved;
 	TArray<TSharedPtr<FJsonValue>> Failed;
+	TArray<TSharedPtr<FJsonValue>> Deleted;
+	const int32 DirtyCount = Dirty.Num();
+	MCPCommitEmptyExternalPackages(Dirty, Deleted, Failed);
 
 	for (UPackage* Pkg : Dirty)
 	{
@@ -3249,10 +3265,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 	}
 
 	auto Result = MCPSuccess();
-	Result->SetNumberField(TEXT("dirtyCount"), Dirty.Num());
+	Result->SetNumberField(TEXT("dirtyCount"), DirtyCount);
 	Result->SetNumberField(TEXT("savedCount"), Saved.Num());
+	Result->SetNumberField(TEXT("deletedCount"), Deleted.Num());
 	Result->SetNumberField(TEXT("failedCount"), Failed.Num());
 	Result->SetArrayField(TEXT("saved"), Saved);
+	if (Deleted.Num() > 0) Result->SetArrayField(TEXT("deleted"), Deleted);
 	if (Failed.Num() > 0)
 	{
 		Result->SetArrayField(TEXT("failed"), Failed);
@@ -3260,7 +3278,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SaveDirty(const TSharedPtr<FJsonObject>&
 	}
 	// Nothing dirty means nothing was written, which is what a replay of this
 	// call after a successful one finds.
-	Result->SetBoolField(TEXT("changed"), Saved.Num() > 0);
+	Result->SetBoolField(TEXT("changed"), Saved.Num() + Deleted.Num() > 0);
 	// No rollback: the previous contents of each .uasset were overwritten on
 	// disk and are not held anywhere the bridge can reach.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
@@ -3561,8 +3579,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::FocusViewportOnActor(const TSharedPtr<FJ
 }
 TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("onConflict"), TEXT("worldPartition") });
 	FString LevelPath = OptionalString(Params, TEXT("levelPath"));
 	FString TemplateLevel = OptionalString(Params, TEXT("templateLevel"));
+	const bool bWorldPartition = OptionalBool(Params, TEXT("worldPartition"), false);
 
 	ULevelEditorSubsystem* LevelEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<ULevelEditorSubsystem>() : nullptr;
 	if (!LevelEditorSubsystem)
@@ -3620,10 +3640,16 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 			TEXT("(UE 5.8 ships Template_Default, OpenWorld, TimeOfDay_Default). Nothing was created."), *TemplateLevel));
 	}
 
+	// A template carries its own partitioning, so asking for one on top is ambiguous.
+	if (bHasTemplate && bWorldPartition)
+	{
+		return MCPError(TEXT("worldPartition applies to a blank level; a templateLevel decides partitioning itself. Pass one or the other. Nothing was created."));
+	}
+
 	bool bSuccess = false;
 	if (!bHasTemplate)
 	{
-		bSuccess = LevelEditorSubsystem->NewLevel(LevelPath);
+		bSuccess = LevelEditorSubsystem->NewLevel(LevelPath, bWorldPartition);
 	}
 	else
 	{
@@ -3656,10 +3682,47 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 			TEXT("a map file may have been saved at levelPath without being opened."), *LevelPath, *OpenPackage));
 	}
 
+	// A World Partition copy keeps actor descs pointing at the /Temp world it was built in until it is saved
+	// and reopened, and PIE then streams none of those actors (#1284).
+	bool bReopened = false;
+	if (bHasTemplate && World->IsPartitionedWorld())
+	{
+		TArray<UPackage*> ToSave;
+		ToSave.Add(World->GetOutermost());
+		if (World->PersistentLevel)
+		{
+			for (UPackage* External : World->PersistentLevel->GetLoadedExternalObjectPackages())
+			{
+				if (External) ToSave.AddUnique(External);
+			}
+		}
+		if (!UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty*/ false))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' was created from the template but could not be saved, so its actor descriptors still point at /Temp. The output log carries the reason."), *LevelPath));
+		}
+		UEditorLoadingAndSavingUtils::NewBlankMap(/*bSaveExistingMap*/ false);
+		FString ReloadError;
+		if (!MCPEditorState::LoadLevelViaHandler(&FLevelHandlers::LoadLevel, LevelPath, ReloadError))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' was created and saved, but reopening it failed: %s"), *LevelPath, *ReloadError));
+		}
+		World = GetEditorWorld();
+		if (!World) return MCPError(TEXT("No editor world after reopening the new level"));
+		bReopened = true;
+	}
+
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
+	if (bReopened) Result->SetBoolField(TEXT("savedAndReopened"), true);
 	Result->SetStringField(TEXT("worldName"), World->GetName());
 	Result->SetStringField(TEXT("worldPath"), World->GetPathName());
+	Result->SetBoolField(TEXT("worldPartition"), World->IsPartitionedWorld());
+	Result->SetBoolField(TEXT("externalActors"), World->PersistentLevel && World->PersistentLevel->IsUsingExternalActors());
+	if (bWorldPartition && !World->IsPartitionedWorld())
+	{
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("'%s' was created but is not a World Partition level; the engine log carries the reason."), *LevelPath));
+	}
 
 	Result->SetStringField(TEXT("levelPath"), LevelPath);
 	Result->SetStringField(TEXT("message"), TEXT("New level created"));
@@ -3672,6 +3735,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 
 TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("assetPath"), TEXT("saveFirst"), TEXT("discardUnsaved") });
 	// `path` arrives as `assetPath`, renamed by the registry (#1057).
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
@@ -3684,6 +3748,8 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 	{
 		TSharedPtr<FJsonObject> LevelParams = MakeShared<FJsonObject>();
 		LevelParams->SetStringField(TEXT("levelPath"), AssetPath);
+		LevelParams->SetBoolField(TEXT("saveFirst"), OptionalBool(Params, TEXT("saveFirst"), false));
+		LevelParams->SetBoolField(TEXT("discardUnsaved"), OptionalBool(Params, TEXT("discardUnsaved"), false));
 		TSharedPtr<FJsonValue> LevelResult = FLevelHandlers::LoadLevel(LevelParams);
 		const TSharedPtr<FJsonObject>* LevelObject = nullptr;
 		if (LevelResult.IsValid() && LevelResult->TryGetObject(LevelObject) && LevelObject && LevelObject->IsValid())

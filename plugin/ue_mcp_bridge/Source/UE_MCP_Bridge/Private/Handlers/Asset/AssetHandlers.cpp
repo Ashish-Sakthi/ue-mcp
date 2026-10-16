@@ -7,6 +7,7 @@
 #include "HandlerJsonProperty.h"
 #include "HandlerPropertyText.h"
 #include "HandlerAssetCreate.h"
+#include "Handlers/Dialog/DialogHandlers.h"
 #include "JsonSerializer.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -451,14 +452,20 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Delete referenced assets too, closing open editors (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("bulk_rename_assets"), &BulkRename, {
-		MCPParam::Required(TEXT("renames"), EType::Array, TEXT("Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}")).Items(EType::Object),
+		MCPParam::Required(TEXT("renames"), EType::Array, TEXT("Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused")).Items(EType::Object).WithFields({
+			MCPParam::OptionalField(TEXT("sourcePath"), EType::String, TEXT("Asset to move, with destinationPath or with newPackagePath + newName")),
+			MCPParam::OptionalField(TEXT("destinationPath"), EType::String, TEXT("Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused")),
+			MCPParam::OptionalField(TEXT("assetPath"), EType::String, TEXT("Asset to rename in place, with newName")),
+			MCPParam::OptionalField(TEXT("newPackagePath"), EType::String, TEXT("Destination folder, with sourcePath and newName")),
+			MCPParam::OptionalField(TEXT("newName"), EType::String, TEXT("New asset name, with assetPath or with sourcePath + newPackagePath")),
+		}),
 	});
 	// #908: bounded redirector clean-up after a move. Timeout raised because a
 	// fix-up loads and resaves every referencing package.
 	Registry.RegisterHandlerWithTimeout(TEXT("fixup_redirectors"), &FixupRedirectors, 300.0f, {
 		MCPParam::Required(TEXT("paths"), EType::Array, TEXT("Redirector packages, or the folders holding them")).Items(EType::String),
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report the redirectors, referencers and packages it would load and save, and stop (default false)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference")),
 		MCPParam::Optional(TEXT("allowProjectWide"), EType::Boolean, TEXT("Permit a path naming a whole content root (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("create_data_asset"), &CreateDataAsset, {
@@ -612,7 +619,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("factoryClass"), EType::String, TEXT("UFactory subclass by name or /Script path (default: picked by extension)")),
 		MCPParam::Optional(TEXT("factoryProperties"), EType::Object, TEXT("Factory properties by UPROPERTY name or dotted path, set before the import")),
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the imported assets (default false)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each imported asset and report saved per asset (default true; false leaves them dirty)")),
 		MCPParam::Optional(TEXT("automated"), EType::Boolean, TEXT("Suppress interactive dialogs (default true)")),
 	});
 
@@ -2496,14 +2503,51 @@ TSharedPtr<FJsonValue> FAssetHandlers::RenameAsset(const TSharedPtr<FJsonObject>
 		return RenameWorldWithExternals(SourcePath, DestPath, bForce);
 	}
 
+	const int32 DialogSerialBefore = FDialogHandlers::GetAnsweredDialogSerial();
 	bool bOk = UEditorAssetLibrary::RenameAsset(SourcePath, DestPath);
 
 	auto Result = MCPSuccess();
-	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("sourcePath"), SourcePath);
 	Result->SetStringField(TEXT("destinationPath"), DestPath);
 	Result->SetBoolField(TEXT("success"), bOk);
 
+	if (!bOk)
+	{
+		// A cancelled confirmation is the usual cause, so the failure names the
+		// dialog and the answer it got (#1334).
+		const TArray<FDialogHandlers::FAnsweredDialog> Dialogs = FDialogHandlers::AnsweredDialogsSince(DialogSerialBefore);
+		TArray<TSharedPtr<FJsonValue>> DialogsJson;
+		for (const FDialogHandlers::FAnsweredDialog& Dialog : Dialogs)
+		{
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("title"), Dialog.Title);
+			Entry->SetStringField(TEXT("message"), Dialog.Message);
+			Entry->SetStringField(TEXT("answer"), Dialog.Answer);
+			Entry->SetStringField(TEXT("answeredBy"), Dialog.AnsweredBy);
+			DialogsJson.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		Result->SetArrayField(TEXT("dialogs"), DialogsJson);
+		if (Dialogs.Num() > 0)
+		{
+			const FDialogHandlers::FAnsweredDialog& Last = Dialogs.Last();
+			Result->SetStringField(TEXT("reason"), TEXT("dialog_declined"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor asked '%s' and it was answered '%s' by %s. ")
+				TEXT("To answer it differently, arm editor(set_dialog_policy) with that button before retrying."),
+				*SourcePath, *DestPath, *Last.Message.Left(400), *Last.Answer,
+				Last.AnsweredBy == TEXT("policy") ? TEXT("an armed dialog policy") : TEXT("a person or respond_to_dialog")));
+		}
+		else
+		{
+			Result->SetStringField(TEXT("reason"), TEXT("rename_failed"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor raised no dialog; the output log carries the reason."),
+				*SourcePath, *DestPath));
+		}
+		return MCPResult(Result);
+	}
+
+	MCPSetUpdated(Result);
 	if (bOk)
 	{
 		// Self-inverse: rename back.
@@ -3000,6 +3044,63 @@ TSharedPtr<FJsonValue> FAssetHandlers::BulkRename(const TSharedPtr<FJsonObject>&
 		return MCPError(TEXT("Missing 'renames' array parameter"));
 	}
 
+	// Every item must be exactly one documented shape; an unknown or mixed key used to rename to the wrong path (#1291).
+	{
+		IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+		TArray<TSharedPtr<FJsonValue>> Problems;
+		for (int32 Index = 0; Index < Items->Num(); ++Index)
+		{
+			const TSharedPtr<FJsonObject>* EntryPtr = nullptr;
+			FString Problem;
+			if (!(*Items)[Index].IsValid() || !(*Items)[Index]->TryGetObject(EntryPtr) || !EntryPtr || !EntryPtr->IsValid())
+			{
+				Problem = TEXT("not an object");
+			}
+			else
+			{
+				TSet<FString> Keys;
+				for (const auto& Field : (*EntryPtr)->Values)
+				{
+					const TPair<FString, TSharedPtr<FJsonValue>> Pair(Field.Key, Field.Value);
+					Keys.Add(Pair.Key);
+				}
+				auto IsShape = [&Keys](std::initializer_list<const TCHAR*> Shape)
+				{
+					if (Keys.Num() != (int32)Shape.size()) return false;
+					for (const TCHAR* Key : Shape) if (!Keys.Contains(Key)) return false;
+					return true;
+				};
+				FString Destination;
+				if (!IsShape({ TEXT("sourcePath"), TEXT("destinationPath") })
+					&& !IsShape({ TEXT("assetPath"), TEXT("newName") })
+					&& !IsShape({ TEXT("sourcePath"), TEXT("newPackagePath"), TEXT("newName") }))
+				{
+					Problem = FString::Printf(TEXT("keys {%s} are not one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}"),
+						*FString::Join(Keys.Array(), TEXT(", ")));
+				}
+				else if ((*EntryPtr)->TryGetStringField(TEXT("destinationPath"), Destination)
+					&& !Destination.Contains(TEXT(".")) && Registry.PathExists(FName(*Destination)))
+				{
+					Problem = FString::Printf(TEXT("destinationPath '%s' names an existing folder; give the full package path including the asset name"), *Destination);
+				}
+			}
+			if (!Problem.IsEmpty())
+			{
+				TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+				Row->SetNumberField(TEXT("index"), Index);
+				Row->SetStringField(TEXT("problem"), Problem);
+				Problems.Add(MakeShared<FJsonValueObject>(Row));
+			}
+		}
+		if (Problems.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("%d rename item(s) do not match a rename shape. Nothing was renamed."), Problems.Num()));
+			Refusal->SetArrayField(TEXT("invalidItems"), Problems);
+			return MCPResult(Refusal);
+		}
+	}
+
 	TArray<FAssetRenameData> BatchRenames;
 	TArray<TSharedPtr<FJsonValue>> PerItem;
 	int32 Skipped = 0;
@@ -3346,7 +3447,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateAssetByClass(const TSharedPtr<FJson
 	if (AssetClass->IsChildOf(AActor::StaticClass()) || AssetClass->IsChildOf(UActorComponent::StaticClass()))
 	{
 		return MCPClassUnusableError(ClassName, AssetClass, TEXT("not_an_asset"),
-			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component_to_actor)."));
+			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component)."));
 	}
 
 	const FString FullPath = FString::Printf(TEXT("%s/%s.%s"), *PackagePath, *Name, *Name);
@@ -4783,6 +4884,15 @@ TSharedPtr<FJsonValue> FAssetHandlers::ForceReload(const TSharedPtr<FJsonObject>
 // `subsurface_profile.settings.mean_free_path_distance` - the handler does
 // the struct-copy dance internally and writes back through SetJsonOnProperty.
 // ---------------------------------------------------------------------------
+// A mesh's Sockets array holds instanced subobjects the property writer cannot
+// create, so a failed write there names the socket actions that can (#1182).
+static FString AssetSocketPropertyHint(const UObject* Asset, const FString& PropertyName)
+{
+	if (!Asset || !PropertyName.StartsWith(TEXT("Sockets"), ESearchCase::IgnoreCase)) return FString();
+	if (!Asset->IsA<UStaticMesh>() && !Asset->IsA<USkeletalMesh>()) return FString();
+	return TEXT(" Sockets are authored with asset(add_socket), asset(set_socket_transform) and asset(remove_socket), not set_property.");
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -4814,7 +4924,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	MCPJsonProperty::FResolvedPathInfo PathInfo;
 	if (!MCPJsonProperty::ResolveDottedPath(Asset, PropertyName, FinalProp, ValuePtr, LeafOwner, ResolveErr, &PathInfo))
 	{
-		return MCPError(ResolveErr);
+		return MCPError(ResolveErr + AssetSocketPropertyHint(Asset, PropertyName));
 	}
 
 	FString PrevValue;
@@ -4838,7 +4948,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
 	{
 		Transaction.Cancel();
-		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
+		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s%s"), *PropertyName, *SetErr, *AssetSocketPropertyHint(Asset, PropertyName)));
 	}
 
 	if (LeafOwner) LeafOwner->PostEditChange();

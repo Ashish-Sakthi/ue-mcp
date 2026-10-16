@@ -109,6 +109,8 @@ namespace MCPEditorState
 	{
 		TSharedPtr<FJsonObject> LoadParams = MakeShared<FJsonObject>();
 		LoadParams->SetStringField(TEXT("levelPath"), LevelPath);
+		// Callers refuse on dirty state up front; anything dirty now is their own transient work.
+		LoadParams->SetBoolField(TEXT("discardUnsaved"), true);
 		const TSharedPtr<FJsonValue> LoadResult = LoadLevel(LoadParams);
 		if (!LoadResult.IsValid() || LoadResult->Type != EJson::Object)
 		{

@@ -7,6 +7,7 @@ import {
 } from "./manifest.js";
 import { inferActionEffect } from "../surface/action-class.js";
 import { contractActionFields, type NativeContractExtras } from "./native-contract.js";
+import { liftOptional, manifestActionFields } from "./manifest-params.js";
 
 /**
  * Per-category provision plan derived from one plugin's `provides:` block.
@@ -45,8 +46,9 @@ export function buildProvidedTool(plan: ProvisionPlan): ToolDef {
       // lexicon's otherwise, marked as the guess it is.
       effect: actionSpec.effect ?? inferActionEffect(plan.category, actionName),
       effectSource: actionSpec.effect ? "declared" : "inferred",
-      description:
-        actionSpec.description ?? `Plugin action from ${plan.pluginName}`,
+      ...(actionSpec.contract
+        ? { description: actionSpec.description ?? `Plugin action from ${plan.pluginName}` }
+        : manifestActionFields(actionSpec.description ?? `Plugin action from ${plan.pluginName}`, actionSpec.schema)),
       ...contractActionFields(actionSpec.contract),
     } as ActionSpec;
     docLines.push(
@@ -56,7 +58,7 @@ export function buildProvidedTool(plan: ProvisionPlan): ToolDef {
     );
     const compiled = actionSpec.zodSchema ?? compileSchemaFields(actionSpec.schema);
     for (const [k, v] of Object.entries(compiled)) {
-      if (!(k in extraSchema)) extraSchema[k] = v;
+      if (!(k in extraSchema)) extraSchema[k] = liftOptional(v);
     }
   }
 
