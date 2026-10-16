@@ -193,7 +193,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		Limit(TEXT("Rows per page (default 200, max 5000)")),
 	});
 	Registry.RegisterHandler(TEXT("get_skeleton_info"), &GetSkeletonInfo, {
-		AssetPath(TEXT("SkeletalMesh asset path")),
+		AssetPath(TEXT("SkeletalMesh, or a Skeleton, asset path")),
 	});
 	Registry.RegisterHandler(TEXT("list_animation_sockets"), &ListSockets, {
 		AssetPath(TEXT("SkeletalMesh asset path")),
@@ -799,6 +799,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("USkeleton asset path")),
 		MCPParam::Required(TEXT("sourceBone"), EType::String, TEXT("Bone the virtual bone starts from")),
 		MCPParam::Required(TEXT("targetBone"), EType::String, TEXT("Bone the virtual bone points at")),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Name for the virtual bone; the engine's 'VB ' prefix is added when missing (default the engine-generated name)")),
 	});
 	Registry.RegisterHandler(TEXT("remove_virtual_bone"), &RemoveVirtualBone, {
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("USkeleton asset path")),
@@ -1349,18 +1350,45 @@ TSharedPtr<FJsonValue> FAnimationHandlers::GetSkeletonInfo(const TSharedPtr<FJso
 
 	UObject* LoadedAsset = MCPLoadAssetObject(AssetPath);
 	USkeletalMesh* SkeletalMesh = Cast<USkeletalMesh>(LoadedAsset);
-	if (!SkeletalMesh)
+	USkeleton* Skeleton = SkeletalMesh ? SkeletalMesh->GetSkeleton() : Cast<USkeleton>(LoadedAsset);
+	if (!SkeletalMesh && !Skeleton)
 	{
-		return MCPError(FString::Printf(TEXT("Failed to load SkeletalMesh at '%s'"), *AssetPath));
+		return LoadedAsset
+			? MCPAssetWrongTypeError(AssetPath, LoadedAsset, TEXT("SkeletalMesh or Skeleton"))
+			: MCPAssetNotFoundError(AssetPath);
 	}
-
-	USkeleton* Skeleton = SkeletalMesh->GetSkeleton();
 	if (!Skeleton)
 	{
 		return MCPError(TEXT("SkeletalMesh has no Skeleton"));
 	}
 
 	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("skeletonPath"), Skeleton->GetPathName());
+	if (SkeletalMesh) Result->SetStringField(TEXT("skeletalMeshPath"), SkeletalMesh->GetPathName());
+
+	// Virtual bones and slot groups live on the skeleton and are not reachable
+	// from Python, so they are read here (#1238).
+	TArray<TSharedPtr<FJsonValue>> VirtualBones;
+	for (const FVirtualBone& VB : Skeleton->GetVirtualBones())
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), VB.VirtualBoneName.ToString());
+		Obj->SetStringField(TEXT("sourceBone"), VB.SourceBoneName.ToString());
+		Obj->SetStringField(TEXT("targetBone"), VB.TargetBoneName.ToString());
+		VirtualBones.Add(MakeShared<FJsonValueObject>(Obj));
+	}
+	Result->SetArrayField(TEXT("virtualBones"), VirtualBones);
+	TArray<TSharedPtr<FJsonValue>> SlotGroups;
+	for (const FAnimSlotGroup& Group : Skeleton->GetSlotGroups())
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), Group.GroupName.ToString());
+		TArray<FString> Slots;
+		for (const FName& Slot : Group.SlotNames) Slots.Add(Slot.ToString());
+		Obj->SetArrayField(TEXT("slots"), MCPStringListToJson(Slots));
+		SlotGroups.Add(MakeShared<FJsonValueObject>(Obj));
+	}
+	Result->SetArrayField(TEXT("slotGroups"), SlotGroups);
 
 	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
 	TArray<TSharedPtr<FJsonValue>> BonesArray;
@@ -4601,9 +4629,24 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddVirtualBone(const TSharedPtr<FJson
 	if (auto Err = RequireString(Params, TEXT("sourceBone"), SourceBone)) return Err;
 	FString TargetBone;
 	if (auto Err = RequireString(Params, TEXT("targetBone"), TargetBone)) return Err;
+	FString RequestedName = OptionalString(Params, TEXT("name")).TrimStartAndEnd();
 
 	USkeleton* Skeleton = LoadAssetByPath<USkeleton>(SkeletonPath);
 	if (!Skeleton) return MCPError(FString::Printf(TEXT("Skeleton not found: %s"), *SkeletonPath));
+
+	// Virtual bones carry the engine's 'VB ' prefix, which is how the editor tells them apart.
+	static const FString VirtualPrefix = TEXT("VB ");
+	if (!RequestedName.IsEmpty() && !RequestedName.StartsWith(VirtualPrefix)) RequestedName = VirtualPrefix + RequestedName;
+	if (!RequestedName.IsEmpty())
+	{
+		const FName Wanted(*RequestedName);
+		const bool bTaken = Skeleton->GetReferenceSkeleton().FindBoneIndex(Wanted) != INDEX_NONE
+			|| Skeleton->GetVirtualBones().ContainsByPredicate([&Wanted](const FVirtualBone& VB) { return VB.VirtualBoneName == Wanted; });
+		if (bTaken)
+		{
+			return MCPError(FString::Printf(TEXT("'%s' is already a bone or virtual bone on '%s'"), *RequestedName, *SkeletonPath));
+		}
+	}
 
 	Skeleton->Modify();
 	FName NewBoneName;
@@ -4611,6 +4654,11 @@ TSharedPtr<FJsonValue> FAnimationHandlers::AddVirtualBone(const TSharedPtr<FJson
 	if (!bOk)
 	{
 		return MCPError(TEXT("Failed to add virtual bone (source/target invalid or duplicate)"));
+	}
+	if (!RequestedName.IsEmpty())
+	{
+		Skeleton->RenameVirtualBone(NewBoneName, FName(*RequestedName));
+		NewBoneName = FName(*RequestedName);
 	}
 	Skeleton->PostEditChange();
 
@@ -4681,11 +4729,11 @@ TSharedPtr<FJsonValue> FAnimationHandlers::RemoveVirtualBone(const TSharedPtr<FJ
 	Rollback->SetStringField(TEXT("skeletonPath"), SkeletonPath);
 	Rollback->SetStringField(TEXT("sourceBone"), SourceBone);
 	Rollback->SetStringField(TEXT("targetBone"), TargetBone);
+	Rollback->SetStringField(TEXT("name"), BoneName);
 	MCPSetRollback(Result, TEXT("add_virtual_bone"), Rollback);
-	Result->SetBoolField(TEXT("rollbackLossy"), true);
+	Result->SetBoolField(TEXT("rollbackLossy"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("add_virtual_bone re-creates the bone from its source and target, and Unreal mints the name, so a virtual bone that had been renamed comes back under the generated name. ")
-		TEXT("Anything that referenced the old name (sockets, curves, animation node bone references) still points at the name that was removed."));
+		TEXT("add_virtual_bone re-creates the bone from its source and target under the same name."));
 	return MCPResult(Result);
 }
 TSharedPtr<FJsonValue> FAnimationHandlers::SetAnimBlueprintSkeleton(const TSharedPtr<FJsonObject>& Params)

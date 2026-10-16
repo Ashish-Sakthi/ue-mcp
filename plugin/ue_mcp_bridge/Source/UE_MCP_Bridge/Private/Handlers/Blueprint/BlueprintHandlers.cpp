@@ -3673,10 +3673,48 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReparentBlueprint(const TSharedPtr<FJ
 		return MCPResult(NoOp);
 	}
 
+	// Every Blueprint variable's class default, as text, so a reparent that
+	// rebuilt the class and dropped one is reported instead of silent (#1238).
+	auto ReadVariableDefaults = [Blueprint]()
+	{
+		TMap<FName, FString> Out;
+		UClass* Generated = Blueprint->GeneratedClass;
+		UObject* CDO = Generated ? Generated->GetDefaultObject(false) : nullptr;
+		for (const FBPVariableDescription& Var : Blueprint->NewVariables)
+		{
+			FString Value = Var.DefaultValue;
+			if (CDO)
+			{
+				if (FProperty* Prop = FindFProperty<FProperty>(Generated, Var.VarName))
+				{
+					Value.Reset();
+					Prop->ExportTextItem_Direct(Value, Prop->ContainerPtrToValuePtr<void>(CDO), nullptr, nullptr, PPF_None);
+				}
+			}
+			Out.Add(Var.VarName, Value);
+		}
+		return Out;
+	};
+	const TMap<FName, FString> DefaultsBefore = ReadVariableDefaults();
+
 	// Prefer the canonical UBlueprintEditorLibrary path (matches the Python API
 	// users have been falling back to in the workaround).
 	UBlueprintEditorLibrary::ReparentBlueprint(Blueprint, NewParent);
 	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+
+	const TMap<FName, FString> DefaultsAfter = ReadVariableDefaults();
+	TArray<TSharedPtr<FJsonValue>> DefaultsReset;
+	for (const TPair<FName, FString>& Before : DefaultsBefore)
+	{
+		const FString* After = DefaultsAfter.Find(Before.Key);
+		if (After && *After == Before.Value) continue;
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("variable"), Before.Key.ToString());
+		Entry->SetStringField(TEXT("before"), Before.Value);
+		if (After) Entry->SetStringField(TEXT("after"), *After);
+		else Entry->SetBoolField(TEXT("removed"), true);
+		DefaultsReset.Add(MakeShared<FJsonValueObject>(Entry));
+	}
 
 	FString SaveReason;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveReason);
@@ -3688,6 +3726,13 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReparentBlueprint(const TSharedPtr<FJ
 	if (OldParent)
 	{
 		Result->SetStringField(TEXT("previousParent"), OldParent->GetPathName());
+	}
+	Result->SetArrayField(TEXT("variableDefaultsChanged"), DefaultsReset);
+	if (DefaultsReset.Num() > 0)
+	{
+		Result->SetStringField(TEXT("warning"), FString::Printf(
+			TEXT("%d Blueprint variable default(s) changed when the class was rebuilt; variableDefaultsChanged lists each value before and after. ")
+			TEXT("Set them back with blueprint(set_variable_default) if they should keep their old values."), DefaultsReset.Num()));
 	}
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveReason);
 

@@ -3230,6 +3230,12 @@
           "type": "string",
           "required": true,
           "description": "Bone the virtual bone points at"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Name for the virtual bone; the engine's 'VB ' prefix is added when missing (default the engine-generated name)"
         }
       ]
     },
@@ -16761,7 +16767,7 @@
           "name": "assetPath",
           "type": "string",
           "required": true,
-          "description": "SkeletalMesh asset path",
+          "description": "SkeletalMesh, or a Skeleton, asset path",
           "aliases": [
             "path"
           ]
