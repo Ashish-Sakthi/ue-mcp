@@ -73,3 +73,17 @@ describe("blueprint list_subclasses (#1211)", () => {
     expect(params).toMatchObject({ className: "Character", directory: "/Game/AI", includeTransitive: false, limit: 50 });
   });
 });
+
+describe("blueprint CDO component paths (#1293)", () => {
+  it("set_class_default forwards a component-qualified propertyName", async () => {
+    const [method, params] = await route({ action: "set_class_default", assetPath: BP, propertyName: "CharacterMovement.bUseRVOAvoidance", value: false });
+    expect(method).toBe("set_class_default");
+    expect(params).toMatchObject({ propertyName: "CharacterMovement.bUseRVOAvoidance", value: false });
+  });
+
+  it("get_variable_default forwards includeChildren", async () => {
+    const [method, params] = await route({ action: "get_variable_default", assetPath: BP, name: "CharacterMovement.PerchRadiusThreshold", includeChildren: true });
+    expect(method).toBe("get_blueprint_variable_default");
+    expect(params).toMatchObject({ name: "CharacterMovement.PerchRadiusThreshold", includeChildren: true });
+  });
+});

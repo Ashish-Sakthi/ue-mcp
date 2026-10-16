@@ -14697,7 +14697,13 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "Variable name"
+          "description": "Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects"
+        },
+        {
+          "name": "includeChildren",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)"
         }
       ]
     },
@@ -29946,7 +29952,7 @@
           "name": "propertyName",
           "type": "string",
           "required": true,
-          "description": "Property name"
+          "description": "Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius"
         },
         {
           "name": "value",

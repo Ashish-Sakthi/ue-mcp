@@ -4,6 +4,7 @@
 #include "HandlerUtils.h"
 #include "HandlerPagination.h"
 #include "HandlerJsonProperty.h"
+#include "BlueprintHandlers_CDOPath.h"
 #include "JsonSerializer.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Kismet2/KismetEditorUtilities.h"
@@ -322,7 +323,7 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("set_class_default"), &SetClassDefault, {
 		SpecAssetPath,
-		SpecPropertyName,
+		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius")),
 		SpecValue,
 	});
 	Registry.RegisterHandler(TEXT("remove_component"), &RemoveComponent, {
@@ -348,7 +349,8 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("get_blueprint_variable_default"), &GetVariableDefault, {
 		SpecAssetPath,
-		SpecVarName,
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects")),
+		MCPParam::Optional(TEXT("includeChildren"), EType::Boolean, TEXT("Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)")),
 	});
 
 	Registry.RegisterHandler(TEXT("read_blueprint_graph_summary"), &ReadBlueprintGraphSummary, {
@@ -2791,6 +2793,7 @@ namespace
 		TSharedPtr<FJsonValue> Value;
 		FString DeclaringClass;
 		FString DeclaringClassPath;
+		FString Subobject;
 		bool bInherited = false;
 	};
 
@@ -2826,6 +2829,23 @@ namespace
 		}
 
 		FProperty* Prop = GeneratedClass->FindPropertyByName(FName(*VarName));
+		const void* PathAddr = nullptr;
+		UObject* PathOwner = CDO;
+		if (!Prop)
+		{
+			// A dotted path: struct members, array elements, owned subobjects
+			// such as CharacterMovement.MaxWalkSpeed.
+			void* Addr = nullptr;
+			FString PathError;
+			if (MCPResolveCDOPath(CDO, VarName, /*bOwnedOnly=*/false, Prop, Addr, PathOwner, PathError))
+			{
+				PathAddr = Addr;
+			}
+			else
+			{
+				Prop = nullptr;
+			}
+		}
 		if (!Prop)
 		{
 			// Name the variables that DO resolve, so a caller that has just
@@ -2842,8 +2862,8 @@ namespace
 		}
 
 		Out.Property = Prop;
-		Out.ValueAddress = Prop->ContainerPtrToValuePtr<void>(CDO);
-		Prop->ExportText_Direct(Out.ValueText, Out.ValueAddress, Out.ValueAddress, CDO, PPF_None);
+		Out.ValueAddress = PathAddr ? PathAddr : Prop->ContainerPtrToValuePtr<void>(CDO);
+		Prop->ExportText_Direct(Out.ValueText, Out.ValueAddress, Out.ValueAddress, PathOwner ? PathOwner : CDO, PPF_None);
 		Out.Value = FMCPJsonSerializer::SerializeValue(Out.ValueAddress, Prop);
 
 		if (UClass* Owner = Prop->GetOwnerClass())
@@ -2852,6 +2872,7 @@ namespace
 			Out.DeclaringClassPath = Owner->GetPathName();
 			Out.bInherited = Owner != GeneratedClass;
 		}
+		if (PathOwner && PathOwner != CDO) Out.Subobject = PathOwner->GetName();
 		return true;
 	}
 
@@ -2869,6 +2890,7 @@ namespace
 			Obj->SetStringField(TEXT("declaringClassPath"), Resolved.DeclaringClassPath);
 		}
 		Obj->SetBoolField(TEXT("inherited"), Resolved.bInherited);
+		if (!Resolved.Subobject.IsEmpty()) Obj->SetStringField(TEXT("subobject"), Resolved.Subobject);
 	}
 
 	// #931: state whether what was just read is on disk. The package's own
@@ -2902,6 +2924,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::GetVariableDefault(const TSharedPtr<F
 
 	FString VarName;
 	if (auto Err = RequireString(Params, TEXT("name"), VarName)) return Err;
+	const bool bIncludeChildren = OptionalBool(Params, TEXT("includeChildren"), false);
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
@@ -2950,6 +2973,54 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::GetVariableDefault(const TSharedPtr<F
 				Resolved.Property->Identical(Resolved.ValueAddress, Authored.GetObjAddress(), PPF_None));
 		}
 		break;
+	}
+
+	// Every Blueprint subclass, loaded if needed, with the same path read off
+	// its CDO. overridden compares against the immediate parent class's value.
+	if (bIncludeChildren && Blueprint->GeneratedClass)
+	{
+		UClass* ThisClass = Blueprint->GeneratedClass;
+		TMap<UClass*, FString> ValueByClass;
+		ValueByClass.Add(ThisClass, Resolved.ValueText);
+		const TArray<UClass*> Children = MCPBlueprintChildClasses(ThisClass, /*bLoad=*/true);
+		auto ReadText = [&VarName](UClass* Cls, FString& OutText) -> bool
+		{
+			FProperty* P = nullptr; void* A = nullptr; UObject* O = nullptr; FString E;
+			UObject* ChildCDO = Cls ? Cls->GetDefaultObject() : nullptr;
+			if (!ChildCDO || !MCPResolveCDOPath(ChildCDO, VarName, false, P, A, O, E)) return false;
+			P->ExportText_Direct(OutText, A, A, O ? O : ChildCDO, PPF_None);
+			return true;
+		};
+		TArray<TSharedPtr<FJsonValue>> Rows;
+		for (UClass* Child : Children)
+		{
+			TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+			Row->SetStringField(TEXT("class"), Child->GetPathName());
+			if (UBlueprint* ChildBP = UBlueprint::GetBlueprintFromClass(Child))
+			{
+				Row->SetStringField(TEXT("blueprint"), ChildBP->GetPathName());
+			}
+			UClass* Super = Child->GetSuperClass();
+			Row->SetStringField(TEXT("parentClass"), Super ? Super->GetPathName() : FString());
+			FString Text;
+			if (!ReadText(Child, Text))
+			{
+				Row->SetStringField(TEXT("error"), TEXT("path does not resolve on this class"));
+				Rows.Add(MakeShared<FJsonValueObject>(Row));
+				continue;
+			}
+			ValueByClass.Add(Child, Text);
+			FString ParentText;
+			const FString* Known = Super ? ValueByClass.Find(Super) : nullptr;
+			if (Known) ParentText = *Known;
+			else if (Super) ReadText(Super, ParentText);
+			Row->SetStringField(TEXT("valueText"), Text);
+			Row->SetBoolField(TEXT("overridden"), Text != ParentText);
+			Row->SetBoolField(TEXT("matchesThisBlueprint"), Text == Resolved.ValueText);
+			Rows.Add(MakeShared<FJsonValueObject>(Row));
+		}
+		Result->SetArrayField(TEXT("children"), Rows);
+		Result->SetNumberField(TEXT("childCount"), Rows.Num());
 	}
 
 	return MCPResult(Result);

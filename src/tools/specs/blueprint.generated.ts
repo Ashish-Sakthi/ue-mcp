@@ -1392,7 +1392,13 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "name",
         "type": "string",
         "required": true,
-        "description": "Variable name"
+        "description": "Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects"
+      },
+      {
+        "name": "includeChildren",
+        "type": "boolean",
+        "required": false,
+        "description": "Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)"
       }
     ]
   },
@@ -2648,7 +2654,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "propertyName",
         "type": "string",
         "required": true,
-        "description": "Property name"
+        "description": "Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius"
       },
       {
         "name": "value",
@@ -3063,7 +3069,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_blueprint_connections: "Params: assetPath (or path), graphName?, graphSelector?, nodeId?, kind?, includeNestedGraphs?, cursor?, limit?",
   get_blueprint_dependencies: "Params: assetPath (or path), reverse?",
   get_blueprint_execution_flow: "Params: assetPath (or path), graphName?, entryPoint?",
-  get_blueprint_variable_default: "Params: assetPath (or path), name",
+  get_blueprint_variable_default: "Params: assetPath (or path), name, includeChildren?",
   get_blueprint_variable_metadata: "Params: assetPath (or path), name, functionName?",
   get_cdo_properties: "Params: className, propertyNames?",
   get_component_collision: "Params: assetPath (or path), componentName, channel?, includeAllChannels?",
@@ -3167,6 +3173,7 @@ export const schema: Record<string, z.ZodType> = {
   graphSelector: z.string().optional().describe("The exact selector list_graphs reports, which separates two graphs sharing a name. Wins over graphName"),
   halfHeight: z.number().optional().describe("Capsule half height (unscaled)"),
   includeAllChannels: z.boolean().optional().describe("Include the unused GameTraceChannel slots (default false)"),
+  includeChildren: z.boolean().optional().describe("Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)"),
   includeComments: z.boolean().optional().describe("Include node comments (default true)"),
   includeComponentProperties: z.boolean().optional().describe("Dump UPROPERTY name, type and value per component template (default false)"),
   includeDefaults: z.boolean().optional().describe("Include pin default values (default true)"),
@@ -3197,7 +3204,7 @@ export const schema: Record<string, z.ZodType> = {
   maxBlueprints: z.number().int().optional().describe("Cap on Blueprints loaded (default 2000)"),
   maxSamples: z.number().int().optional().describe("Samples listed per finding kind per Blueprint (default 20, max 500); counts stay complete"),
   metadata: z.record(z.unknown()).optional().describe("{key: 'value'} pairs; a null value removes that key. Unreal stores every metadata value as text"),
-  name: z.string().optional().describe("Dispatcher name (add_event_dispatcher, remove_event_dispatcher). Variable name (add_local_variable, add_variable, delete_variable, edit_local_variable, get_blueprint_variable_default, get_blueprint_variable_metadata, set_blueprint_variable_metadata, set_variable_default, set_variable_properties). Asset name; with packagePath, the same destination as assetPath (create_blueprint)"),
+  name: z.string().optional().describe("Dispatcher name (add_event_dispatcher, remove_event_dispatcher). Variable name (add_local_variable, add_variable, delete_variable, edit_local_variable, get_blueprint_variable_metadata, set_blueprint_variable_metadata, set_variable_default, set_variable_properties). Asset name; with packagePath, the same destination as assetPath (create_blueprint). Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects (get_blueprint_variable_default)"),
   narrowByRegistry: z.boolean().optional().describe("Use Asset Registry dependencies to rule out Blueprints before loading them (default true)"),
   netMode: z.string().optional().describe("none (default), multicast, server or client"),
   newName: z.string().optional().describe("New name, for rename (edit_graph_parameters, edit_local_variable). New name (rename_blueprint_variable, rename_function)"),
@@ -3233,7 +3240,7 @@ export const schema: Record<string, z.ZodType> = {
   private: z.boolean().optional().describe("The Blueprint editor's Private checkbox, independent of editFlag"),
   profileName: z.string().optional().describe("Collision profile to resolve, e.g. Pawn, BlockAll, or one the project defined"),
   propagateToInstances: z.boolean().optional().describe("Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"),
-  propertyName: z.string().optional().describe("Property name (get_blueprint_component_property, set_blueprint_component_property, set_cdo_property, set_class_default). Pin or reflected node property name (read_node_property). Pin or struct property name (set_node_property)"),
+  propertyName: z.string().optional().describe("Property name (get_blueprint_component_property, set_blueprint_component_property, set_cdo_property). Pin or reflected node property name (read_node_property). Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius (set_class_default). Pin or struct property name (set_node_property)"),
   propertyNames: z.array(z.string()).optional().describe("Property names to read (omit for all)"),
   pure: z.boolean().optional().describe("BlueprintPure: no side effects, and the node loses its exec pins"),
   query: z.string().optional().describe("Words to match against the C++ name, the palette label and Keywords metadata"),
