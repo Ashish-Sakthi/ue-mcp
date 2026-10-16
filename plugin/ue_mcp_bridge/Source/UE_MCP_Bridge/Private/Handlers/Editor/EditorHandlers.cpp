@@ -683,6 +683,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("levelPath"), EType::String, TEXT("Long package path of the new level, e.g. /Game/Maps/MyLevel. Validated before the engine is asked")),
 		MCPParam::Optional(TEXT("templateLevel"), EType::String, TEXT("Level to copy; omit, Empty or None for a blank level")),
 		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the level exists: skip (default) returns it untouched, error refuses")),
+		MCPParam::Optional(TEXT("worldPartition"), EType::Boolean, TEXT("Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself")),
 	}, MCPSpec::ContractExempt(TEXT("creates and opens a level")));
 	Registry.RegisterHandler(TEXT("open_asset"), &OpenAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to open in its editor")).Alias(TEXT("path")),
@@ -3478,8 +3479,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::FocusViewportOnActor(const TSharedPtr<FJ
 }
 TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("onConflict"), TEXT("worldPartition") });
 	FString LevelPath = OptionalString(Params, TEXT("levelPath"));
 	FString TemplateLevel = OptionalString(Params, TEXT("templateLevel"));
+	const bool bWorldPartition = OptionalBool(Params, TEXT("worldPartition"), false);
 
 	ULevelEditorSubsystem* LevelEditorSubsystem = GEditor ? GEditor->GetEditorSubsystem<ULevelEditorSubsystem>() : nullptr;
 	if (!LevelEditorSubsystem)
@@ -3537,10 +3540,16 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 			TEXT("(UE 5.8 ships Template_Default, OpenWorld, TimeOfDay_Default). Nothing was created."), *TemplateLevel));
 	}
 
+	// A template carries its own partitioning, so asking for one on top is ambiguous.
+	if (bHasTemplate && bWorldPartition)
+	{
+		return MCPError(TEXT("worldPartition applies to a blank level; a templateLevel decides partitioning itself. Pass one or the other. Nothing was created."));
+	}
+
 	bool bSuccess = false;
 	if (!bHasTemplate)
 	{
-		bSuccess = LevelEditorSubsystem->NewLevel(LevelPath);
+		bSuccess = LevelEditorSubsystem->NewLevel(LevelPath, bWorldPartition);
 	}
 	else
 	{
@@ -3577,6 +3586,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::CreateNewLevel(const TSharedPtr<FJsonObj
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("worldName"), World->GetName());
 	Result->SetStringField(TEXT("worldPath"), World->GetPathName());
+	Result->SetBoolField(TEXT("worldPartition"), World->IsPartitionedWorld());
+	Result->SetBoolField(TEXT("externalActors"), World->PersistentLevel && World->PersistentLevel->IsUsingExternalActors());
+	if (bWorldPartition && !World->IsPartitionedWorld())
+	{
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("'%s' was created but is not a World Partition level; the engine log carries the reason."), *LevelPath));
+	}
 
 	Result->SetStringField(TEXT("levelPath"), LevelPath);
 	Result->SetStringField(TEXT("message"), TEXT("New level created"));

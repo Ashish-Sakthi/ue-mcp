@@ -25,3 +25,10 @@ describe("level(load) unsaved-change guard (#1259)", () => {
     expect(paramNames(editorSpecs, "open_asset")).toEqual(expect.arrayContaining(["saveFirst", "discardUnsaved"]));
   });
 });
+
+describe("level(create) worldPartition (#1247)", () => {
+  it("is declared by create_new_level and borrowed into the level schema", () => {
+    expect(paramNames(editorSpecs, "create_new_level")).toContain("worldPartition");
+    expect(levelTool.schema.worldPartition.safeParse(true).success).toBe(true);
+  });
+});

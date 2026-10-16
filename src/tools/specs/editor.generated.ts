@@ -420,6 +420,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "When the level exists: skip (default) returns it untouched, error refuses"
+      },
+      {
+        "name": "worldPartition",
+        "type": "boolean",
+        "required": false,
+        "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
       }
     ],
     "contractExempt": "creates and opens a level"
@@ -2813,7 +2819,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   configure_pie: "Params: numClients?, netMode?, runUnderOneProcess?, launchSeparateServer?, newWindowWidth?, newWindowHeight?",
   cook_content: "Params: platform?",
   create_level_sequence: "Params: name, packagePath?, onConflict?",
-  create_new_level: "Params: levelPath, templateLevel?, onConflict?",
+  create_new_level: "Params: levelPath, templateLevel?, onConflict?, worldPartition?",
   describe_object: "Params: objectPath (or path, or assetPath), includeProperties?, includeValues?, propertyNames?",
   end_editor_transaction: "Params: none",
   end_profile_region: "Params: regionName",
@@ -3098,6 +3104,7 @@ export const schema: Record<string, z.ZodType> = {
   windowed: z.boolean().optional().describe("Run windowed rather than fullscreen (default true)"),
   world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
   worldContextParam: z.string().optional().describe("UObject* parameter to fill with the selected world; detected from WorldContext metadata and for WorldContextObject when omitted"),
+  worldPartition: z.boolean().optional().describe("Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"),
   worldPath: z.string().optional().describe("Exact PIE UWorld path or name to capture"),
   x: z.number().optional().describe("Viewport pixel X"),
   y: z.number().optional().describe("Viewport pixel Y"),

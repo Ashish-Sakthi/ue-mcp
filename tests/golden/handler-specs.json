@@ -10455,6 +10455,12 @@
           "type": "string",
           "required": false,
           "description": "When the level exists: skip (default) returns it untouched, error refuses"
+        },
+        {
+          "name": "worldPartition",
+          "type": "boolean",
+          "required": false,
+          "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
         }
       ],
       "contractExempt": "creates and opens a level"
