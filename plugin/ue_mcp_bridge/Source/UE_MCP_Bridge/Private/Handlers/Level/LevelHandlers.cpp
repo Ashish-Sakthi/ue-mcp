@@ -1905,21 +1905,41 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 	const FRotator PreviousRotation = Actor->GetActorRotation();
 	const FVector PreviousScale = Actor->GetActorScale3D();
 
-	if (HasParam(Params, TEXT("location")))
+	// An editor move is undoable and dirties the actor's package, so a plain save persists it (#1261).
+	const bool bEditorWorld = !World->IsGameWorld();
 	{
-		Actor->SetActorLocation(OptionalVec3(Params, TEXT("location"), Actor->GetActorLocation()));
-	}
-	if (HasParam(Params, TEXT("rotation")))
-	{
-		Actor->SetActorRotation(OptionalRotator(Params, TEXT("rotation"), Actor->GetActorRotation()));
-	}
-	if (HasParam(Params, TEXT("scale")))
-	{
-		Actor->SetActorScale3D(OptionalVec3(Params, TEXT("scale"), Actor->GetActorScale3D()));
+		const FScopedTransaction Transaction(FText::FromString(TEXT("Move Actor")), bEditorWorld);
+		if (bEditorWorld)
+		{
+			Actor->Modify();
+			Actor->GetRootComponent()->Modify();
+		}
+		if (HasParam(Params, TEXT("location")))
+		{
+			Actor->SetActorLocation(OptionalVec3(Params, TEXT("location"), Actor->GetActorLocation()));
+		}
+		if (HasParam(Params, TEXT("rotation")))
+		{
+			Actor->SetActorRotation(OptionalRotator(Params, TEXT("rotation"), Actor->GetActorRotation()));
+		}
+		if (HasParam(Params, TEXT("scale")))
+		{
+			Actor->SetActorScale3D(OptionalVec3(Params, TEXT("scale"), Actor->GetActorScale3D()));
+		}
+		if (bEditorWorld)
+		{
+			Actor->MarkPackageDirty();
+		}
 	}
 
 	auto Result = MCPSuccess();
 	MCPSetUpdated(Result);
+	if (bEditorWorld)
+	{
+		UPackage* ActorPackage = Actor->GetPackage();
+		Result->SetBoolField(TEXT("packageDirty"), ActorPackage && ActorPackage->IsDirty());
+		if (ActorPackage) Result->SetStringField(TEXT("package"), ActorPackage->GetName());
+	}
 	Result->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(Actor->GetActorLocation()));
 	Result->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(Actor->GetActorRotation()));
 	Result->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(Actor->GetActorScale3D()));
