@@ -8,6 +8,7 @@ import * as path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { covers } from "../helpers/covers.js";
 import { ENTRY, plain, runCli, Sandbox, snapshotTree, TSX } from "./harness.js";
+import { fakeSigning } from "./feedback-fakes.js";
 
 type Pty = typeof import("node-pty");
 let pty: Pty | null = null;
@@ -32,7 +33,12 @@ interface Answer {
 }
 
 /** Run a command in a pseudo-terminal, answering each prompt as it appears. */
-function runInTerminal(args: string[], cwd: string, answers: Answer[]): Promise<{ code: number; output: string }> {
+function runInTerminal(
+  args: string[],
+  cwd: string,
+  answers: Answer[],
+  env: Record<string, string> = {},
+): Promise<{ code: number; output: string }> {
   if (!pty) throw new Error(`node-pty did not load: ${ptyError}`);
   return new Promise((resolve, reject) => {
     const term = pty!.spawn(process.execPath, ["--import", TSX, ENTRY, ...args], {
@@ -40,7 +46,7 @@ function runInTerminal(args: string[], cwd: string, answers: Answer[]): Promise<
       cols: 200,
       rows: 60,
       cwd,
-      env: sb.env({ UE_MCP_LOG_LEVEL: "error" }),
+      env: sb.env({ UE_MCP_LOG_LEVEL: "error", ...env }),
     });
     let output = "";
     let next = 0;
@@ -102,6 +108,38 @@ describe("interactive init", () => {
     expect(fs.existsSync(path.join(projectDir, "Plugins", "UE_MCP_Bridge", "UE_MCP_Bridge.uplugin"))).toBe(true);
     const mcp = JSON.parse(fs.readFileSync(path.join(projectDir, ".mcp.json"), "utf8")) as { mcpServers: Record<string, unknown> };
     expect(Object.keys(mcp.mcpServers)).toContain("ue-mcp");
+  });
+});
+
+describe("feedback review on a terminal", () => {
+  it.runIf(pty !== null || process.env.CI !== undefined)("approves, discards and skips entries as answered, one at a time", async () => {
+    covers("cli.feedback.review");
+    const signing = await fakeSigning();
+    try {
+      const pending = path.join(sb.home, ".ue-mcp", "pending-feedback");
+      fs.mkdirSync(pending, { recursive: true });
+      const entry = (id: string, title: string) =>
+        fs.writeFileSync(
+          path.join(pending, `${id}.json`),
+          JSON.stringify({ id, createdAt: new Date().toISOString(), project: "Reviewed", title, body: `Body of ${title}`, labels: ["agent-feedback"], author: "bot", repo: "db-lyon/ue-mcp" }),
+        );
+      entry("20260101-000001-aaaa", "First report");
+      entry("20260101-000002-bbbb", "Second report");
+      entry("20260101-000003-cccc", "Third report");
+
+      const prompt = "[a]pprove  [d]iscard  [s]kip  [q]uit >";
+      const r = await runInTerminal(["feedback", "review"], sb.root, [
+        { prompt, keys: ["a", ENTER] },
+        { prompt, keys: ["d", ENTER] },
+        { prompt, keys: ["s", ENTER] },
+      ], { UE_MCP_FEEDBACK_ENDPOINT: `${signing.origin}/sign` });
+
+      expect(r.code, r.output).toBe(0);
+      expect(signing.reports().map((x) => x.title)).toEqual(["First report"]);
+      expect(fs.readdirSync(pending).filter((f) => f.endsWith(".json")).sort()).toEqual(["20260101-000003-cccc.json"]);
+    } finally {
+      await signing.stop();
+    }
   });
 });
 

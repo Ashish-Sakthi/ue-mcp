@@ -181,7 +181,6 @@ Eleven surfaces had a genuine end-to-end test: the daemon shim and start-lock su
 
 ## Partial coverage
 
-- `cli.feedback.review`: the non-terminal outcomes are driven (refusal with a queue, exit 0 when empty). The interactive walk itself is not, though the pseudo-terminal harness in `tests/integration/init-interactive.test.ts` could drive it.
 - `cli.update`: the npm install and redeploy are driven; the rebuild step after it is only covered by `cli.build` against a stub engine, because tests never reach a real engine.
 - `flow.run.builtin` runs `niagara_fire` against a fake bridge with realistic answers; the live suite still owns the in-editor effect.
 
@@ -217,4 +216,4 @@ New overrides added so fakes can stand in: `UE_MCP_GITHUB_OAUTH`, `UE_MCP_GITHUB
 - `http.enabled` started the flow HTTP server only in process; the daemon now serves it too.
 - `resolve --ci` implied a mode that did not exist; the usage drops it and the flag says it has no effect.
 
-Interactive `init` is covered through node-pty, a dev dependency with prebuilt Windows and macOS binaries; on the Linux CI runner it compiles at install.
+Interactive `init` and the `feedback review` walk are covered through node-pty, a dev dependency with prebuilt Windows and macOS binaries; on the Linux CI runner it compiles at install.

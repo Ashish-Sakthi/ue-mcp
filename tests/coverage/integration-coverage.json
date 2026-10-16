@@ -641,6 +641,11 @@
           "suite": "integration",
           "file": "tests/integration/feedback.test.ts",
           "test": "refuses to walk a non-empty queue without a terminal, and touches nothing"
+        },
+        {
+          "suite": "integration",
+          "file": "tests/integration/init-interactive.test.ts",
+          "test": "approves, discards and skips entries as answered, one at a time"
         }
       ]
     },
