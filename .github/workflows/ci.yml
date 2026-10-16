@@ -101,6 +101,13 @@ jobs:
         # harness pointed at tests/ue_mcp only, and nothing here needs to move.
         run: npm run test:multi-editor
 
+      - name: Integration tests
+        # The real CLI, server and daemon, spawned in hermetic sandboxes with
+        # local fakes for the bridge, the registry and the feedback service.
+        # Every surface they cover is listed in tests/coverage/integration-surfaces.json,
+        # which the unit suite gates. Live-editor cases are in tests/live.
+        run: npm run test:integration
+
       - name: Audit (high+ only, production deps)
         run: npm audit --omit=dev --audit-level=high
         continue-on-error: false
