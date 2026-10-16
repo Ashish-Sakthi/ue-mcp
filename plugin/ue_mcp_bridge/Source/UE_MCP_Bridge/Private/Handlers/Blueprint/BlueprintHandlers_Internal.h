@@ -357,3 +357,14 @@ inline USCS_Node* MCPFindSCSNode(USimpleConstructionScript* SCS, const FString& 
 	}
 	return nullptr;
 }
+
+/** Reports whether a node-level write compiled, or left it to blueprint(compile) (#1346). */
+inline void MCPNoteCompileDeferred(const TSharedPtr<FJsonObject>& Result, bool bDeferred)
+{
+	Result->SetBoolField(TEXT("compiled"), !bDeferred);
+	if (bDeferred)
+	{
+		Result->SetBoolField(TEXT("compileDeferred"), true);
+		Result->SetStringField(TEXT("compileWith"), TEXT("blueprint(compile)"));
+	}
+}

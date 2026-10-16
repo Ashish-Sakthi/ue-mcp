@@ -1726,6 +1726,12 @@
           "type": "object",
           "required": false,
           "description": "Node-specific settings, such as functionName and className for a CallFunction node"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -8501,6 +8507,12 @@
           "type": "boolean",
           "required": false,
           "description": "Break every existing link on the target pin first"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -11939,6 +11951,12 @@
           "aliases": [
             "nodeName"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -33104,6 +33122,12 @@
           "aliases": [
             "defaultValue"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
