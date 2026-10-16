@@ -51,6 +51,11 @@ export const PluginEntrySchema = z.object({
 
 export type PluginEntry = z.infer<typeof PluginEntrySchema>;
 
+/** A step's key is its place in the run order; the runner sorts steps by it as a number. */
+export const FlowStepKeySchema = z.coerce.string().regex(/^\d+$/, {
+  message: 'a flow step key is its run order, a whole number such as "1" or "2"',
+});
+
 /** flowkit's flow definition plus what ue-mcp adds to it. See flow/editor-loss.ts. */
 export const UeMcpFlowDefinitionSchema = FlowDefinitionSchema.extend({
   on_editor_loss: z.enum(["resume", "rollback", "fail"]).optional(),

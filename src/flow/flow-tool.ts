@@ -10,7 +10,7 @@ import type {
   FlowDefinition,
 } from "@db-lyon/flowkit";
 import type { FlowContext } from "./context.js";
-import type { FlowConfig } from "./schema.js";
+import { FlowStepKeySchema, type FlowConfig } from "./schema.js";
 import type { ToolDef, ToolContext, ActionSpec } from "../core/types.js";
 import { actionEnum } from "../surface/category-tool.js";
 import { McpError, ErrorCode } from "../core/errors.js";
@@ -163,6 +163,21 @@ function listFlows(config: FlowConfig): Record<string, unknown> {
   return { flowCount: flows.length, flows };
 }
 
+/**
+ * The runner orders steps by their keys as numbers, so a named key is a step
+ * it cannot find. Said before the run instead of as a crash inside it.
+ */
+function refuseUnorderedSteps(config: FlowConfig, flowName: string): void {
+  const def = (config.flows as Record<string, { steps?: Record<string, unknown> } | undefined>)[flowName];
+  const bad = Object.keys(def?.steps ?? {}).filter((key) => !FlowStepKeySchema.safeParse(key).success);
+  if (bad.length > 0) {
+    throw new Error(
+      `Flow '${flowName}' has step key${bad.length > 1 ? "s" : ""} ${bad.map((k) => `"${k}"`).join(", ")}: `
+      + 'a flow step key is its run order, a whole number such as "1" or "2".',
+    );
+  }
+}
+
 async function planFlow(
   registry: TaskRegistry,
   config: FlowConfig,
@@ -171,6 +186,7 @@ async function planFlow(
 ): Promise<unknown> {
   const flowName = params.flowName as string;
   if (!flowName) throw new Error("flowName is required");
+  refuseUnorderedSteps(config, flowName);
 
   // Plan mode short-circuits inside the runner before any hooks fire,
   // so the runId placeholder we pass here is never observed.
@@ -190,6 +206,7 @@ async function runFlow(
 ): Promise<unknown> {
   const flowName = params.flowName as string;
   if (!flowName) throw new Error("flowName is required");
+  refuseUnorderedSteps(config, flowName);
   const skip = (params.skip as string[] | undefined) ?? [];
   const flowParams = params.params as Record<string, unknown> | undefined;
   const rollback_on_failure = params.rollback_on_failure as boolean | undefined;
