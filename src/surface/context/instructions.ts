@@ -151,8 +151,8 @@ If the user agrees, call feedback(action="submit") with:
   • idealTool - what tool/action should handle this natively
 This creates a GitHub issue so the maintainers can add proper support.
 
-Not every gap belongs to ue-mcp core. Plugins (PIE Studio, Perforce, Meshy, ...)
-own their own surfaces and their own trackers. submit checks the plugin registry
+Not every gap belongs to ue-mcp core. Plugins listed in the plugin registry own
+their own surfaces and their own trackers. submit checks the plugin registry
 and aims the issue at the owning repo on its own, and the approval prompt lets
 the user change it - do NOT set the repo parameter yourself unless the user
 names a repo. feedback(action="route") answers "where would this land?" without

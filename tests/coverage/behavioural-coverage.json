@@ -5625,7 +5625,7 @@
     },
     {
       "method": "is_module_loaded",
-      "category": "project",
+      "category": "reflection",
       "registeredIn": "ReflectionHandlers.cpp",
       "status": "gap",
       "tests": []
@@ -6190,7 +6190,7 @@
     },
     {
       "method": "list_loaded_modules",
-      "category": "project",
+      "category": "reflection",
       "registeredIn": "ReflectionHandlers.cpp",
       "status": "gap",
       "tests": []

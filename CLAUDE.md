@@ -219,6 +219,8 @@ Each category has a folder `Private/Handlers/<Category>/` holding a paired `<Cat
 
 The bridge must be self-sufficient. Every system (Niagara, materials, PCG, blueprints, etc.) should be fully creatable and configurable through the bridge without manual editor work or pre-existing placeholder assets. If a handler can't do something, **extend the handler** rather than punt to a Python escape hatch or editor workflow. Every `execute_python` fallback is a gap, and tracked as agent feedback.
 
+Core is a provider-neutral bridge to engine modules and engine-bundled Epic plugins. It holds no third-party credentials and calls no third-party service, except the first-party infrastructure the server needs. Third-party integrations, provider-specific behaviour, opinionated workflows and anything needing an external service or credential belong in a plugin. The full rule is in `docs/plugins.md` under "What belongs in core and what belongs in a plugin".
+
 ## Useful commands
 
 ```bash

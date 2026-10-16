@@ -357,6 +357,12 @@ interface ActionSpecBase {
   strictParams?: boolean;
   /** A plugin handler's recorded contract and its bridge method, compared against the live editor for drift (#1282). */
   recordedContract?: { method: string; spec: HandlerSpec };
+  /**
+   * This address is a deprecated alias kept for one release: the action now
+   * lives at `category(action)`. It dispatches as before; discovery lists only
+   * the canonical address. Built by `movedAction`.
+   */
+  movedTo?: { category: string; action: string };
 }
 
 /** Forwards to a C++ bridge method over the WebSocket. Built by `bp`. */
