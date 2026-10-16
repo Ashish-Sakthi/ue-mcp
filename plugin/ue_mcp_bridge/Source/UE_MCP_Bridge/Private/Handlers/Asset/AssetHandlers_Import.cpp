@@ -1579,11 +1579,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReadCurveTable(const TSharedPtr<FJsonObje
 	for (const TPair<FName, FRealCurve*>& Pair : Table->GetRowMap())
 	{
 		const FString Name = Pair.Key.ToString();
-		RowNames.Add(MakeShared<FJsonValueString>(Name));
 		if (!RowFilter.IsEmpty() && !Name.ToLower().Contains(RowFilter))
 		{
 			continue;
 		}
+		RowNames.Add(MakeShared<FJsonValueString>(Name));
 
 		TArray<TSharedPtr<FJsonValue>> Keys = CurveKeysToJson(Pair.Value, Mode);
 		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
