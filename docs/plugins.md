@@ -65,6 +65,20 @@ Shape B is for genuinely new domains. If your plugin's actions don't fit anywher
 
 Shape C is for capability that can't be expressed through orchestration of existing actions. The plugin ships C++ source that compiles into the user's project alongside the bridge, and registers handlers via `UEMCP::RegisterExternalHandler` from its `StartupModule`. Native handlers participate in the same dispatch path as built-in ones. `pie-studio` is a Shape C plugin. See [Native C++ modules](plugins-native-modules.md).
 
+## What belongs in core and what belongs in a plugin
+
+Core is a provider-neutral bridge to engine modules and to the Epic plugins that ship with the engine, reached through public or reflected APIs. Core holds no third-party credentials and calls no third-party service itself.
+
+The exception is first-party infrastructure the server needs to run: the plugin registry client, feedback routing, the daemon extension host, and registry login (whose token the hosted plan also accepts).
+
+Everything else is a plugin:
+
+- Integrations with third-party Unreal plugins.
+- Provider-specific behaviour layered on a neutral core surface. For example, `p4_` actions injected into the `source_control` category, which itself works with any provider the editor supports.
+- Opinionated workflows, test harnesses, demos and products built on the core surface.
+- Anything where ue-mcp itself would call an external service or hold a credential.
+- Anything that reaches undocumented interfaces or interfaces whose terms restrict that use.
+
 ## Official plugins
 
 | Plugin | What it does |
