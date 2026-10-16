@@ -937,21 +937,32 @@ TSharedPtr<FJsonValue> FMaterialHandlers::BuildMaterial(const TSharedPtr<FJsonOb
 					double Number = 0.0;
 					FLinearColor Color = FLinearColor::White;
 					FString TexturePath;
+					// applied is the instance read back after the write: the editing library's setters can
+					// answer false for a value they did write, which reported a landed override as missed (#1229).
 					if (Has(ScalarInfos, FString(Pair.Key)) && Pair.Value->TryGetNumber(Number))
 					{
 						Kind = TEXT("scalar");
-						bOk = UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(Instance, ParamName, (float)Number);
+						UMaterialEditingLibrary::SetMaterialInstanceScalarParameterValue(Instance, ParamName, (float)Number);
+						float Got = 0.f;
+						bOk = Instance->GetScalarParameterValue(FMaterialParameterInfo(ParamName), Got, /*bOveriddenOnly*/ true)
+							&& FMath::IsNearlyEqual(Got, (float)Number, 1.e-4f);
 					}
 					else if (Has(VectorInfos, FString(Pair.Key)) && MaterialBuildReadColor(Pair.Value, Color))
 					{
 						Kind = TEXT("vector");
-						bOk = UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(Instance, ParamName, Color);
+						UMaterialEditingLibrary::SetMaterialInstanceVectorParameterValue(Instance, ParamName, Color);
+						FLinearColor Got;
+						bOk = Instance->GetVectorParameterValue(FMaterialParameterInfo(ParamName), Got, /*bOveriddenOnly*/ true)
+							&& Got.Equals(Color, 1.e-4f);
 					}
 					else if (Has(TextureInfos, FString(Pair.Key)) && Pair.Value->TryGetString(TexturePath))
 					{
 						Kind = TEXT("texture");
 						UTexture* Texture = LoadAssetByPath<UTexture>(TexturePath);
-						bOk = Texture && UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(Instance, ParamName, Texture);
+						if (Texture) UMaterialEditingLibrary::SetMaterialInstanceTextureParameterValue(Instance, ParamName, Texture);
+						UTexture* Got = nullptr;
+						bOk = Texture && Instance->GetTextureParameterValue(FMaterialParameterInfo(ParamName), Got, /*bOveriddenOnly*/ true)
+							&& Got == Texture;
 					}
 					TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
 					Entry->SetStringField(TEXT("name"), Pair.Key);
