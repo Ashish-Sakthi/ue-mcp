@@ -282,7 +282,15 @@ namespace
 	{
 		if (!Prop || !Value.IsValid()) return false;
 		if (AsSelectorProp(Prop)) return true;
-		if (const FArrayProperty* AP = CastField<FArrayProperty>(Prop)) return Value->Type == EJson::Array && AsSelectorProp(AP->Inner);
+		if (const FArrayProperty* AP = CastField<FArrayProperty>(Prop))
+		{
+			if (Value->Type != EJson::Array) return false;
+			for (const TSharedPtr<FJsonValue>& Item : Value->AsArray())
+			{
+				if (WritesPCGSelector(AP->Inner, Item)) return true;
+			}
+			return false;
+		}
 		const FStructProperty* SP = CastField<FStructProperty>(Prop);
 		if (!SP || Value->Type != EJson::Object) return false;
 		for (const auto& Pair : Value->AsObject()->Values)
@@ -310,13 +318,20 @@ namespace
 		if (const FStructProperty* Selector = AsSelectorProp(Leaf)) return SetPCGSelectorFromJson(Selector, LeafAddr, Value, OutError);
 		if (const FArrayProperty* AP = CastField<FArrayProperty>(Leaf))
 		{
+			// The array becomes exactly the items given, each written from a default element.
 			const TArray<TSharedPtr<FJsonValue>>& Items = Value->AsArray();
-			FScriptArrayHelper Helper(AP, LeafAddr);
-			Helper.Resize(Items.Num());
+			{
+				FScriptArrayHelper Helper(AP, LeafAddr);
+				Helper.EmptyValues();
+				Helper.AddValues(Items.Num());
+			}
 			for (int32 i = 0; i < Items.Num(); ++i)
 			{
 				FString ItemErr;
-				if (!SetPCGSelectorFromJson(AsSelectorProp(AP->Inner), Helper.GetRawPtr(i), Items[i], ItemErr))
+				const bool bItemOk = AsSelectorProp(AP->Inner)
+					? SetPCGSelectorFromJson(AsSelectorProp(AP->Inner), FScriptArrayHelper(AP, LeafAddr).GetRawPtr(i), Items[i], ItemErr)
+					: SetPCGSettingFromJson(Settings, FString::Printf(TEXT("%s[%d]"), *Key, i), Items[i], ItemErr);
+				if (!bItemOk)
 				{
 					OutError = FString::Printf(TEXT("[%d]: %s"), i, *ItemErr);
 					return false;
@@ -518,6 +533,8 @@ namespace
 	{
 		if (!Prop || !Addr) return MakeShared<FJsonValueNull>();
 
+		// A selector exports in editor syntax ("$Position.Z"), which import parses back whole, ExtraNames included (#1267).
+		if (AsSelectorProp(Prop)) return MakeShared<FJsonValueString>(PCGSelectorText(Addr));
 		if (FStructProperty* SP = CastField<FStructProperty>(Prop))
 		{
 			TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();

@@ -270,4 +270,56 @@ bool FMCPPCGSettingsReadBackTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGSelectorRoundTripTest,
+	"UE.MCP.PCG.Authoring.SelectorExportRoundTrip",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGSelectorRoundTripTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	UPCGGraph* Graph = GraphPath.IsEmpty() ? nullptr : LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	const FString Filter = Graph ? AddNode(Registry, GraphPath, TEXT("PCGAttributeFilteringSettings")) : FString();
+	if (!TestFalse(TEXT("a filter node is added"), Filter.IsEmpty())) return false;
+	auto Settings = MakeShared<FJsonObject>();
+	Settings->SetStringField(TEXT("TargetAttribute"), TEXT("$Position.Z"));
+	TestTrue(TEXT("the selector is written"), Ok(WriteSettings(Registry, GraphPath, Filter, Settings)));
+
+	auto ExportParams = MakeShared<FJsonObject>();
+	ExportParams->SetStringField(TEXT("assetPath"), GraphPath);
+	const TSharedPtr<FJsonObject> Exported = Invoke(Registry, TEXT("export_pcg_graph"), ExportParams);
+	if (!TestTrue(TEXT("export succeeds"), Ok(Exported))) return false;
+	FString ExportedText;
+	for (const TSharedPtr<FJsonValue>& Node : Exported->GetArrayField(TEXT("nodes")))
+	{
+		const TSharedPtr<FJsonObject>* NodeSettings = nullptr;
+		if (Node->AsObject()->GetStringField(TEXT("name")) == Filter && Node->AsObject()->TryGetObjectField(TEXT("settings"), NodeSettings))
+		{
+			(*NodeSettings)->TryGetStringField(TEXT("TargetAttribute"), ExportedText);
+		}
+	}
+	TestEqual(TEXT("export emits the selector text with its extra name"), ExportedText, FString(TEXT("$Position.Z")));
+
+	auto Import = MakeShared<FJsonObject>();
+	Import->SetStringField(TEXT("assetPath"), GraphPath);
+	Import->SetBoolField(TEXT("replace"), true);
+	Import->SetArrayField(TEXT("nodes"), Exported->GetArrayField(TEXT("nodes")));
+	Import->SetArrayField(TEXT("connections"), Exported->GetArrayField(TEXT("connections")));
+	TestTrue(TEXT("the export imports back"), Ok(Invoke(Registry, TEXT("import_pcg_graph"), Import)));
+	FString RoundTripped;
+	for (UPCGNode* Node : Graph->GetNodes())
+	{
+		if (Node && Node->GetSettings() && Node->GetSettings()->GetClass()->GetName() == TEXT("PCGAttributeFilteringSettings"))
+		{
+			RoundTripped = SelectorText(Graph, Node->GetName(), TEXT("TargetAttribute"));
+		}
+	}
+	TestEqual(TEXT("the selector survives export and import"), RoundTripped, FString(TEXT("$Position.Z")));
+	return true;
+}
+
 #endif
