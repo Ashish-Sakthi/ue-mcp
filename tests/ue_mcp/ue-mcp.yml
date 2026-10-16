@@ -30,7 +30,6 @@ flows:
         task: asset.list_textures
         options:
           directory: /Game
-          recursive: false
           editor: ue_mcp
       "2":
         task: project.get_status
@@ -41,7 +40,6 @@ flows:
         options:
           method: list_textures
           directory: /Game
-          recursive: false
           editor: ue_mcp
 
   # Run only by the opt-in lifecycle cases (npm run test:live -- --lifecycle),

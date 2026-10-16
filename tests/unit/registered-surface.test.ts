@@ -5,6 +5,9 @@
  */
 import { describe, it, expect } from "vitest";
 import {
+  absentToolset,
+  registeredMethodsOf,
+  wrapsEpicTool,
   registeredSet,
   registeredUnion,
   withheldTarget,
@@ -15,6 +18,7 @@ import { actionEnumValues, bp, categoryTool } from "../../src/surface/category-t
 import { buildMicroGateway } from "../../src/surface/context/micro-context.js";
 import { applyLeanContext } from "../../src/surface/context/lean-context.js";
 import type { ToolContext, ToolDef } from "../../src/core/types.js";
+import { epicToolsetNames } from "../../src/bridge/bridge.js";
 
 function graph(): ToolDef[] {
   return [
@@ -110,5 +114,72 @@ describe("discovery reads the registered surface in every strategy", () => {
     expect(described.count).toBe(2);
     const own = await (alpha.actions.describe as { handler: Function }).handler(ctx, {});
     expect(own.signatures.join("\n")).not.toContain("save");
+  });
+});
+
+describe("epic_* actions whose engine toolset the editor lacks (#1323, #1182)", () => {
+  function epicGraph(): ToolDef[] {
+    return [
+      categoryTool("asset", "Asset", {
+        save: bp("mutate", "Save assets to disk. Params: assetPaths?", "save_asset"),
+        epic_save_assets: {
+          ...bp("mutate", "[Epic Present.AssetTools] Saves assets to disk. Params: asset_paths", "epic_call_tool"),
+          epicTool: { toolset: "Absent.AssetTools", name: "Absent.AssetTools.save_assets" },
+        },
+        epic_list: {
+          ...bp("read", "[Epic Present.Tools] Lists things. Params: none", "epic_call_tool"),
+          epicTool: { toolset: "Present.Tools", name: "Present.Tools.list" },
+        },
+      }),
+    ];
+  }
+  const methods = ["save_asset", "epic_call_tool"];
+
+  it("withholds nothing while the toolset list is unknown", () => {
+    const view = withholdFromTool(epicGraph()[0], registeredMethodsOf({ registeredActions: methods, epicToolsets: null }))!;
+    expect(Object.keys(view.actions)).toEqual(["save", "epic_save_assets", "epic_list"]);
+  });
+
+  it("withholds the action whose toolset is not registered, and only that one", () => {
+    const have = registeredMethodsOf({ registeredActions: methods, epicToolsets: ["Present.Tools"] });
+    expect(absentToolset(epicGraph()[0].actions.epic_save_assets, have)).toBe("Absent.AssetTools");
+    const view = withholdFromTool(epicGraph()[0], have)!;
+    expect(Object.keys(view.actions)).toEqual(["save", "epic_list"]);
+  });
+
+  it("refuses the call naming the toolset and the native action for the job", () => {
+    const message = withheldTarget(epicGraph(), "asset.epic_save_assets", { registeredActions: methods, epicToolsets: [] });
+    expect(message).toContain("'Absent.AssetTools'");
+    expect(message).toContain("asset(save)");
+    expect(message).toContain("epic(list_toolsets)");
+    expect(withheldTarget(epicGraph(), "asset.epic_list", { registeredActions: methods, epicToolsets: ["Present.Tools"] })).toBeNull();
+    expect(wrapsEpicTool(epicGraph(), "asset.epic_list")).toBe(true);
+    expect(wrapsEpicTool(epicGraph(), "asset.save")).toBe(false);
+  });
+
+  it("judges a toolset absent across editors only when every editor's list is known", () => {
+    const known = { registeredActions: methods, epicToolsets: ["Present.Tools"] };
+    const unknown = { registeredActions: methods, epicToolsets: null };
+    const spec = epicGraph()[0].actions.epic_save_assets;
+    expect(absentToolset(spec, registeredUnion([known, unknown]))).toBeUndefined();
+    expect(absentToolset(spec, registeredUnion([known, { ...known }]))).toBe("Absent.AssetTools");
+  });
+
+  it("reads toolset names off epic_list_toolsets, an absent registry as none", () => {
+    expect(epicToolsetNames({ success: true, toolsets: [{ name: "B" }, { name: "A" }] })).toEqual(["A", "B"]);
+    expect(epicToolsetNames({ success: false, error: "Epic ToolsetRegistry not available. Requires UE 5.8+" })).toEqual([]);
+    expect(epicToolsetNames({ success: false, reason: "not_ready" })).toBeNull();
+    expect(epicToolsetNames({ success: true })).toBeNull();
+  });
+});
+
+describe("the shipped epic_* wrappers named in #1323 and #1182", () => {
+  it("point at the native action that does the job", async () => {
+    const { ALL_TOOLS } = await import("../../src/tools.js");
+    const methods = [...new Set(ALL_TOOLS.flatMap((t) => Object.values(t.actions))
+      .flatMap((s) => (s.kind === "bridge" ? [s.bridge] : [])))];
+    const bridge = { registeredActions: methods, epicToolsets: [] };
+    expect(withheldTarget(ALL_TOOLS, "asset.epic_save_assets", bridge)).toContain("asset(save)");
+    expect(withheldTarget(ALL_TOOLS, "animation.epic_add_socket", bridge)).toContain("asset(add_socket)");
   });
 });

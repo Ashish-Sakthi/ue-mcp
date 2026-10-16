@@ -17,6 +17,7 @@
 #include "WidgetBlueprintFactory.h"
 #include "Blueprint/UserWidget.h"
 #include "Blueprint/WidgetTree.h"
+#include "Blueprint/WidgetBlueprintGeneratedClass.h"
 #include "Components/Widget.h"
 #include "Components/PanelSlot.h"
 #include "Components/PanelWidget.h"
@@ -354,6 +355,9 @@ void FWidgetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("read_widget_tree"), &ReadWidgetTree, {
 		AssetPath(),
 	});
+	Registry.RegisterHandler(TEXT("check_widget_structure"), &CheckStructure, {
+		AssetPath(),
+	});
 	Registry.RegisterHandler(TEXT("extract_widget_subtree"), &ExtractWidgetSubtree, {
 		MCPParam::Required(TEXT("sourceAssetPath"), EType::String, TEXT("WidgetBlueprint the subtree is read from")).Alias(TEXT("sourcePath")),
 		MCPParam::Required(TEXT("sourceWidgetName"), EType::String, TEXT("Widget in the source that becomes the extracted root")).Alias(TEXT("widgetName")),
@@ -428,6 +432,11 @@ void FWidgetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("widgetClass"), EType::String, TEXT("Widget class: a short name (TextBlock, CanvasPanel), a full path, or a Widget Blueprint path")).Alias(TEXT("typeName")),
 		MCPParam::Optional(TEXT("widgetName"), EType::String, TEXT("Name of a widget inside the tree (#798)")).Alias(TEXT("name")),
 		MCPParam::Optional(TEXT("parentWidgetName"), EType::String, TEXT("Name of the parent panel widget (#798)")),
+	});
+	Registry.RegisterHandler(TEXT("build_tree"), &BuildTree, {
+		AssetPath(),
+		MCPParam::Required(TEXT("tree"), EType::Object, TEXT("One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values")),
+		MCPParam::Optional(TEXT("parentWidgetName"), EType::String, TEXT("Panel to build under (default: the root panel, or the tree root when there is none)")),
 	});
 	Registry.RegisterHandler(TEXT("remove_widget"), &RemoveWidget, {
 		AssetPath(),
@@ -1035,45 +1044,6 @@ UClass* MCPWidget::ResolveWidgetClass(const FString& ClassName)
 	return nullptr;
 }
 
-/**
- * Compile state of a Widget Blueprint as a stable string (#799). A caller that
- * gets `created: true` still needs to know whether the asset it just changed
- * compiles, so the mutation handlers report this alongside the outcome.
- */
-static FString WidgetCompileStatusString(const UWidgetBlueprint* WidgetBP)
-{
-	if (!WidgetBP) return TEXT("unknown");
-	switch (WidgetBP->Status.GetValue())
-	{
-	case BS_UpToDate:             return TEXT("upToDate");
-	case BS_UpToDateWithWarnings: return TEXT("upToDateWithWarnings");
-	case BS_Dirty:                return TEXT("dirty");
-	case BS_Error:                return TEXT("error");
-	case BS_BeingCreated:         return TEXT("beingCreated");
-	default:                      return TEXT("unknown");
-	}
-}
-
-/** Stamp compile state onto a mutation result, and withdraw the success claim
- *  when the blueprint no longer compiles (#799). */
-static void MCPSetWidgetCompileOutcome(
-	TSharedPtr<FJsonObject> Result,
-	const UWidgetBlueprint* WidgetBP,
-	const FString& AssetPath,
-	const FString& WhatHappened)
-{
-	const FString CompileStatus = WidgetCompileStatusString(WidgetBP);
-	Result->SetStringField(TEXT("compileStatus"), CompileStatus);
-	if (CompileStatus == TEXT("error"))
-	{
-		// The mutation is already on disk, so keep reporting what landed, but a
-		// blueprint that no longer compiles is not a success.
-		Result->SetBoolField(TEXT("success"), false);
-		Result->SetStringField(TEXT("error"), FString::Printf(
-			TEXT("%s and saved, but '%s' no longer compiles - open the blueprint's compiler results for the cause."),
-			*WhatHappened, *AssetPath));
-	}
-}
 
 TSharedPtr<FJsonValue> FWidgetHandlers::AddWidget(const TSharedPtr<FJsonObject>& Params)
 {
@@ -3165,5 +3135,114 @@ TSharedPtr<FJsonValue> FWidgetHandlers::GetRuntimeDelegates(const TSharedPtr<FJs
 	Result->SetStringField(TEXT("widgetClass"), Found->GetClass()->GetName());
 	Result->SetArrayField(TEXT("delegates"), DelegatesArr);
 	Result->SetNumberField(TEXT("delegateCount"), DelegatesArr.Num());
+	return MCPResult(Result);
+}
+
+// ─── #1350 check_structure ──────────────────────────────────────────────────
+// The ownership UWidgetBlueprint::ValidateGeneratedClass asserts: the designer
+// WidgetTree is outered to the blueprint and every widget in it to that tree,
+// and the generated class's archetype tree is outered to the class and every
+// widget in it to that archetype. Each object is reported with its expected
+// and actual outer, so a broken asset is identified without reflection.
+static TSharedPtr<FJsonObject> WidgetOuterRow(const TCHAR* Check, const UObject* Object, const UObject* Expected, int32& Failures)
+{
+	TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+	Row->SetStringField(TEXT("check"), Check);
+	const UObject* Actual = Object ? Object->GetOuter() : nullptr;
+	const bool bPass = Object && Actual == Expected;
+	if (Object)
+	{
+		Row->SetStringField(TEXT("name"), Object->GetName());
+		Row->SetStringField(TEXT("class"), Object->GetClass()->GetName());
+		Row->SetStringField(TEXT("path"), Object->GetPathName());
+	}
+	Row->SetStringField(TEXT("expectedOuter"), Expected ? Expected->GetPathName() : TEXT("None"));
+	Row->SetStringField(TEXT("actualOuter"), Actual ? Actual->GetPathName() : TEXT("None"));
+	Row->SetBoolField(TEXT("pass"), bPass);
+	if (!bPass) ++Failures;
+	return Row;
+}
+
+/** The tree row plus one row per widget the tree holds. */
+static TSharedPtr<FJsonObject> WidgetTreeOuterReport(const TCHAR* TreeCheck, const TCHAR* WidgetCheck,
+	UWidgetTree* Tree, const UObject* ExpectedTreeOuter, int32& Failures)
+{
+	TSharedPtr<FJsonObject> Report = MakeShared<FJsonObject>();
+	Report->SetBoolField(TEXT("exists"), Tree != nullptr);
+	if (!Tree)
+	{
+		++Failures;
+		Report->SetBoolField(TEXT("pass"), false);
+		return Report;
+	}
+	const int32 Before = Failures;
+	Report->SetObjectField(TEXT("tree"), WidgetOuterRow(TreeCheck, Tree, ExpectedTreeOuter, Failures));
+	TArray<UWidget*> All;
+	Tree->GetAllWidgets(All);
+	TArray<TSharedPtr<FJsonValue>> Rows;
+	for (UWidget* Widget : All)
+	{
+		if (Widget) Rows.Add(MakeShared<FJsonValueObject>(WidgetOuterRow(WidgetCheck, Widget, Tree, Failures)));
+	}
+	Report->SetArrayField(TEXT("widgets"), Rows);
+	Report->SetNumberField(TEXT("widgetCount"), Rows.Num());
+	Report->SetBoolField(TEXT("pass"), Failures == Before);
+	return Report;
+}
+
+TSharedPtr<FJsonValue> FWidgetHandlers::CheckStructure(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
+
+	TSharedPtr<FJsonValue> ResolveError;
+	UWidgetBlueprint* WidgetBP = MCPWidget::ResolveWidgetBlueprintOrError(AssetPath, ResolveError);
+	if (!WidgetBP) return ResolveError;
+
+	int32 Failures = 0;
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("assetPath"), AssetPath);
+	Result->SetStringField(TEXT("blueprintPath"), WidgetBP->GetPathName());
+
+	Result->SetObjectField(TEXT("designerTree"), WidgetTreeOuterReport(
+		TEXT("widgetTreeOuterIsBlueprint"), TEXT("widgetOuterIsWidgetTree"), WidgetBP->WidgetTree, WidgetBP, Failures));
+
+	// A tree-owned widget no walk reaches is compiled anyway; worth seeing.
+	if (WidgetBP->WidgetTree)
+	{
+		TSet<const UObject*> Reachable;
+		WidgetBP->WidgetTree->ForEachWidget([&Reachable](UWidget* W) { if (W) Reachable.Add(W); });
+		for (const auto& Binding : WidgetBP->WidgetTree->NamedSlotBindings)
+		{
+			if (Binding.Value) UWidgetTree::ForWidgetAndChildren(Binding.Value, [&Reachable](UWidget* W) { if (W) Reachable.Add(W); });
+		}
+		TArray<UObject*> Owned;
+		MCPGetDirectSubobjects(WidgetBP->WidgetTree, Owned);
+		TArray<TSharedPtr<FJsonValue>> Orphans;
+		for (UObject* Object : Owned)
+		{
+			if (Cast<UWidget>(Object) && !Reachable.Contains(Object)) Orphans.Add(MakeShared<FJsonValueString>(Object->GetPathName()));
+		}
+		Result->SetArrayField(TEXT("unreachableWidgets"), Orphans);
+	}
+
+	UWidgetBlueprintGeneratedClass* GenClass = Cast<UWidgetBlueprintGeneratedClass>(WidgetBP->GeneratedClass);
+	TSharedPtr<FJsonObject> Generated = MakeShared<FJsonObject>();
+	Generated->SetBoolField(TEXT("exists"), GenClass != nullptr);
+	if (GenClass)
+	{
+		Generated->SetStringField(TEXT("path"), GenClass->GetPathName());
+		Generated->SetObjectField(TEXT("archetypeTree"), WidgetTreeOuterReport(
+			TEXT("archetypeTreeOuterIsGeneratedClass"), TEXT("widgetOuterIsArchetypeTree"), GenClass->GetWidgetTreeArchetype(), GenClass, Failures));
+	}
+	else
+	{
+		Generated->SetStringField(TEXT("note"), TEXT("No generated class: compile the blueprint, then check again"));
+		++Failures;
+	}
+	Result->SetObjectField(TEXT("generatedClass"), Generated);
+
+	Result->SetBoolField(TEXT("pass"), Failures == 0);
+	Result->SetNumberField(TEXT("failures"), Failures);
 	return MCPResult(Result);
 }

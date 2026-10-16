@@ -26,6 +26,9 @@ import { satisfiesMinimum } from "./version.js";
 import { mergeInjectionsIntoTool, type InjectionPlan } from "./injection.js";
 import { buildProvidedTool, type ProvisionPlan } from "./provision.js";
 import { readDeployedBridgeApiVersion } from "./bridge-api.js";
+import { resolveServerImportsToSelf } from "./self-resolve.js";
+import { requiredFieldNames, requiringParams, reservedParamName, reservedParamReason } from "./manifest-params.js";
+import { ROUTING_PARAM_NAMES } from "../surface/routing-params.js";
 import {
   partitionFlowsByGroup,
   runtimeConfigFor,
@@ -225,7 +228,7 @@ export async function loadPlugins(
         const ctor = taskCtors.get(pluginTaskName);
         if (!ctor) continue; // skipped task - collision logged elsewhere
         const dispatchName = `${category}.${manifest.actionPrefix}_${bareName}`;
-        taskRegistrations.push({ name: dispatchName, ctor });
+        taskRegistrations.push({ name: dispatchName, ctor: requiringParams(ctor, dispatchName, requiredFieldNames(injectSpec.schema)) });
       }
     }
 
@@ -281,7 +284,7 @@ export async function loadPlugins(
         const ctor = taskCtors.get(actionSpec.task);
         if (!ctor) continue;
         const dispatchName = `${category}.${actionName}`;
-        taskRegistrations.push({ name: dispatchName, ctor });
+        taskRegistrations.push({ name: dispatchName, ctor: requiringParams(ctor, dispatchName, requiredFieldNames(actionSpec.schema)) });
       }
 
       record.record.provided[category] = Object.keys(providedSpec.actions);
@@ -455,6 +458,35 @@ async function loadOne(
     }
   }
 
+  // #1216: a parameter named after a routing key can never reach the plugin,
+  // so the action declaring it is refused here rather than failing every call.
+  const reserved = (names: Iterable<string>) => reservedParamName(names, ROUTING_PARAM_NAMES);
+  const refuse = (unit: string, param: string, drop: () => void) => {
+    drop();
+    base.degraded.push(`${unit}: ${reservedParamReason(param)}`);
+    warn("plugin", `${entry.name}: dropped ${unit} - ${reservedParamReason(param)}`);
+  };
+  for (const [category, actions] of Object.entries(manifest.inject)) {
+    for (const [bare, spec] of Object.entries(actions)) {
+      const bad = reserved(Object.keys(spec.schema ?? {}));
+      if (bad) refuse(`inject.${category}.${bare}`, bad, () => delete actions[bare]);
+    }
+  }
+  for (const [category, provided] of Object.entries(manifest.provides)) {
+    for (const [action, spec] of Object.entries(provided.actions)) {
+      const bad = reserved(Object.keys(spec.schema ?? {}));
+      if (bad) refuse(`provides.${category}.actions.${action}`, bad, () => delete provided.actions[action]);
+    }
+  }
+  if (manifest.nativeModule) {
+    const handlers = manifest.nativeModule.handlers;
+    for (const [hName, hSpec] of Object.entries(handlers)) {
+      const recorded = nativeSpecs?.[hName]?.params ?? [];
+      const bad = reserved([...Object.keys(hSpec.schema ?? {}), ...recorded.flatMap((p) => [p.name, ...(p.aliases ?? [])])]);
+      if (bad) refuse(`nativeModule.handlers.${hName}`, bad, () => delete handlers[hName]);
+    }
+  }
+
   // Target validation: every inject target must be a registered category.
   for (const target of Object.keys(manifest.inject)) {
     if (!builtInCategories.has(target)) {
@@ -596,17 +628,6 @@ export function nativeHandlerSurface(
   const cat = native.category;
   const taskRegistrations: TaskReg[] = [];
 
-  // One flat schema backs every action in a category, so a schema-level
-  // required param would be forced onto unrelated actions. Native handlers
-  // validate their own params (RequireString), so force every surfaced param
-  // optional regardless of what the manifest declares.
-  const optionalSchema = (schema: ManifestInjectAction["schema"]) =>
-    schema
-      ? Object.fromEntries(
-          Object.entries(schema).map(([k, f]) => [k, { ...f, required: false }]),
-        )
-      : undefined;
-
   const timeoutMs = (seconds?: number) =>
     seconds ? seconds * 1000 : undefined;
 
@@ -619,7 +640,8 @@ export function nativeHandlerSurface(
   const surfaced = (hName: string, hSpec: { description?: string; schema?: ManifestInjectAction["schema"] }):
     { description?: string; schema?: ManifestInjectAction["schema"] } & NativeContractExtras => {
     const spec = specs?.[hName];
-    if (!spec) return { description: hSpec.description, schema: optionalSchema(hSpec.schema) };
+    // Injection and provisioning lift every key optional; the action keeps its required flags.
+    if (!spec) return { description: hSpec.description, schema: hSpec.schema };
     return {
       description: [hSpec.description, paramsClause(spec)].filter(Boolean).join(" "),
       contract: { method: hName, spec },
@@ -628,7 +650,9 @@ export function nativeHandlerSurface(
   };
   const prepFor = (action: string, hName: string) => {
     const spec = specs?.[hName];
-    return spec ? { action, paramContract: { params: spec.params, choices: spec.choices, strict: true } } : undefined;
+    return spec
+      ? { action, paramContract: { params: spec.params, choices: spec.choices, strict: true }, liveSpecMethod: hName }
+      : undefined;
   };
 
   if (builtInCategories.has(cat)) {
@@ -704,6 +728,7 @@ async function importTaskClass(pkgDir: string, classPath: string): Promise<TaskC
       candidates.map((c) => `  - ${c}`).join("\n"),
     );
   }
+  resolveServerImportsToSelf();
   const mod = await import(pathToFileURL(resolved).href);
   const baseName = path.basename(segments);
   const TaskClass = mod.default ?? mod[baseName];

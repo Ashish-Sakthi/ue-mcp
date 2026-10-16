@@ -21,6 +21,7 @@
 
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
+#include "HandlerAnimTrackPose.h"
 
 #include "AnimPose.h"
 #include "Animation/AnimSequence.h"
@@ -140,12 +141,12 @@ FAnimPoseEvaluationOptions MakePoseEvaluationOptions(USkeletalMesh* OptionalMesh
 	return Options;
 }
 
-TSharedPtr<FJsonObject> PoseBoneTransformToJson(const FName& BoneName, const FTransform& Transform)
+TSharedPtr<FJsonObject> PoseBoneTransformToJson(const FName& BoneName, const FTransform& Transform, MCPAnimTrackPose::ERotationFormat RotationFormat)
 {
 	TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
 	Obj->SetStringField(TEXT("name"), BoneName.ToString());
 	Obj->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(Transform.GetLocation()));
-	Obj->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(Transform.GetRotation().Rotator()));
+	MCPAnimTrackPose::WriteRotation(Obj, Transform.GetRotation(), RotationFormat);
 	Obj->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(Transform.GetScale3D()));
 	return Obj;
 }
@@ -474,7 +475,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SamplePose(const TSharedPtr<FJsonObje
 	// Everything but the asset is read after it resolves (#1057).
 	MCPReadParamsAhead(Params, {
 		TEXT("assetPath"), TEXT("boneNames"), TEXT("frames"), TEXT("times"), TEXT("space"),
-		TEXT("skeletalMeshPath"), TEXT("incorporateRootMotion"), TEXT("blendPosition"),
+		TEXT("skeletalMeshPath"), TEXT("incorporateRootMotion"), TEXT("blendPosition"), TEXT("rotationFormat"),
 	});
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
@@ -488,6 +489,11 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SamplePose(const TSharedPtr<FJsonObje
 	if (!ParsePoseSpace(SpaceToken, Space, ResolvedSpace))
 	{
 		return MCPError(TEXT("space must be 'component' (default), 'local', or 'world'"));
+	}
+	MCPAnimTrackPose::ERotationFormat RotationFormat = MCPAnimTrackPose::ERotationFormat::Euler;
+	if (!MCPAnimTrackPose::ParseRotationFormat(OptionalString(Params, TEXT("rotationFormat")), RotationFormat))
+	{
+		return MCPError(TEXT("rotationFormat must be 'euler' (default), 'quaternion', or 'both'"));
 	}
 
 	USkeletalMesh* OptionalMesh = nullptr;
@@ -546,7 +552,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::SamplePose(const TSharedPtr<FJsonObje
 		for (int32 BoneIndex = 0; BoneIndex < Sample.BoneNames.Num(); ++BoneIndex)
 		{
 			Bones.Add(MakeShared<FJsonValueObject>(
-				PoseBoneTransformToJson(Sample.BoneNames[BoneIndex], Sample.Transforms[BoneIndex])));
+				PoseBoneTransformToJson(Sample.BoneNames[BoneIndex], Sample.Transforms[BoneIndex], RotationFormat)));
 		}
 		SampleObj->SetArrayField(TEXT("bones"), Bones);
 		SampleObjects.Add(MakeShared<FJsonValueObject>(SampleObj));

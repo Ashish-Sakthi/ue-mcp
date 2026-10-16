@@ -104,7 +104,7 @@ src/
 ├── integrations/claude-code/  # Hooks and MCP client config
 ├── cli/                  # Subcommands, --editor parsing, terminal UI (cli/ui/)
 ├── flow/                 # Flow engine (registry, loader, task factory, HTTP)
-└── tools/                # <!-- count:tools -->26<!-- /count --> category tools, one file each
+└── tools/                # <!-- count:tools -->29<!-- /count --> category tools, one file each
     ├── project/          # project category, split by action group
     ├── epic/             # Generated epic_* actions (npm run epic:generate)
     └── specs/            # Generated parameter specs (npm run specs:generate)

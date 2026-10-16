@@ -14,7 +14,7 @@ import type { ActionSpec } from "../../core/types.js";
 import { bp } from "../../surface/category-tool.js";
 
 const S_epic_add_plugin_dependency = {"properties":{"pluginName":{"type":"string"},"dependencyName":{"type":"string"},"bOptional":{"type":"boolean"},"bEnabled":{"type":"boolean"}},"required":["pluginName","dependencyName","bOptional","bEnabled"]} as const;
-const S_epic_create_plugin = {"properties":{"pluginName":{"type":"string"},"relativePluginLocation":{"type":"string"},"bPlaceInEngine":{"type":"boolean"},"templateInfo":{"type":"object"},"description":{"type":"string"}},"required":["pluginName","relativePluginLocation","bPlaceInEngine","templateInfo","description"]} as const;
+const S_epic_create_plugin = {"properties":{"pluginName":{"type":"string"},"relativePluginLocation":{"type":"string"},"bPlaceInEngine":{"type":"boolean"},"templateInfo":{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"onDiskPath":{"type":"string"},"defaultTemplateName":{"type":"string"},"bCanBePlacedInEngine":{"type":"boolean"}}},"description":{"type":"string"}},"required":["pluginName","relativePluginLocation","bPlaceInEngine","templateInfo","description"]} as const;
 const S_epic_get_game_feature_state = {"properties":{"pluginName":{"type":"string"}},"required":["pluginName"]} as const;
 const S_epic_get_plugin_dependencies = {"properties":{"pluginName":{"type":"string"}},"required":["pluginName"]} as const;
 const S_epic_get_plugin_dependents = {"properties":{"pluginName":{"type":"string"}},"required":["pluginName"]} as const;
@@ -35,8 +35,8 @@ const S_epic_remove_plugin_dependency = {"properties":{"pluginName":{"type":"str
 const S_epic_request_activate_game_feature = {"properties":{"pluginName":{"type":"string"}},"required":["pluginName"]} as const;
 const S_epic_request_deactivate_game_feature = {"properties":{"pluginName":{"type":"string"}},"required":["pluginName"]} as const;
 const S_epic_set_plugin_enabled = {"properties":{"pluginName":{"type":"string"},"bEnabled":{"type":"boolean"}},"required":["pluginName","bEnabled"]} as const;
-const S_epic_update_plugin_descriptor = {"properties":{"pluginName":{"type":"string"},"newDescriptor":{"type":"object"}},"required":["pluginName","newDescriptor"]} as const;
-const S_epic_validate_new_plugin_name_and_location = {"properties":{"pluginName":{"type":"string"},"relativePluginLocation":{"type":"string"},"bPlaceInEngine":{"type":"boolean"},"templateInfo":{"type":"object"}},"required":["pluginName","relativePluginLocation","bPlaceInEngine","templateInfo"]} as const;
+const S_epic_update_plugin_descriptor = {"properties":{"pluginName":{"type":"string"},"newDescriptor":{"type":"object","properties":{"friendlyName":{"type":"string"},"description":{"type":"string"},"category":{"type":"string"},"versionName":{"type":"string"},"version":{"type":"integer"},"createdBy":{"type":"string"},"createdByURL":{"type":"string"},"docsURL":{"type":"string"},"marketplaceURL":{"type":"string"},"supportURL":{"type":"string"},"bCanContainContent":{"type":"boolean"},"bIsBetaVersion":{"type":"boolean"},"bIsExperimentalVersion":{"type":"boolean"},"bIsSealed":{"type":"boolean"}}}},"required":["pluginName","newDescriptor"]} as const;
+const S_epic_validate_new_plugin_name_and_location = {"properties":{"pluginName":{"type":"string"},"relativePluginLocation":{"type":"string"},"bPlaceInEngine":{"type":"boolean"},"templateInfo":{"type":"object","properties":{"name":{"type":"string"},"description":{"type":"string"},"onDiskPath":{"type":"string"},"defaultTemplateName":{"type":"string"},"bCanBePlacedInEngine":{"type":"boolean"}}}},"required":["pluginName","relativePluginLocation","bPlaceInEngine","templateInfo"]} as const;
 
 /** 24 wrapped engine tools routed to the `plugins` category. */
 export const actions: Record<string, ActionSpec> = {

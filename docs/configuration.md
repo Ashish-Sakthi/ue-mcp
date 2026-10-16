@@ -202,11 +202,11 @@ Everything the server injects at session start - the `initialize` instructions p
 
 | Strategy | Seed | What's advertised | Cost to use |
 |----------|------|-------------------|-------------|
-| **`micro`** (default) | <!-- tax:micro -->~2.1k<!-- /tax --> tokens | a single `tools` gateway - `search`, `list_categories`, `describe`, and `call` - fronting every category | discovery for everything |
-| **`lean`** | <!-- tax:lean -->~19k<!-- /tax --> tokens | the <!-- count:tools -->26<!-- /count --> category tools with their `action` enums and a one-line summary each; a `catalog` tool (`search` / `describe` / `list_categories`) and a per-category `describe` action serve the signatures on demand | ~1 round-trip to learn a category |
-| **`full`** | <!-- tax:full -->~51k<!-- /tax --> tokens | the <!-- count:tools -->26<!-- /count --> category tools, each with one signature line per action inline | zero discovery calls |
+| **`micro`** (default) | <!-- tax:micro -->~2.2k<!-- /tax --> tokens | a single `tools` gateway - `search`, `list_categories`, `describe`, and `call` - fronting every category | discovery for everything |
+| **`lean`** | <!-- tax:lean -->~19k<!-- /tax --> tokens | the <!-- count:tools -->29<!-- /count --> category tools with their `action` enums and a one-line summary each; a `catalog` tool (`search` / `describe` / `list_categories`) and a per-category `describe` action serve the signatures on demand | ~1 round-trip to learn a category |
+| **`full`** | <!-- tax:full -->~51k<!-- /tax --> tokens | the <!-- count:tools -->29<!-- /count --> category tools, each with one signature line per action inline | zero discovery calls |
 
-On demand, micro's `describe` of the largest category (a page of signatures) costs <!-- tax:describe -->~1.6k<!-- /tax --> tokens and a default `search` <!-- tax:search -->~560<!-- /tax -->.
+On demand, micro's `describe` of the largest category (a page of signatures) costs <!-- tax:describe -->~1.5k<!-- /tax --> tokens and a default `search` <!-- tax:search -->~500<!-- /tax -->.
 
 The figures include the <!-- count:nativeToolActions -->830<!-- /count --> wrapped Epic tools, which are declared in the package, and are measured hermetically (throwaway project, no editor) by `npm run context-tax`, which stamps them into these docs. Set `ANTHROPIC_API_KEY` for exact token counts instead of the chars/4 estimate. The `context-tax` release gate (`node scripts/check-release-gates.mjs context-tax`) fails the build when a seed exceeds its budget: micro <!-- tax:microBudget -->~5.0k<!-- /tax -->, lean <!-- tax:leanBudget -->~30k<!-- /tax -->, full <!-- tax:fullBudget -->~60k<!-- /tax -->, a category describe <!-- tax:describeBudget -->~2.0k<!-- /tax --> and a search <!-- tax:searchBudget -->~1.0k<!-- /tax -->.
 

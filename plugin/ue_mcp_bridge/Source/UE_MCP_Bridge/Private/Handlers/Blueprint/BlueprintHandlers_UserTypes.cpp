@@ -388,7 +388,7 @@ bool FBlueprintHandlers::ParsePinTypeSpec(const FString& TypeStr, FEdGraphPinTyp
 		TEXT("a struct (Vector, struct:/Script/CoreUObject.Vector), ")
 		TEXT("an enum (enum:/Game/Enums/E_Foo.E_Foo), ")
 		TEXT("an object ref (Actor, object:/Script/Engine.Actor, TSubclassOf<Actor>, TSoftObjectPtr<Actor>), ")
-		TEXT("or a container over any of those: 'int[]', 'array<int>', 'set<Name>', 'map<Name,int>'");
+		TEXT("or a container over any of those: 'int[]', 'array<int>', 'TArray<int>', 'set<Name>', 'map<Name,int>'");
 
 	FString Spec = TypeStr;
 	Spec.TrimStartAndEndInline();
@@ -402,22 +402,34 @@ bool FBlueprintHandlers::ParsePinTypeSpec(const FString& TypeStr, FEdGraphPinTyp
 	FString ValueSpec;
 	FString Inner;
 
-	if (Spec.EndsWith(TEXT("[]")))
+	// "array:X" and "set:X" prefixes, and the C++ spellings TArray/TSet/TMap,
+	// are accepted beside the forms PinTypeSpec reports.
+	if (Spec.StartsWith(TEXT("array:"), ESearchCase::IgnoreCase))
+	{
+		Container = EPinContainerType::Array;
+		Spec = Spec.Mid(6).TrimStartAndEnd();
+	}
+	else if (Spec.StartsWith(TEXT("set:"), ESearchCase::IgnoreCase))
+	{
+		Container = EPinContainerType::Set;
+		Spec = Spec.Mid(4).TrimStartAndEnd();
+	}
+	else if (Spec.EndsWith(TEXT("[]")))
 	{
 		Container = EPinContainerType::Array;
 		Spec = Spec.LeftChop(2).TrimStartAndEnd();
 	}
-	else if (UnwrapContainer(Spec, TEXT("array"), Inner))
+	else if (UnwrapContainer(Spec, TEXT("array"), Inner) || UnwrapContainer(Spec, TEXT("TArray"), Inner))
 	{
 		Container = EPinContainerType::Array;
 		Spec = Inner;
 	}
-	else if (UnwrapContainer(Spec, TEXT("set"), Inner))
+	else if (UnwrapContainer(Spec, TEXT("set"), Inner) || UnwrapContainer(Spec, TEXT("TSet"), Inner))
 	{
 		Container = EPinContainerType::Set;
 		Spec = Inner;
 	}
-	else if (UnwrapContainer(Spec, TEXT("map"), Inner))
+	else if (UnwrapContainer(Spec, TEXT("map"), Inner) || UnwrapContainer(Spec, TEXT("TMap"), Inner))
 	{
 		Container = EPinContainerType::Map;
 		FString KeySpec;

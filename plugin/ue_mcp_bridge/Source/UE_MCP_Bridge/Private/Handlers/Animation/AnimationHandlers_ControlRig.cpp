@@ -355,3 +355,58 @@ TSharedPtr<FJsonValue> FAnimationHandlers::CreateControlRig(const TSharedPtr<FJs
 	MCPSetDeleteAssetRollback(Result, Created->GetPathName());
 	return MCPResult(Result);
 }
+
+// set_control_rig_preview_mesh (#1369): the preview mesh of an existing rig, which
+// generic property writes do not reach on a ControlRigBlueprint.
+TSharedPtr<FJsonValue> FAnimationHandlers::SetControlRigPreviewMesh(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	TSharedPtr<FJsonValue> PathErr = RequireString(Params, TEXT("assetPath"), AssetPath);
+	FString MeshPath;
+	TSharedPtr<FJsonValue> MeshErr = RequireString(Params, TEXT("skeletalMeshPath"), MeshPath);
+	if (PathErr) return PathErr;
+	if (MeshErr) return MeshErr;
+
+#if __has_include("ControlRigBlueprintLegacy.h") || __has_include("ControlRigBlueprint.h")
+	UObject* Loaded = MCPLoadAssetObject(AssetPath);
+	UControlRigBlueprint* Rig = Cast<UControlRigBlueprint>(Loaded);
+	if (!Rig) return Loaded ? MCPAssetWrongTypeError(AssetPath, Loaded, TEXT("ControlRigBlueprint")) : MCPAssetNotFoundError(AssetPath);
+	UObject* LoadedMesh = MCPLoadAssetObject(MeshPath);
+	USkeletalMesh* Mesh = Cast<USkeletalMesh>(LoadedMesh);
+	if (!Mesh) return LoadedMesh ? MCPAssetWrongTypeError(MeshPath, LoadedMesh, TEXT("SkeletalMesh")) : MCPAssetNotFoundError(MeshPath);
+	if (auto Blocked = MCPAssetWriteBlockedError(Rig, Rig->GetPathName(), TEXT("set its preview mesh"))) return Blocked;
+
+	USkeletalMesh* Previous = Rig->GetPreviewMesh();
+	Rig->SetPreviewMesh(Mesh, true);
+	USkeletalMesh* After = Rig->GetPreviewMesh();
+	if (After != Mesh)
+	{
+		return MCPError(FString::Printf(TEXT("The rig kept preview mesh '%s' after the write"), After ? *After->GetPathName() : TEXT("none")));
+	}
+
+	auto Result = MCPSuccess();
+	MCPAnimSaveOutcome(Result, Rig, Rig->GetPathName());
+	MCPSetUpdated(Result);
+	Result->SetBoolField(TEXT("unchanged"), Previous == Mesh);
+	Result->SetStringField(TEXT("assetPath"), Rig->GetPathName());
+	Result->SetStringField(TEXT("previewMesh"), After->GetPathName());
+	Result->SetStringField(TEXT("previousPreviewMesh"), Previous ? Previous->GetPathName() : FString());
+	if (USkeleton* Skeleton = Mesh->GetSkeleton()) Result->SetStringField(TEXT("skeleton"), Skeleton->GetPathName());
+	if (Previous)
+	{
+		TSharedPtr<FJsonObject> Rollback = MakeShared<FJsonObject>();
+		Rollback->SetStringField(TEXT("assetPath"), Rig->GetPathName());
+		Rollback->SetStringField(TEXT("skeletalMeshPath"), Previous->GetPathName());
+		MCPSetRollback(Result, TEXT("set_control_rig_preview_mesh"), Rollback);
+		Result->SetBoolField(TEXT("rollbackLossy"), false);
+	}
+	else
+	{
+		Result->SetBoolField(TEXT("rollbackPossible"), false);
+		Result->SetStringField(TEXT("rollbackNote"), TEXT("The rig had no preview mesh before, and this action sets one rather than clearing it."));
+	}
+	return MCPResult(Result);
+#else
+	return MCPError(TEXT("The ControlRigBlueprint type is not available on this engine build"));
+#endif
+}
