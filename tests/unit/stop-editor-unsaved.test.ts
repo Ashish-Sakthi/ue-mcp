@@ -293,6 +293,9 @@ describe("stop_editor never presses a button and never arms one", () => {
     expect(result.success).toBe(true);
     // The quit and nothing else: the gate decides the dialog question.
     expect(bridge.methods()).toEqual(["request_editor_shutdown"]);
+    // The editor it stopped is named, so a wrong target is visible (#1278).
+    expect(result.stopped?.project).toMatch(/\.uproject$/);
+    expect(result.message).toContain(result.stopped!.project!);
   });
 
   it("arms no dialog policy and presses nothing when a dialog is already blocking", async () => {

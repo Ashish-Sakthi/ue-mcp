@@ -13,6 +13,7 @@ import { pushWorkaround, workaroundCount } from "../dispatch/workaround-tracker.
 import { searchToolGraph } from "../surface/context/tool-search.js";
 import { evaluateGate, gateRefusalMessage, type GateCandidate } from "../dispatch/python-gate.js";
 import { checkBridgeParity } from "../bridge/bridge-parity.js";
+import { absentToolset, registeredMethodsOf } from "../surface/registered-surface.js";
 import { PLUGIN_UPGRADE_POINTER } from "../bridge/bridge.js";
 import { actions as epicActions, schema as epicSchema } from "./epic/editor.generated.js";
 import { specBp, schema as specSchema } from "./specs/editor.generated.js";
@@ -25,10 +26,12 @@ import { specBp, schema as specSchema } from "./specs/editor.generated.js";
 async function notInRunningPlugin(ctx: ToolContext): Promise<(c: GateCandidate) => boolean> {
   const graph = toolGraphOf(ctx);
   const missing = new Set(checkBridgeParity(graph, ctx.bridge.capabilities).missing);
-  if (missing.size === 0) return () => false;
+  const have = registeredMethodsOf(ctx.bridge);
+  if (missing.size === 0 && !have) return () => false;
   return (c) => {
     const spec = graph.find((t) => t.name === c.tool)?.actions[c.action];
-    return spec?.kind === "bridge" && missing.has(spec.bridge);
+    // An epic_* action whose toolset the editor lacks cannot do the task either (#1323).
+    return spec?.kind === "bridge" && (missing.has(spec.bridge) || absentToolset(spec, have) !== undefined);
   };
 }
 
@@ -108,7 +111,7 @@ export const editorTool: ToolDef = categoryTool(
     stop_editor: {
       kind: "handler",
       effect: "mutate",
-      description: "Close Unreal Editor gracefully (asks the editor to quit itself via the bridge; never an OS kill of an editor). Acts only on the editor for the loaded project, resolved from the port lockfile that editor published at <project>/Saved/UE_MCP_Bridge/port.json. With no lockfile there is no port to aim at and the call refuses, naming the file it checked, rather than probing a default port that another project's editor could answer on (#819). With no editor of this project running there is nothing to quit, and the call fails saying so, with alreadyStopped=true marking that reason apart from a running editor that cannot be reached or refuses on unsaved work. A flow that stops the editor before building sets ignore_failure: true on the stop step. With more than one editor of this project open it closes the one the lockfile names and reports the rest under remainingInstances, so plain success never has to be read as 'no editor of this project is running' (#1072). Unsaved work: the quit is sent and the EDITOR decides. It refuses inside the engine and names every dirty package without scheduling a close, so nothing is lost and no quit is left pending; save them with editor(save_dirty), or close the editor yourself and answer its save prompt by hand. There is deliberately no flag that discards. This action has no dialog behaviour of its own: a modal blocks it exactly as it blocks every other action, refused by the same gate with the same fields. Read the dialog with editor(list_dialogs) and answer it with editor(respond_to_dialog). On Windows, once no editor of this project is left running (after the stop, or when there was nothing to stop), it ends any CrashReportClient process a crashed editor of this project left behind, because it keeps the project's module DLLs open and the next build_project fails with LNK1104; each one is reported under crashReporters with its pid and the reason it was judged this project's (a path under the project on its command line, or a project binary it holds open). A reporter still watching a live editor, or one of another project, is never touched. Params: none",
+      description: "Close Unreal Editor gracefully (asks the editor to quit itself via the bridge; never an OS kill of an editor). Acts only on the editor for the loaded project, resolved from the port lockfile that editor published at <project>/Saved/UE_MCP_Bridge/port.json. With no lockfile there is no port to aim at and the call refuses, naming the file it checked, rather than probing a default port that another project's editor could answer on (#819). With no editor of this project running there is nothing to quit, and the call fails saying so, with alreadyStopped=true marking that reason apart from a running editor that cannot be reached or refuses on unsaved work. A flow that stops the editor before building sets ignore_failure: true on the stop step. With more than one editor of this project open it closes the one the lockfile names and reports the rest under remainingInstances, so plain success never has to be read as 'no editor of this project is running' (#1072). Unsaved work: the quit is sent and the EDITOR decides. It refuses inside the engine and names every dirty package without scheduling a close, so nothing is lost and no quit is left pending; save them with editor(save_dirty), or close the editor yourself and answer its save prompt by hand. There is deliberately no flag that discards. This action has no dialog behaviour of its own: a modal blocks it exactly as it blocks every other action, refused by the same gate with the same fields. Read the dialog with editor(list_dialogs) and answer it with editor(respond_to_dialog). On Windows, once no editor of this project is left running (after the stop, or when there was nothing to stop), it ends any CrashReportClient process a crashed editor of this project left behind, because it keeps the project's module DLLs open and the next build_project fails with LNK1104; each one is reported under crashReporters with its pid and the reason it was judged this project's (a path under the project on its command line, or a project binary it holds open). A reporter still watching a live editor, or one of another project, is never touched. A success names the editor it quit under stopped {project, pid}, and an editor name that matches no registered session refuses rather than stopping the active editor (#1278). Params: none",
       handler: async (ctx: ToolContext) => {
         return stopEditor(ctx.project.projectDir ?? undefined, { connected: connectedEditorOf(ctx.bridge) });
       },
@@ -134,8 +137,11 @@ export const editorTool: ToolDef = categoryTool(
         // #704: hard gate. Require an intent statement, run the semantic search,
         // and refuse to run Python until EVERY candidate action is explicitly
         // ruled out with a stated reason.
+        // A refusal carries success:false so a flow step or plugin task fails
+        // rather than reading it as Python that ran (#1269).
         if (!taskSummary) {
           return {
+            success: false,
             blocked: true,
             reason: "missing_task_summary",
             message: "execute_python requires a 'taskSummary' (plain-words intent). It is searched against the tool registry and gated behind ruling out every candidate. Re-call with taskSummary.",
@@ -155,6 +161,7 @@ export const editorTool: ToolDef = categoryTool(
           if (verdict.unresolved.length > 0) {
             pushWorkaround({ code, timestamp: new Date().toISOString(), taskSummary, suggestedTool: candidates.map((c) => `${c.tool}(${c.action})`).join(", ") }, ctx);
             return {
+              success: false,
               blocked: true,
               reason: "candidates_not_ruled_out",
               taskSummary,
