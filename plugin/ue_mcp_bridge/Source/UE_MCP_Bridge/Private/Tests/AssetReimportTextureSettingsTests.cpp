@@ -153,6 +153,7 @@ bool FAssetReimportTextureSettingsTest::RunTest(const FString& Parameters)
 				(*After)->GetStringField(Key), Pair.Value->AsString());
 		}
 		TestEqual(TEXT("LODGroup is in the snapshot"), (*After)->GetStringField(TEXT("LODGroup")), FString(TEXT("TEXTUREGROUP_UI")));
+		TestEqual(TEXT("a zero setting is exported, not left blank"), (*Before)->GetStringField(TEXT("SRGB")), FString(TEXT("False")));
 	}
 	TestTrue(TEXT("restoredSettings is reported"), Response->HasField(TEXT("restoredSettings")));
 	TestFalse(TEXT("nothing was saved"), Response->GetBoolField(TEXT("saved")));

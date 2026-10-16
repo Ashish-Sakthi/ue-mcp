@@ -4170,7 +4170,9 @@ namespace
 			const FProperty* Property = Texture->GetClass()->FindPropertyByName(Name);
 			if (!Property) continue;
 			FString Text;
-			Property->ExportText_InContainer(0, Text, Texture, nullptr, Texture, PPF_None);
+			// ExportText_InContainer skips a value equal to zero (false, 0, the first
+			// enum entry), which is exactly what a reimport tends to flip.
+			Property->ExportTextItem_InContainer(Text, Texture, nullptr, Texture, PPF_None);
 			Out.Add(Name, Text);
 		}
 		return Out;
