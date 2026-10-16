@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1094,
+  "handlerCount": 1099,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -6330,8 +6330,204 @@
         {
           "name": "textures",
           "type": "object",
-          "required": true,
-          "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)"
+          "required": false,
+          "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it"
+        },
+        {
+          "name": "textureParameters",
+          "type": "boolean",
+          "required": false,
+          "description": "true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them",
+          "orTypes": [
+            "object"
+          ]
+        },
+        {
+          "name": "parameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter nodes to create, reused by name when present",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name; connections can name it too"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": true,
+              "description": "scalar | vector | texture"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            }
+          ]
+        },
+        {
+          "name": "nodes",
+          "type": "array",
+          "required": false,
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
+        },
+        {
+          "name": "propertyConnections",
+          "type": "array",
+          "required": false,
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
+        },
+        {
+          "name": "instances",
+          "type": "array",
+          "required": false,
+          "description": "MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated",
+          "items": "object"
         },
         {
           "name": "samplerTypes",
@@ -6391,15 +6587,148 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "Graph spec: [{name,class,posX,posY,...}]",
-          "items": "object"
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
         },
         {
           "name": "propertyConnections",
           "type": "array",
           "required": false,
-          "description": "[{property,from,outputIndex}]",
-          "items": "object"
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
         }
       ]
     },
@@ -6991,6 +7320,85 @@
           "type": "string",
           "required": false,
           "description": "Runtime world scope: auto (default) | pie | editor"
+        }
+      ]
+    },
+    "capture_niagara_sim_cache": {
+      "category": "niagara",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the NiagaraComponent; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "NiagaraComponent instance name when the actor holds several (default: the first)"
+        },
+        {
+          "name": "frames",
+          "type": "integer",
+          "required": false,
+          "description": "Frames to record, 1..120 (default 1). Every frame after the first advances the simulation by tickDelta"
+        },
+        {
+          "name": "advanceSimulation",
+          "type": "boolean",
+          "required": false,
+          "description": "Advance one tick before the first frame too (default false)"
+        },
+        {
+          "name": "tickDelta",
+          "type": "number",
+          "required": false,
+          "description": "Seconds per advanced tick (default 1/60)"
+        },
+        {
+          "name": "attributeCaptureMode",
+          "type": "string",
+          "required": false,
+          "description": "All (default) | RenderingOnly | ExplicitAttributes"
+        },
+        {
+          "name": "explicitAttributes",
+          "type": "array",
+          "required": false,
+          "description": "With ExplicitAttributes: names written Emitter.Particles.Attribute",
+          "items": "string"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor (default) | pie"
+        },
+        {
+          "name": "pieInstance",
+          "type": "integer",
+          "required": false,
+          "description": "Which PIE world when world is pie: 0 = server or primary, 1..N = clients"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
         }
       ]
     },
@@ -9758,6 +10166,43 @@
         }
       ]
     },
+    "create_font": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Font asset name"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the font (default /Game/Fonts)"
+        },
+        {
+          "name": "fontFaces",
+          "type": "array",
+          "required": true,
+          "description": "FontFace asset paths, one typeface entry each",
+          "items": "string"
+        },
+        {
+          "name": "typefaceNames",
+          "type": "array",
+          "required": false,
+          "description": "Typeface entry names in fontFaces order, e.g. Regular, Bold, Italic (default: Default, then each face's asset name)",
+          "items": "string"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the font exists: skip (default, report it) | error | update (rewrite its default typeface)"
+        }
+      ]
+    },
     "create_function": {
       "category": "blueprint",
       "params": [
@@ -12144,6 +12589,26 @@
           "type": "boolean",
           "required": false,
           "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
+        }
+      ]
+    },
+    "delete_orphan_expressions": {
+      "category": "material",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Material asset path",
+          "aliases": [
+            "materialPath"
+          ]
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "List the orphans without deleting them (default false)"
         }
       ]
     },
@@ -17588,6 +18053,62 @@
         }
       ]
     },
+    "import_font": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Font file on disk: .ttf, .otf, .ttc or .otc",
+          "aliases": [
+            "filename"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "FontFace asset name (default: the file name)",
+          "aliases": [
+            "assetName"
+          ]
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default /Game/Fonts)",
+          "aliases": [
+            "destinationPath"
+          ]
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the face exists: skip (default, report it) | error | replace (reimport its bytes)"
+        },
+        {
+          "name": "hinting",
+          "type": "string",
+          "required": false,
+          "description": "Default (default) | Auto | AutoLight | Monochrome | None"
+        },
+        {
+          "name": "loadingPolicy",
+          "type": "string",
+          "required": false,
+          "description": "LazyLoad (default) | Stream | Inline"
+        },
+        {
+          "name": "createFont",
+          "type": "boolean",
+          "required": false,
+          "description": "Also create <name>_Font, a runtime Font whose Default typeface is this face (default false)"
+        }
+      ]
+    },
     "import_landscape_heightmap": {
       "category": "landscape",
       "params": [
@@ -17714,15 +18235,148 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "Graph spec: [{name,class,posX,posY,...}]",
-          "items": "object"
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
         },
         {
           "name": "propertyConnections",
           "type": "array",
           "required": false,
-          "description": "[{property,from,outputIndex}]",
-          "items": "object"
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
         }
       ]
     },
@@ -24356,6 +25010,19 @@
           ]
         },
         {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Several MaterialInstance asset paths, read in one call into instances[] (#1183)",
+          "items": "string"
+        },
+        {
+          "name": "overridesOnly",
+          "type": "boolean",
+          "required": false,
+          "description": "Return the parent chain, overrides and static switches without the effective value of every parameter (default false)"
+        },
+        {
           "name": "actorLabel",
           "type": "string",
           "required": false,
@@ -24406,6 +25073,9 @@
               "assetPath"
             ],
             [
+              "assetPaths"
+            ],
+            [
               "actorLabel"
             ],
             [
@@ -24452,6 +25122,48 @@
           "aliases": [
             "path"
           ]
+        }
+      ]
+    },
+    "read_niagara_sim_cache": {
+      "category": "niagara",
+      "params": [
+        {
+          "name": "simCachePath",
+          "type": "string",
+          "required": true,
+          "description": "simCachePath from capture_niagara_sim_cache, or a NiagaraSimCache asset path"
+        },
+        {
+          "name": "emitterName",
+          "type": "string",
+          "required": false,
+          "description": "Emitter to read (default: the only emitter; required when there are several)"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Attribute names to read. Bare (Position) or qualified (Particles.Position). Omit to list the layout only",
+          "items": "string"
+        },
+        {
+          "name": "frameIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Frame to read (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Values returned per attribute (default 16); min/max/avg always cover every instance"
+        },
+        {
+          "name": "summarize",
+          "type": "boolean",
+          "required": false,
+          "description": "Include per-component min/max/avg (default true)"
         }
       ]
     },
@@ -28473,7 +29185,19 @@
           "name": "entryPoint",
           "type": "string",
           "required": false,
-          "description": "Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result"
+          "description": "Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result"
+        },
+        {
+          "name": "runName",
+          "type": "string",
+          "required": false,
+          "description": "Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire"
+        },
+        {
+          "name": "asMain",
+          "type": "boolean",
+          "required": false,
+          "description": "Shorthand for runName __main__ (default false)"
         },
         {
           "name": "args",
@@ -37636,25 +38360,25 @@
           "name": "scaleX",
           "type": "number",
           "required": false,
-          "description": "X scale of the spawned component (default 1)"
+          "description": "X scale of the spawned host actor (default 1)"
         },
         {
           "name": "scaleY",
           "type": "number",
           "required": false,
-          "description": "Y scale of the spawned component (default 1)"
+          "description": "Y scale of the spawned host actor (default 1)"
         },
         {
           "name": "scaleZ",
           "type": "number",
           "required": false,
-          "description": "Z scale of the spawned component (default 1)"
+          "description": "Z scale of the spawned host actor (default 1)"
         },
         {
           "name": "autoDestroy",
           "type": "boolean",
           "required": false,
-          "description": "Destroy the component once the system finishes (default false)"
+          "description": "Destroy the spawned host actor once the system finishes (default false)"
         }
       ]
     },

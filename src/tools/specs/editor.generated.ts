@@ -2091,7 +2091,19 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "entryPoint",
         "type": "string",
         "required": false,
-        "description": "Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result"
+        "description": "Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result"
+      },
+      {
+        "name": "runName",
+        "type": "string",
+        "required": false,
+        "description": "Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire"
+      },
+      {
+        "name": "asMain",
+        "type": "boolean",
+        "required": false,
+        "description": "Shorthand for runName __main__ (default false)"
       },
       {
         "name": "args",
@@ -3208,7 +3220,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   respond_to_dialog: "Params: at least one of buttonLabel/buttonIndex/dialogAction, items?",
   restore_runtime_visibility: "Params: rollbackToken, world?, pieInstance?",
   run_automation_tests: "Params: filter?, maxTests?, latentTimeoutSeconds?",
-  run_python_file: "Params: filePath (or path), entryPoint?, args?, kwargs?, resultVariable?, captureLog?, maxLogChars?",
+  run_python_file: "Params: filePath (or path), entryPoint?, runName?, asMain?, args?, kwargs?, resultVariable?, captureLog?, maxLogChars?",
   run_stat_command: "Params: command?, name?",
   save_dirty: "Params: includeMaps?, includeContent?, commitDeletes?",
   scrub_sequence: "Params: sequencePath? (or assetPath, or path), seconds?, frame?, timeUnit?",
@@ -3255,6 +3267,7 @@ export const schema: Record<string, z.ZodType> = {
   affectComponents: z.boolean().optional().describe("Hide or show matched components (default true with a component filter)"),
   allViewports: z.boolean().optional().describe("Redraw every level viewport rather than one (default false)"),
   args: z.union([z.record(z.string(), z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))])), z.array(z.string()), z.array(z.object({ name: z.string(), value: z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))]).optional() })), z.string()], { errorMap: () => ({ message: "args must be an object mapping parameter name to value (e.g. {\"bEnabled\": true}), an array of positional strings, an entry list ([{\"name\": \"bEnabled\", \"value\": true}]), or a string" }) }).optional().describe("Function arguments: an object mapping parameter name to value (a struct value takes a JSON object such as {X,Y,Z} or export text), an entry list [{name, value}], or a JSON string of either (invoke_function, invoke_object_function, invoke_static_function). Positional arguments, as sys.argv[1:] or, with entryPoint, the call's arguments: a list of strings, a JSON array string, or one string. A parameter map is refused (run_python_file)"),
+  asMain: z.boolean().optional().describe("Shorthand for runName __main__ (default false)"),
   assetPath: z.string().optional().describe("Alias for sequencePath (add_sequence_section, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_keyframes, set_sequence_playback_range). Level Sequence asset path (add_sequence_track, get_sequence_info). Alias for objectPath (describe_object, get_property, set_property). Asset to open in its editor (open_asset). One exact package or object path to validate (validate_assets)"),
   assetPaths: z.array(z.string()).optional().describe("Exact package or object paths to validate"),
   assetRegistryTimeoutSeconds: z.number().optional().describe("start only: how long to wait for that scan (default 180)"),
@@ -3302,7 +3315,7 @@ export const schema: Record<string, z.ZodType> = {
   enabledOnly: z.boolean().optional().describe("Only channels that are currently on (default false)"),
   endFrame: z.number().optional().describe("Last display frame to render, inclusive. Not with endSeconds"),
   endSeconds: z.number().optional().describe("Section end in seconds (default one second after the start) (add_sequence_section). Range end in seconds, exclusive (render_sequence_frames). Range end in seconds (set_sequence_playback_range)"),
-  entryPoint: z.string().optional().describe("Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result"),
+  entryPoint: z.string().optional().describe("Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result"),
   ev100: z.number().optional().describe("Fixed EV100 to pin the viewport to; implies fixed exposure"),
   exactClass: z.boolean().optional().describe("Match className exactly instead of including subclasses (default false)"),
   excludeTail: z.boolean().optional().describe("Drop events buffered before the trace started (default false)"),
@@ -3414,6 +3427,7 @@ export const schema: Record<string, z.ZodType> = {
   roll: z.number().optional().describe("Control-rotation roll"),
   rollbackToken: z.string().optional().describe("Token from a non-dry-run set_runtime_visibility, valid for that PIE session only"),
   rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Camera rotation (capture_scene_png, set_viewport_camera). Camera rotation; omit to keep the current one (pose_debug_camera). Fixed camera rotation (render_sequence_frames). Destination rotation; omit to keep the current one (teleport_runtime_actor)"),
+  runName: z.string().optional().describe("Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire"),
   runUnderOneProcess: z.boolean().optional().describe("Run every client in the editor process"),
   save: z.boolean().optional().describe("Save the package to disk after the write (default true; false leaves it dirty)"),
   saveFirst: z.boolean().optional().describe("For a map: save the open map's unsaved packages before switching (default false)"),
