@@ -16,6 +16,7 @@ import { detectMcpClients, readUeMcpEntry } from "../integrations/claude-code/mc
 import { clientId } from "./init-core.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { BOLD, DIM, RESET, fail, ok, warn } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 
 export interface ClientStatus {
   id: string;
@@ -107,6 +108,16 @@ function printStatus(s: StatusReport): void {
   for (const problem of s.problems) fail(`${problem.what} ${problem.fix}`);
   console.log("");
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp status [project] [flags]",
+  summary: "Report one project's install and editor state.",
+  strict: true,
+  flags: [
+    { name: "--json", description: "Print one JSON document" },
+    { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
+  ],
+};
 
 /** Entry point for `ue-mcp status [project] [--json] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {

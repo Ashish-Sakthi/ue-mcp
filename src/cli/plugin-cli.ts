@@ -63,6 +63,7 @@ import { resolvePublishToken } from "../extensions/registry-auth.js";
 import { EditorBridge } from "../bridge/bridge.js";
 import { recordedSpecsProblems, type HandlerSpecs } from "../surface/handler-spec.js";
 import { parseEditorFlag, resolveEditorFlag, EditorFlagError } from "./editor-flag.js";
+import { formatUsage, type CliUsage } from "./cli-main.js";
 import { packageVersion } from "../core/package-root.js";
 import { deriveDefaultPrefix, deriveUePluginName, writeScaffold } from "../extensions/plugin-scaffold.js";
 import { ProjectContext } from "../config/project.js";
@@ -885,6 +886,23 @@ function reportConfigWrite(slug: string, target: ConfigTarget, proj: ProjectInfo
   note(CONFIG_RESTART_NOTE);
 }
 
+export const usage: CliUsage = {
+  usage: [
+    "ue-mcp plugin <subcommand>",
+    "  ue-mcp plugin install <name> [--version x.y.z]",
+    "  ue-mcp plugin uninstall <name>",
+    "  ue-mcp plugin list",
+    "  ue-mcp plugin update [name]",
+    "  ue-mcp plugin check-skills [dir]",
+    "  ue-mcp plugin config <name> [--enable a,b] [--disable c,d] [--list-groups] [--local|--project]",
+    "  ue-mcp plugin create <name> [--dir path]",
+    "  ue-mcp plugin publish [dir] [--slug s] [--private|--public] [--dry-run]",
+    "  ue-mcp plugin record-specs [dir] --project <path.uproject> [--check]",
+  ].join("\n"),
+  summary: "Install, create and publish plugins.",
+  flags: [{ name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" }],
+};
+
 /** Entry point for `ue-mcp plugin <subcommand>`. */
 export async function run(argv: string[]): Promise<number | void> {
   // --editor names one of the editors this server drives; every project lookup
@@ -910,18 +928,7 @@ export async function run(argv: string[]): Promise<number | void> {
     case "config": await cmdConfig(args, editor).catch((e) => fail(e instanceof Error ? e.message : String(e))); break;
     case "record-specs": await cmdRecordSpecs(args).catch((e) => fail(e instanceof Error ? e.message : String(e))); break;
     default:
-      console.error(
-        "Usage:\n" +
-        "  ue-mcp plugin install <name> [--version x.y.z]\n" +
-        "  ue-mcp plugin uninstall <name>\n" +
-        "  ue-mcp plugin list\n" +
-        "  ue-mcp plugin update [name]\n" +
-        "  ue-mcp plugin check-skills [dir]\n" +
-        "  ue-mcp plugin config <name> [--enable a,b] [--disable c,d] [--list-groups] [--local|--project]\n" +
-        "  ue-mcp plugin create <name> [--dir path]\n" +
-        "  ue-mcp plugin publish [dir] [--slug s] [--private|--public] [--dry-run]\n" +
-        "  ue-mcp plugin record-specs [dir] --project <path.uproject> [--check]",
-      );
+      console.error(formatUsage(usage));
       return 1;
   }
 }
