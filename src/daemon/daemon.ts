@@ -759,7 +759,10 @@ export async function runDaemon(projects: string[]): Promise<number> {
   process.on("SIGINT", stop);
   process.on("SIGTERM", stop);
   daemon.events.subscribe((e) => {
-    if (e.type === "daemon.stopping") setTimeout(() => process.exit(0), 500).unref();
+    if (e.type !== "daemon.stopping") return;
+    // A daemon that took over published its record here, not in startDaemon, so it withdraws it here too.
+    if (existing) removeDiscovery(projectDir);
+    setTimeout(() => process.exit(0), 500).unref();
   });
   return new Promise<number>(() => {});
 }
