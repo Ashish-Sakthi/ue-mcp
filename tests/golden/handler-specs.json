@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1135,
+  "handlerCount": 1136,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -8222,6 +8222,54 @@
           "type": "string",
           "required": false,
           "description": "The skeletal mesh whose one open session to address, when sessionTag is omitted"
+        }
+      ]
+    },
+    "compare_class_defaults": {
+      "category": "blueprint",
+      "params": [
+        {
+          "name": "className",
+          "type": "string",
+          "required": true,
+          "description": "First class: native name or path, Blueprint asset path or generated class path"
+        },
+        {
+          "name": "otherClassName",
+          "type": "string",
+          "required": true,
+          "description": "Second class, compared against the first"
+        },
+        {
+          "name": "propertyNames",
+          "type": "array",
+          "required": false,
+          "description": "Only these top-level properties (case-insensitive)",
+          "items": "string"
+        },
+        {
+          "name": "propertyFilter",
+          "type": "string",
+          "required": false,
+          "description": "Case-insensitive substring over the property path"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "Case-insensitive substring over the property's Category metadata"
+        },
+        {
+          "name": "includeTransient",
+          "type": "boolean",
+          "required": false,
+          "description": "Also compare transient properties (default false)"
+        },
+        {
+          "name": "subobjectDepth",
+          "type": "integer",
+          "required": false,
+          "description": "Compare default subobjects (components) field by field to this depth, 0-3 (default 1); 0 compares them whole"
         }
       ]
     },

@@ -490,6 +490,54 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "compare_class_defaults": {
+    "category": "blueprint",
+    "params": [
+      {
+        "name": "className",
+        "type": "string",
+        "required": true,
+        "description": "First class: native name or path, Blueprint asset path or generated class path"
+      },
+      {
+        "name": "otherClassName",
+        "type": "string",
+        "required": true,
+        "description": "Second class, compared against the first"
+      },
+      {
+        "name": "propertyNames",
+        "type": "array",
+        "required": false,
+        "description": "Only these top-level properties (case-insensitive)",
+        "items": "string"
+      },
+      {
+        "name": "propertyFilter",
+        "type": "string",
+        "required": false,
+        "description": "Case-insensitive substring over the property path"
+      },
+      {
+        "name": "category",
+        "type": "string",
+        "required": false,
+        "description": "Case-insensitive substring over the property's Category metadata"
+      },
+      {
+        "name": "includeTransient",
+        "type": "boolean",
+        "required": false,
+        "description": "Also compare transient properties (default false)"
+      },
+      {
+        "name": "subobjectDepth",
+        "type": "integer",
+        "required": false,
+        "description": "Compare default subobjects (components) field by field to this depth, 0-3 (default 1); 0 compares them whole"
+      }
+    ]
+  },
   "compile_blueprint": {
     "category": "blueprint",
     "params": [
@@ -3096,6 +3144,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   audit_blueprint_dead_code: "Params: directory?, assetPaths?, recursive?, includeLevelScripts?, scanReferencers?, maxBlueprints?, maxSamples?, limit?, dumpToFile?, outputPath?",
   auto_layout_graph: "Params: assetPath (or path), graphName?, columnGap?, rowGap?, previousPositionsLimit?, capturePreviousPositions?",
   cleanup_graph: "Params: assetPath (or path), graphName?",
+  compare_class_defaults: "Params: className, otherClassName, propertyNames?, propertyFilter?, category?, includeTransient?, subobjectDepth?",
   compile_blueprint: "Params: assetPath (or path)",
   compile_blueprints: "Params: assetPaths, save?",
   connect_pins: "Params: assetPath (or path), graphName?, graphSelector?, sourceNodeId (or sourceNode), sourcePin (or sourcePinName), targetNodeId (or targetNode), targetPin (or targetPinName), breakExistingSource?, breakExistingTarget?, deferCompile?",
@@ -3194,11 +3243,11 @@ export const schema: Record<string, z.ZodType> = {
   bStartWithTickEnabled: z.boolean().optional().describe("PrimaryActorTick.bStartWithTickEnabled"),
   callInEditor: z.boolean().optional().describe("Expose a details-panel button that runs it on a selected instance"),
   capturePreviousPositions: z.boolean().optional().describe("Capture previousPositions regardless of previousPositionsLimit (default false)"),
-  category: z.string().optional().describe("Category shown in My Blueprint and the details panel (add_variable). Node category: utilities (default), math, string, gameplay, actor and so on (list_node_types). Category (set_function_properties, set_variable_properties)"),
+  category: z.string().optional().describe("Category shown in My Blueprint and the details panel (add_variable). Case-insensitive substring over the property's Category metadata (compare_class_defaults). Node category: utilities (default), math, string, gameplay, actor and so on (list_node_types). Category (set_function_properties, set_variable_properties)"),
   channel: z.string().optional().describe("Narrow the answer to one collision channel: its configured name, the C++ enumerator, or the container index"),
   childActorClass: z.string().optional().describe("ChildActorClass for an added ChildActorComponent: a Blueprint path with or without _C, or a C++ class"),
   classFilter: z.string().optional().describe("Case-insensitive substring match on node class name (read_blueprint_graph, read_blueprint_graph_summary). Alias for className (search_node_types)"),
-  className: z.string().optional().describe("C++ class name or path (get_cdo_properties, set_cdo_property). Base class: a native name or path such as Character, or a Blueprint asset path (list_subclasses). Declaring class to narrow the functions to (search_blueprint_call_sites). Narrow to one owning class, by short name or object path (search_node_types)"),
+  className: z.string().optional().describe("First class: native name or path, Blueprint asset path or generated class path (compare_class_defaults). C++ class name or path (get_cdo_properties, set_cdo_property). Base class: a native name or path such as Character, or a Blueprint asset path (list_subclasses). Declaring class to narrow the functions to (search_blueprint_call_sites). Narrow to one owning class, by short name or object path (search_node_types)"),
   columnGap: z.number().int().optional().describe("Horizontal spacing between columns (default 360)"),
   compactNodeTitle: z.string().optional().describe("Render the node in compact form under this title"),
   componentClass: z.string().optional().describe("Component class: a short name such as ChildActorComponent, or a full path"),
@@ -3241,6 +3290,7 @@ export const schema: Record<string, z.ZodType> = {
   includeNestedGraphs: z.boolean().optional().describe("Also walk collapsed and nested graphs (default true)"),
   includePins: z.boolean().optional().describe("Include pins (default true)"),
   includeT3D: z.boolean().optional().describe("Also write one T3D file per graph (default false)"),
+  includeTransient: z.boolean().optional().describe("Also compare transient properties (default false)"),
   includeTransitive: z.boolean().optional().describe("Include indirect subclasses (default true); false lists direct children only"),
   includeValues: z.boolean().optional().describe("Also resolve each variable's default off the generated-class CDO, and report whether the package holds unsaved changes (default false)"),
   inputs: z.array(z.record(z.unknown())).optional().describe("Input parameters [{name, type}]"),
@@ -3277,6 +3327,7 @@ export const schema: Record<string, z.ZodType> = {
   onConflict: z.string().optional().describe("skip (default) reports the existing entry; error refuses"),
   op: z.string().optional().describe("add, remove, rename, set_type, set_default or reorder (edit_graph_parameters). rename, remove, set_type or set_default (edit_local_variable)"),
   order: z.array(z.unknown()).optional().describe("The COMPLETE desired order, never a partial list"),
+  otherClassName: z.string().optional().describe("Second class, compared against the first"),
   otherPath: z.string().optional().describe("Blueprint to compare against (B)"),
   outputDir: z.string().optional().describe("Absolute directory, or one relative to Saved/ (default Saved/UE_MCP/BlueprintExport)"),
   outputPath: z.string().optional().describe("Absolute or Saved-relative JSON path for the dump"),
@@ -3297,8 +3348,9 @@ export const schema: Record<string, z.ZodType> = {
   private: z.boolean().optional().describe("The Blueprint editor's Private checkbox, independent of editFlag"),
   profileName: z.string().optional().describe("Collision profile to resolve, e.g. Pawn, BlockAll, or one the project defined"),
   propagateToInstances: z.boolean().optional().describe("Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"),
+  propertyFilter: z.string().optional().describe("Case-insensitive substring over the property path"),
   propertyName: z.string().optional().describe("Property name (get_blueprint_component_property, set_blueprint_component_property, set_cdo_property). Pin or reflected node property name (read_node_property). Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius (set_class_default). Pin or struct property name (set_node_property)"),
-  propertyNames: z.array(z.string()).optional().describe("Property names to read (omit for all)"),
+  propertyNames: z.array(z.string()).optional().describe("Only these top-level properties (case-insensitive) (compare_class_defaults). Property names to read (omit for all) (get_cdo_properties)"),
   pure: z.boolean().optional().describe("BlueprintPure: no side effects, and the node loses its exec pins"),
   query: z.string().optional().describe("Words to match against the C++ name, the palette label and Keywords metadata"),
   radius: z.number().optional().describe("Capsule radius (unscaled)"),
@@ -3315,6 +3367,7 @@ export const schema: Record<string, z.ZodType> = {
   sourcePin: z.string().optional().describe("Source pin name"),
   sourcePinName: z.string().optional().describe("Alias for sourcePin"),
   stateMachineName: z.string().optional().describe("AnimBP: narrow fromState and toState to one state machine"),
+  subobjectDepth: z.number().int().optional().describe("Compare default subobjects (components) field by field to this depth, 0-3 (default 1); 0 compares them whole"),
   t3d: z.string().optional().describe("T3D blob from export_nodes_t3d, or copied from the Blueprint graph editor"),
   targetNode: z.string().optional().describe("Alias for targetNodeId"),
   targetNodeId: z.string().optional().describe("Target node GUID, as get_connections and find_nodes report it, or its title"),
