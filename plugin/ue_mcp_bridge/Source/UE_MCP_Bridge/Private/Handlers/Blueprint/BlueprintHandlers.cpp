@@ -204,6 +204,11 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("read_blueprint_graph"), &ReadBlueprintGraph, {
 		SpecAssetPath,
 		SpecGraphName,
+		MCPParam::Optional(TEXT("transitionGuid"), EType::String, TEXT("AnimBP: read this transition's rule graph, by the guid read_state_machine and add_transition report. Wins over graphName")),
+		MCPParam::Optional(TEXT("fromState"), EType::String, TEXT("AnimBP: with toState, read the rule graph of the transition between these states; refused when more than one matches")),
+		MCPParam::Optional(TEXT("toState"), EType::String, TEXT("AnimBP: the transition's destination state, with fromState")),
+		MCPParam::Optional(TEXT("stateMachineName"), EType::String, TEXT("AnimBP: narrow fromState and toState to one state machine")),
+		MCPParam::Optional(TEXT("includeLinks"), EType::Boolean, TEXT("List what each pin is wired to, as {nodeId, pin} (default false)")),
 		MCPParam::Optional(TEXT("offset"), EType::Integer, TEXT("Row offset into the (filtered) node list")),
 		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Nodes to return; omit for a safe default page, or dump the whole graph with dumpToFile")),
 		MCPParam::Optional(TEXT("includePins"), EType::Boolean, TEXT("Include pins (default true)")),

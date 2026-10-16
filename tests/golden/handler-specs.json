@@ -23399,6 +23399,36 @@
           "description": "Graph name or the selector list_graphs reports (default EventGraph)"
         },
         {
+          "name": "transitionGuid",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: read this transition's rule graph, by the guid read_state_machine and add_transition report. Wins over graphName"
+        },
+        {
+          "name": "fromState",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: with toState, read the rule graph of the transition between these states; refused when more than one matches"
+        },
+        {
+          "name": "toState",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: the transition's destination state, with fromState"
+        },
+        {
+          "name": "stateMachineName",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: narrow fromState and toState to one state machine"
+        },
+        {
+          "name": "includeLinks",
+          "type": "boolean",
+          "required": false,
+          "description": "List what each pin is wired to, as {nodeId, pin} (default false)"
+        },
+        {
           "name": "offset",
           "type": "integer",
           "required": false,
