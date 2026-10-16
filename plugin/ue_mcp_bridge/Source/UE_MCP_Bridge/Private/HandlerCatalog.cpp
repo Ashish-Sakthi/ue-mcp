@@ -35,6 +35,7 @@
 #include "Handlers/Fab/FabHandlers.h"
 #include "Handlers/Lock/LockHandlers.h"
 #include "Handlers/Diff/DiffHandlers.h"
+#include "Handlers/SourceControl/SourceControlHandlers.h"
 
 void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 {
@@ -75,4 +76,5 @@ void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 	FFabHandlers::RegisterHandlers(Registry);
 	FLockHandlers::RegisterHandlers(Registry);
 	FDiffHandlers::RegisterHandlers(Registry);
+	FSourceControlHandlers::RegisterHandlers(Registry);
 }

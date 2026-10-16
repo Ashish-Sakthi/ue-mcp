@@ -33,6 +33,7 @@ import { epicTool } from "./tools/epic.js";
 import { fabTool } from "./tools/fab.js";
 import { dataflowTool } from "./tools/dataflow.js";
 import { conversationTool } from "./tools/conversation.js";
+import { sourceControlTool } from "./tools/source_control.js";
 
 export const ALL_TOOLS: ToolDef[] = [
   projectTool,
@@ -61,6 +62,7 @@ export const ALL_TOOLS: ToolDef[] = [
   fabTool,
   dataflowTool,
   conversationTool,
+  sourceControlTool,
 ];
 
 /** Flatten to (toolName, actionName, bridgeMethod) triples for every action
