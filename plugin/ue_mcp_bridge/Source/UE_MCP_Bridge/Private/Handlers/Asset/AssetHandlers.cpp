@@ -4835,7 +4835,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	Asset->Modify();
 	if (LeafOwner && LeafOwner != Asset) LeafOwner->Modify();
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(FinalProp, ValuePtr, ValueField, LeafOwner ? LeafOwner : Asset, SetErr))
 	{
 		Transaction.Cancel();
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));

@@ -456,7 +456,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetComponentProperty(const TSharedPtr
 
 	Template->Modify();
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(FinalProp, ValuePtr, ValueField, Template, SetErr))
 	{
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
 	}
@@ -591,7 +591,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetClassDefault(const TSharedPtr<FJso
 	CDO->Modify();
 	if (LeafOwner != CDO) LeafOwner->Modify();
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(FinalProp, ValuePtr, ValueField, LeafOwner, SetErr))
 	{
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
 	}
@@ -1460,7 +1460,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetCdoProperty(const TSharedPtr<FJson
 
 	CDO->Modify();
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(FinalProp, ValuePtr, ValueField, CDO, SetErr))
 	{
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
 	}

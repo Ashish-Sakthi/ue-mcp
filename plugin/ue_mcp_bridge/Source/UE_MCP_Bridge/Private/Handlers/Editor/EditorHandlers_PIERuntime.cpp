@@ -1606,7 +1606,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetObjectProperty(const TSharedPtr<FJson
 	}
 
 	FString SetError;
-	if (!MCPJsonProperty::SetJsonOnProperty(Prop, ValueAddr, NewValue, SetError))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(Prop, ValueAddr, NewValue, ExportOwner, SetError))
 	{
 		// A refused write may have landed part of the value; put it back.
 		Prop->CopyCompleteValue(ValueAddr, PreviousRaw.GetObjAddress());
