@@ -5830,7 +5830,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::MigrateAssets(const TSharedPtr<FJsonObjec
 		if (Package->IsDirty() && !bAllowDirty)
 		{
 			return MCPError(FString::Printf(
-				TEXT("'%s' has unsaved changes. Migrating now would copy the last SAVED state and silently omit your edits. Save it first (asset(save)), or pass allowDirty=true to migrate the on-disk version deliberately."),
+				TEXT("'%s' has unsaved changes. Migrating now would copy the last SAVED state and silently omit your edits. Save it first (asset(save)); the engine would prompt to save it before migrating."),
 				*Path));
 		}
 
@@ -5862,6 +5862,24 @@ TSharedPtr<FJsonValue> FAssetHandlers::MigrateAssets(const TSharedPtr<FJsonObjec
 		Result->SetBoolField(TEXT("dryRun"), true);
 		Result->SetStringField(TEXT("note"), TEXT("Dry run - nothing was copied. Re-run without dryRun to migrate."));
 		return MCPResult(Result);
+	}
+
+	// MigratePackages first saves every dirty package in the editor with a
+	// prompt, and an untitled map opens a modal Save As, so the editor would
+	// wait on a dialog nobody can answer.
+	TArray<UPackage*> DirtyPackages;
+	FEditorFileUtils::GetDirtyWorldPackages(DirtyPackages);
+	FEditorFileUtils::GetDirtyContentPackages(DirtyPackages);
+	if (DirtyPackages.Num() > 0)
+	{
+		TArray<FString> DirtyNames;
+		for (const UPackage* Package : DirtyPackages)
+		{
+			if (Package) DirtyNames.AddUnique(Package->GetName());
+		}
+		return MCPError(FString::Printf(
+			TEXT("Migrate saves every unsaved package first and prompts for each, which the bridge cannot answer. Save or discard these first (asset(save_all_dirty), or load a saved level for an untitled map): %s"),
+			*FString::Join(DirtyNames, TEXT(", "))));
 	}
 
 	FMigrationOptions Options;

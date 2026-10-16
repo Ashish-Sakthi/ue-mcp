@@ -487,7 +487,7 @@ export const assetTool: ToolDef = categoryTool(
     // Hand-written actions only: search, migrate and the locks.
     searchAll: z.boolean().optional().describe("Search all content roots (plugins, engine content) not just /Game/"),
     exportName: z.string().optional(),
-    allowDirty: z.boolean().optional().describe("migrate: migrate the on-disk version of an asset with unsaved edits (#760)"),
+    allowDirty: z.boolean().optional().describe("migrate: has no effect. The engine saves every unsaved package before migrating and prompts for each, so migrate refuses while any package is unsaved (#760)"),
     destinationContentDir: z.string().optional().describe("migrate: the TARGET project's Content folder (#760)"),
     includeDependencies: z.boolean().optional().describe("migrate: also copy referenced assets (default true) (#760)"),
     // lock / unlock / unlock_all all default this to the server process's own
