@@ -390,4 +390,54 @@ bool FMCPPCGImportUpsertTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGImportMinimalRollbackTest,
+	"UE.MCP.PCG.Authoring.ImportMinimalRollbackAndNamedAdd",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGImportMinimalRollbackTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	UPCGGraph* Graph = GraphPath.IsEmpty() ? nullptr : LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	if (!TestNotNull(TEXT("the graph loads"), Graph)) return false;
+
+	// add_node takes a name, and the same name and class again is reported, not duplicated.
+	auto AddParams = MakeShared<FJsonObject>();
+	AddParams->SetStringField(TEXT("assetPath"), GraphPath);
+	AddParams->SetStringField(TEXT("nodeType"), TEXT("PCGDistanceSettings"));
+	AddParams->SetStringField(TEXT("name"), TEXT("Dist"));
+	TestTrue(TEXT("a named node is added"), Ok(Invoke(Registry, TEXT("add_pcg_node"), AddParams)));
+	TestNotNull(TEXT("it has the name"), FindNode(Graph, TEXT("Dist")));
+	const TSharedPtr<FJsonObject> Again = Invoke(Registry, TEXT("add_pcg_node"), AddParams);
+	TestTrue(TEXT("the same request is reported as existed"), Ok(Again) && Again->HasField(TEXT("existed")));
+	AddParams->SetStringField(TEXT("nodeType"), TEXT("PCGAddTagSettings"));
+	TestFalse(TEXT("another class under that name is refused"), Ok(Invoke(Registry, TEXT("add_pcg_node"), AddParams)));
+	const int32 Before = Graph->GetNodes().Num();
+
+	// An additive import's rollback names what it made and what it overwrote, nothing else.
+	auto Settings = MakeShared<FJsonObject>();
+	Settings->SetNumberField(TEXT("MaximumDistance"), 777.0);
+	const TSharedPtr<FJsonObject> Imported = ImportGraph(Registry, GraphPath,
+		{ ImportNode(TEXT("Added"), TEXT("PCGAddTagSettings")), ImportNode(TEXT("Dist"), TEXT("PCGDistanceSettings"), Settings) });
+	if (!TestTrue(TEXT("the import succeeds"), Ok(Imported))) return false;
+	const TSharedPtr<FJsonObject>* Rollback = nullptr;
+	const TSharedPtr<FJsonObject>* Payload = nullptr;
+	if (!TestTrue(TEXT("a rollback is offered"), Imported->TryGetObjectField(TEXT("rollback"), Rollback) && (*Rollback)->TryGetObjectField(TEXT("payload"), Payload))) return false;
+	TestFalse(TEXT("the rollback does not replace the graph"), (*Payload)->GetBoolField(TEXT("replace")));
+	TestEqual(TEXT("it removes the created node"), (*Payload)->GetArrayField(TEXT("removeNodes")).Num(), 1);
+	TestEqual(TEXT("it restores only the updated node"), (*Payload)->GetArrayField(TEXT("nodes")).Num(), 1);
+
+	TestTrue(TEXT("the rollback replays"), Ok(Invoke(Registry, TEXT("import_pcg_graph"), *Payload)));
+	TestNull(TEXT("the created node is gone"), FindNode(Graph, TEXT("Added")));
+	TestEqual(TEXT("the node count is back"), Graph->GetNodes().Num(), Before);
+	const UPCGNode* Dist = FindNode(Graph, TEXT("Dist"));
+	const FDoubleProperty* MaxProp = Dist ? CastField<FDoubleProperty>(Dist->GetSettings()->GetClass()->FindPropertyByName(TEXT("MaximumDistance"))) : nullptr;
+	TestTrue(TEXT("the overwritten value is back"), MaxProp && MaxProp->GetPropertyValue_InContainer(Dist->GetSettings()) != 777.0);
+	return true;
+}
+
 #endif

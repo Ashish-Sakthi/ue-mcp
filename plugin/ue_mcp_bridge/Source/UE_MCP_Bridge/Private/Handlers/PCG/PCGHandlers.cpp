@@ -67,6 +67,34 @@ namespace
 		return MCPResolveClassOfType(ClassName, UPCGSettings::StaticClass());
 	}
 
+	/** Renames a node about to be removed, so the name it held is free before garbage collection. */
+	static void MoveNodeNameAside(UPCGNode* Node)
+	{
+		const FName Aside = MakeUniqueObjectName(Node->GetOuter(), Node->GetClass(), FName(*(Node->GetName() + TEXT("_Removed"))));
+		Node->Rename(*Aside.ToString(), nullptr, REN_DontCreateRedirectors | REN_DoNotDirty);
+	}
+
+	/**
+	 * Gives Node the name Wanted. A removed node still holding it (awaiting garbage collection) is moved aside
+	 * first; false when a live node of the graph, or any other object under it, holds the name.
+	 */
+	static bool ClaimNodeName(UPCGGraph* Graph, UPCGNode* Node, const FString& Wanted)
+	{
+		if (Node->GetName() == Wanted) return true;
+#if UE_MCP_HAS_STATIC_FIND_OBJECT_FLAGS
+		UObject* Holder = StaticFindObject(nullptr, Node->GetOuter(), *Wanted, EFindObjectFlags::ExactClass);
+#else
+		UObject* Holder = StaticFindObject(nullptr, Node->GetOuter(), *Wanted, true);
+#endif
+		if (Holder)
+		{
+			UPCGNode* HolderNode = Cast<UPCGNode>(Holder);
+			if (!HolderNode || MCPPCG::FindNode(Graph, Wanted) == HolderNode) return false;
+			MoveNodeNameAside(HolderNode);
+		}
+		return Node->Rename(*Wanted, Node->GetOuter(), REN_DontCreateRedirectors | REN_DoNotDirty);
+	}
+
 	static void MCPNotifyPCGSettingsChanged(UPCGSettings* Settings, const TArray<FString>& WrittenKeys)
 	{
 		MCPPCG::NotifySettingsChanged(Settings, WrittenKeys);
@@ -625,6 +653,7 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("nodeType"), EType::String, TEXT("PCG settings class of the node to add")),
 		MCPParam::Optional(TEXT("posX"), EType::Number, TEXT("Graph editor X position for the new node")),
 		MCPParam::Optional(TEXT("posY"), EType::Number, TEXT("Graph editor Y position for the new node")),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused")),
 	});
 	Registry.RegisterHandler(TEXT("connect_pcg_nodes"), &ConnectPCGNodes, {
 		GraphPath(),
@@ -705,6 +734,8 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("nodes"), EType::Array, TEXT("[{name, class, posX?, posY?, settings?}]")).Items(EType::Object),
 		MCPParam::Optional(TEXT("connections"), EType::Array, TEXT("[{from, fromPin?, to, toPin?}]")).Items(EType::Object),
 		MCPParam::Optional(TEXT("replace"), EType::Boolean, TEXT("Wipe existing user nodes first (default false)")),
+		MCPParam::Optional(TEXT("removeNodes"), EType::Array, TEXT("Without replace: node names to remove before importing; a missing name is skipped")).Items(EType::String),
+		MCPParam::Optional(TEXT("removeConnections"), EType::Array, TEXT("Without replace: edges [{from, fromPin, to, toPin}] to cut before importing")).Items(EType::Object),
 	});
 	Registry.RegisterHandler(TEXT("export_pcg_graph"), &ExportGraph, {
 		GraphPath(),
@@ -953,12 +984,29 @@ TSharedPtr<FJsonValue> FPCGHandlers::AddPCGNode(const TSharedPtr<FJsonObject>& P
 	const bool bHasPosX = TryGetNumberParam(Params, TEXT("posX"), PosX);
 	const bool bHasPosY = TryGetNumberParam(Params, TEXT("posY"), PosY);
 	const bool bHasPosition = bHasPosX || bHasPosY;
+	const FString WantedName = OptionalString(Params, TEXT("name"));
 
 	UPCGGraph* Graph = LoadAssetByPath<UPCGGraph>(AssetPath);
 	if (!Graph) return MCPAssetLoadError(AssetPath, TEXT("PCGGraph"));
 
 	UClass* SettingsClass = FindPCGSettingsClass(NodeType);
 	if (!SettingsClass) return MCPClassNotFoundError(NodeType, TEXT("nodeType"));
+
+	// A requested name already in the graph is that node when the class matches, and a refusal otherwise (#1331).
+	if (const UPCGNode* Existing = WantedName.IsEmpty() ? nullptr : MCPPCG::FindNode(Graph, WantedName))
+	{
+		const UClass* Has = Existing->GetSettings() ? Existing->GetSettings()->GetClass() : nullptr;
+		if (Has != SettingsClass || MCPPCG::IsGraphIONode(Graph, Existing))
+		{
+			return MCPError(FString::Printf(TEXT("'%s' already exists as a %s; nothing was added."), *WantedName, Has ? *Has->GetName() : TEXT("node without settings")));
+		}
+		auto Existed = MCPSuccess();
+		MCPSetExisted(Existed);
+		Existed->SetStringField(TEXT("assetPath"), AssetPath);
+		Existed->SetStringField(TEXT("nodeName"), WantedName);
+		Existed->SetStringField(TEXT("nodeType"), NodeType);
+		return MCPResult(Existed);
+	}
 
 	if (auto Blocked = MCPAssetWriteBlockedError(Graph, AssetPath, TEXT("add a node to this PCG graph"))) return Blocked;
 
@@ -989,6 +1037,12 @@ TSharedPtr<FJsonValue> FPCGHandlers::AddPCGNode(const TSharedPtr<FJsonObject>& P
 		DefaultSettings->Rename(nullptr, NewNode, REN_DontCreateRedirectors | REN_DoNotDirty);
 	}
 	DefaultSettings->PostEditChange();
+
+	if (!WantedName.IsEmpty() && !ClaimNodeName(Graph, NewNode, WantedName))
+	{
+		Graph->RemoveNode(NewNode);
+		return MCPError(FString::Printf(TEXT("Another object under the graph holds the name '%s'; nothing was added."), *WantedName));
+	}
 
 	if (bHasPosition)
 	{
@@ -2575,6 +2629,19 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	const bool bReplace = OptionalBool(Params, TEXT("replace"), false);
 	const TArray<TSharedPtr<FJsonValue>>* ConnsArr = nullptr;
 	const bool bHasConnections = TryGetArrayParam(Params, TEXT("connections"), ConnsArr) && ConnsArr;
+	// Removals run first; they are what the minimal rollback of an additive import replays (#1331).
+	TSet<FString> RemoveNodeNames;
+	const TArray<TSharedPtr<FJsonValue>>* RemoveNodesArr = nullptr;
+	if (TryGetArrayParam(Params, TEXT("removeNodes"), RemoveNodesArr) && RemoveNodesArr)
+	{
+		for (const TSharedPtr<FJsonValue>& V : *RemoveNodesArr)
+		{
+			FString Name;
+			if (V.IsValid() && V->TryGetString(Name) && !Name.IsEmpty()) RemoveNodeNames.Add(Name);
+		}
+	}
+	const TArray<TSharedPtr<FJsonValue>>* RemoveConnsArr = nullptr;
+	const bool bHasRemoveConns = TryGetArrayParam(Params, TEXT("removeConnections"), RemoveConnsArr) && RemoveConnsArr;
 
 	UPCGGraph* Graph = LoadAssetByPath<UPCGGraph>(AssetPath);
 	if (!Graph) return MCPAssetLoadError(AssetPath, TEXT("PCGGraph"));
@@ -2620,7 +2687,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 				continue;
 			}
 			Named.Add(LocalName);
-			const UPCGNode* Existing = bReplace ? nullptr : MCPPCG::FindNode(Graph, LocalName);
+			const UPCGNode* Existing = (bReplace || RemoveNodeNames.Contains(LocalName)) ? nullptr : MCPPCG::FindNode(Graph, LocalName);
 			if (!Existing) continue;
 			const UClass* Wanted = FindPCGSettingsClass(ClassName);
 			const UClass* Has = Existing->GetSettings() ? Existing->GetSettings()->GetClass() : nullptr;
@@ -2656,6 +2723,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	// inverse this action can have, so it is taken unconditionally rather than
 	// behind a flag the TS surface would have to grow.
 	TSharedPtr<FJsonObject> Snapshot;
+	if (bReplace)
 	{
 		TSharedPtr<FJsonValue> Exported = ExportGraph(Params);
 		const TSharedPtr<FJsonObject>* ExportedObj = nullptr;
@@ -2680,9 +2748,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 		}
 		for (UPCGNode* Node : Existing)
 		{
-			// A removed node keeps its name until garbage collection; move it aside so the import can reuse the name.
-			const FName Aside = MakeUniqueObjectName(Node->GetOuter(), Node->GetClass(), FName(*(Node->GetName() + TEXT("_Removed"))));
-			Node->Rename(*Aside.ToString(), nullptr, REN_DontCreateRedirectors | REN_DoNotDirty);
+			MoveNodeNameAside(Node);
 			Graph->RemoveNode(Node);
 			++Removed;
 		}
@@ -2694,6 +2760,44 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	TArray<TSharedPtr<FJsonValue>> Warnings;
 	TArray<TSharedPtr<FJsonValue>> Upserted;
 	int32 ImportFailures = 0;
+	int32 ConnectionsRemoved = 0;
+
+	if (!bReplace && bHasRemoveConns)
+	{
+		for (const TSharedPtr<FJsonValue>& V : *RemoveConnsArr)
+		{
+			const TSharedPtr<FJsonObject>* CObj = nullptr;
+			FString From, To, FromPin, ToPin;
+			if (!V.IsValid() || !V->TryGetObject(CObj) || !CObj) continue;
+			(*CObj)->TryGetStringField(TEXT("from"), From);
+			(*CObj)->TryGetStringField(TEXT("to"), To);
+			(*CObj)->TryGetStringField(TEXT("fromPin"), FromPin);
+			(*CObj)->TryGetStringField(TEXT("toPin"), ToPin);
+			UPCGNode* Src = MCPPCG::FindNode(Graph, From);
+			UPCGNode* Dst = MCPPCG::FindNode(Graph, To);
+			if (Src && Dst && Graph->RemoveEdge(Src, FName(*FromPin), Dst, FName(*ToPin))) ++ConnectionsRemoved;
+		}
+	}
+	if (!bReplace)
+	{
+		for (const FString& Name : RemoveNodeNames)
+		{
+			UPCGNode* Node = MCPPCG::FindNode(Graph, Name);
+			if (!Node) continue;
+			if (MCPPCG::IsGraphIONode(Graph, Node))
+			{
+				++ImportFailures;
+				Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("removeNodes: '%s' is the graph's input or output node and stays"), *Name)));
+				continue;
+			}
+			MoveNodeNameAside(Node);
+			Graph->RemoveNode(Node);
+			++Removed;
+		}
+	}
+	TArray<TSharedPtr<FJsonValue>> RollbackNodes;
+	TArray<FString> CreatedNames;
+	TArray<TSharedPtr<FJsonValue>> CreatedEdges;
 	int32 NodesCreated = 0;
 	int32 SettingsApplied = 0;
 
@@ -2733,6 +2837,34 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 		if (bUpsert)
 		{
 			Node->Modify();
+			// What this entry is about to overwrite, as an import entry the rollback replays.
+			TSharedPtr<FJsonObject> Previous = MakeShared<FJsonObject>();
+			Previous->SetStringField(TEXT("name"), Node->GetName());
+			Previous->SetStringField(TEXT("class"), NodeSettings->GetClass()->GetName());
+			if ((*NodeObj)->HasField(TEXT("posX"))) Previous->SetNumberField(TEXT("posX"), Node->PositionX);
+			if ((*NodeObj)->HasField(TEXT("posY"))) Previous->SetNumberField(TEXT("posY"), Node->PositionY);
+			const TSharedPtr<FJsonObject>* Incoming = nullptr;
+			if ((*NodeObj)->TryGetObjectField(TEXT("settings"), Incoming) && Incoming)
+			{
+				TSharedPtr<FJsonObject> PrevSettings = MakeShared<FJsonObject>();
+				for (const auto& Pair : (*Incoming)->Values)
+				{
+					FProperty* Leaf = nullptr;
+					void* Addr = nullptr;
+					UObject* Owner = nullptr;
+					FString Err, Text;
+					if (!MCPJsonProperty::ResolveDottedPath(NodeSettings, FString(*Pair.Key), Leaf, Addr, Owner, Err) || !Leaf || !Addr) continue;
+					if (AsSelectorProp(Leaf)) PrevSettings->SetStringField(FString(*Pair.Key), PCGSelectorText(Addr));
+					else
+					{
+						Leaf->ExportText_Direct(Text, Addr, Addr, Owner, PPF_None);
+						PrevSettings->SetStringField(FString(*Pair.Key), Text);
+					}
+				}
+				Previous->SetObjectField(TEXT("settings"), PrevSettings);
+			}
+			if ((*NodeObj)->HasField(TEXT("subgraph"))) ExportSubgraphSettings(NodeSettings, Previous);
+			RollbackNodes.Add(MakeShared<FJsonValueObject>(Previous));
 		}
 		else
 		{
@@ -2759,21 +2891,9 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			}
 
 			// #236: the new node takes the local name unless another object under the graph holds it.
-			if (!LocalName.IsEmpty() && Node->GetName() != LocalName)
+			if (!LocalName.IsEmpty() && !ClaimNodeName(Graph, Node, LocalName))
 			{
-#if UE_MCP_HAS_STATIC_FIND_OBJECT_FLAGS
-				const bool bClashes = (StaticFindObject(nullptr, Node->GetOuter(), *LocalName, EFindObjectFlags::ExactClass) != nullptr);
-#else
-				const bool bClashes = (StaticFindObject(nullptr, Node->GetOuter(), *LocalName, true) != nullptr);
-#endif
-				if (!bClashes)
-				{
-					Node->Rename(*LocalName, Node->GetOuter(), REN_DontCreateRedirectors | REN_DoNotDirty);
-				}
-				else
-				{
-					Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': name collision, kept engine-assigned '%s'"), *LocalName, *Node->GetName())));
-				}
+				Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': name collision, kept engine-assigned '%s'"), *LocalName, *Node->GetName())));
 			}
 		}
 
@@ -2830,7 +2950,11 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			ByLocalName.Add(LocalName, Node);
 		}
 		if (bUpsert) Upserted.Add(MakeShared<FJsonValueString>(Node->GetName()));
-		else ++NodesCreated;
+		else
+		{
+			++NodesCreated;
+			CreatedNames.Add(Node->GetName());
+		}
 	}
 
 	// Connections. Resolve names via the local-name map first, then fall back
@@ -2937,6 +3061,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			if (bVerified)
 			{
 				++ConnectionsMade;
+				CreatedEdges.Add(MCPPCG::FEdgeKey{ SrcNode->GetName(), SrcPinName.ToString(), DstNode->GetName(), DstPinName.ToString() }.ToJson());
 			}
 			else
 			{
@@ -2960,6 +3085,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	Result->SetNumberField(TEXT("nodesRemoved"), Removed);
 	Result->SetNumberField(TEXT("nodesCreated"), NodesCreated);
 	Result->SetNumberField(TEXT("nodesUpdated"), Upserted.Num());
+	if (ConnectionsRemoved > 0) Result->SetNumberField(TEXT("connectionsRemoved"), ConnectionsRemoved);
 	if (Upserted.Num() > 0) Result->SetArrayField(TEXT("updatedNodes"), Upserted);
 	Result->SetNumberField(TEXT("connectionsMade"), ConnectionsMade);
 	Result->SetNumberField(TEXT("settingsApplied"), SettingsApplied);
@@ -2991,6 +3117,33 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"),
 			TEXT("The rollback rebuilds the graph from a snapshot taken before this call: each node's class, name, position, every edge, and the settings the export captured. A name another object under the graph still holds falls back to an engine-assigned one, listed in that call's warnings. Settings the export cannot see (properties not flagged editable) return to their class default. Subgraph assignments and parameter overrides are restored from the subgraph snapshot. Other instanced subobjects such as a spawner's mesh selector are not exported, so they come back as the class default and their contents (mesh entries) have to be rewritten, e.g. with set_static_mesh_spawner_meshes."));
+	}
+	else if (!bReplace)
+	{
+		// Rollback of an additive import: remove what it created, cut the edges it added between nodes that
+		// stay, and write back the values it overwrote on nodes it updated. Sized by the change, not the graph (#1331).
+		TArray<TSharedPtr<FJsonValue>> RemoveNames;
+		TSet<FString> Created(CreatedNames);
+		for (const FString& Name : CreatedNames) RemoveNames.Add(MakeShared<FJsonValueString>(Name));
+		TArray<TSharedPtr<FJsonValue>> CutEdges;
+		for (const TSharedPtr<FJsonValue>& Edge : CreatedEdges)
+		{
+			const TSharedPtr<FJsonObject>& E = Edge->AsObject();
+			if (!Created.Contains(E->GetStringField(TEXT("from"))) && !Created.Contains(E->GetStringField(TEXT("to")))) CutEdges.Add(Edge);
+		}
+		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+		Payload->SetStringField(TEXT("assetPath"), AssetPath);
+		Payload->SetBoolField(TEXT("replace"), false);
+		Payload->SetArrayField(TEXT("nodes"), RollbackNodes);
+		Payload->SetArrayField(TEXT("removeNodes"), RemoveNames);
+		Payload->SetArrayField(TEXT("removeConnections"), CutEdges);
+		MCPSetRollback(Result, TEXT("import_pcg_graph"), Payload);
+		const bool bLossy = Removed > 0 || ConnectionsRemoved > 0;
+		Result->SetBoolField(TEXT("rollbackLossy"), bLossy);
+		if (bLossy)
+		{
+			Result->SetStringField(TEXT("rollbackNote"), TEXT("Nodes and edges this call removed through removeNodes or removeConnections do not come back. Snapshot with export_pcg_graph first if they have to."));
+		}
 	}
 	else
 	{

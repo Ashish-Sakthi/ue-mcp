@@ -38,6 +38,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "number",
         "required": false,
         "description": "Graph editor Y position for the new node"
+      },
+      {
+        "name": "name",
+        "type": "string",
+        "required": false,
+        "description": "Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused"
       }
     ]
   },
@@ -452,6 +458,20 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "boolean",
         "required": false,
         "description": "Wipe existing user nodes first (default false)"
+      },
+      {
+        "name": "removeNodes",
+        "type": "array",
+        "required": false,
+        "description": "Without replace: node names to remove before importing; a missing name is skipped",
+        "items": "string"
+      },
+      {
+        "name": "removeConnections",
+        "type": "array",
+        "required": false,
+        "description": "Without replace: edges [{from, fromPin, to, toPin}] to cut before importing",
+        "items": "object"
       }
     ]
   },
@@ -820,7 +840,7 @@ export const handlerSpecs: HandlerSpecs = {
 
 /** The Params: clause of each spec'd bridge method. */
 export const paramsClauses: Readonly<Record<string, string>> = {
-  add_pcg_node: "Params: assetPath (or path), nodeType, posX?, posY?",
+  add_pcg_node: "Params: assetPath (or path), nodeType, posX?, posY?, name?",
   add_pcg_volume: "Params: graphPath?, location?, transform?, extent?, label?, onConflict?",
   cleanup_pcg: "Params: actorLabel OR actorPath, removeComponents?",
   connect_pcg_nodes: "Params: assetPath (or path), sourceNode (or sourceNodeName), sourcePin? (or sourcePinLabel), targetNode (or targetNodeName), targetPin? (or targetPinLabel)",
@@ -832,7 +852,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   force_regenerate_pcg: "Params: actorLabel OR actorPath",
   get_pcg_component_details: "Params: actorLabel OR actorPath",
   get_pcg_components: "Params: none",
-  import_pcg_graph: "Params: assetPath (or path), nodes, connections?, replace?",
+  import_pcg_graph: "Params: assetPath (or path), nodes, connections?, replace?, removeNodes?, removeConnections?",
   list_pcg_graphs: "Params: cursor?, limit?",
   read_pcg_graph: "Params: assetPath (or path)",
   read_pcg_node_settings: "Params: assetPath (or path), nodeName",
@@ -865,7 +885,7 @@ export const schema: Record<string, z.ZodType> = {
   limit: z.number().int().optional().describe("Rows to return on this page (default 200, max 2000)"),
   location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location {x,y,z} (default origin); wins over transform.location"),
   mode: z.string().optional().describe("append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"),
-  name: z.string().optional().describe("Graph asset name"),
+  name: z.string().optional().describe("Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused (add_pcg_node). Graph asset name (create_pcg_graph)"),
   nodeName: z.string().optional().describe("Engine name of the node, as read_graph reports it (read_pcg_node_settings, remove_pcg_node, set_pcg_node_settings, set_static_mesh_spawner_meshes). Engine name of the Subgraph node, as read_graph reports it (set_pcg_subgraph). Engine name of the Subgraph node (set_pcg_subgraph_parameters). Only this node (default: every node in the graph) (unwrap_pcg_instance_nodes)"),
   nodes: z.array(z.record(z.unknown())).optional().describe("[{name, class, posX?, posY?, settings?}]"),
   nodeType: z.string().optional().describe("PCG settings class of the node to add"),
@@ -879,6 +899,8 @@ export const schema: Record<string, z.ZodType> = {
   propertyName: z.string().optional().describe("One property to write instead of a settings object"),
   propertyValue: z.string().optional().describe("The value for propertyName, as UE export text"),
   removeComponents: z.boolean().optional().describe("Remove the managed spawned components too (default true)"),
+  removeConnections: z.array(z.record(z.unknown())).optional().describe("Without replace: edges [{from, fromPin, to, toPin}] to cut before importing"),
+  removeNodes: z.array(z.string()).optional().describe("Without replace: node names to remove before importing; a missing name is skipped"),
   replace: z.boolean().optional().describe("Wipe existing user nodes first (default false) (import_pcg_graph). Overwrite existing MeshEntries (default true) (set_static_mesh_spawner_meshes)"),
   save: z.boolean().optional().describe("Save the asset after export (default true) (export_level_to_pcg_asset). Save the assets after export (default true) (update_pcg_level_assets)"),
   seed: z.number().int().optional().describe("Write the component's Seed before generating; the old one is reported as previousSeed"),

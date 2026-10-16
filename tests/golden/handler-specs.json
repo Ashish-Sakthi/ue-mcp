@@ -1758,6 +1758,12 @@
           "type": "number",
           "required": false,
           "description": "Graph editor Y position for the new node"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused"
         }
       ]
     },
@@ -17491,6 +17497,20 @@
           "type": "boolean",
           "required": false,
           "description": "Wipe existing user nodes first (default false)"
+        },
+        {
+          "name": "removeNodes",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: node names to remove before importing; a missing name is skipped",
+          "items": "string"
+        },
+        {
+          "name": "removeConnections",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: edges [{from, fromPin, to, toPin}] to cut before importing",
+          "items": "object"
         }
       ]
     },
