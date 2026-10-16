@@ -134,8 +134,11 @@ export const editorTool: ToolDef = categoryTool(
         // #704: hard gate. Require an intent statement, run the semantic search,
         // and refuse to run Python until EVERY candidate action is explicitly
         // ruled out with a stated reason.
+        // A refusal carries success:false so a flow step or plugin task fails
+        // rather than reading it as Python that ran (#1269).
         if (!taskSummary) {
           return {
+            success: false,
             blocked: true,
             reason: "missing_task_summary",
             message: "execute_python requires a 'taskSummary' (plain-words intent). It is searched against the tool registry and gated behind ruling out every candidate. Re-call with taskSummary.",
@@ -155,6 +158,7 @@ export const editorTool: ToolDef = categoryTool(
           if (verdict.unresolved.length > 0) {
             pushWorkaround({ code, timestamp: new Date().toISOString(), taskSummary, suggestedTool: candidates.map((c) => `${c.tool}(${c.action})`).join(", ") }, ctx);
             return {
+              success: false,
               blocked: true,
               reason: "candidates_not_ruled_out",
               taskSummary,
