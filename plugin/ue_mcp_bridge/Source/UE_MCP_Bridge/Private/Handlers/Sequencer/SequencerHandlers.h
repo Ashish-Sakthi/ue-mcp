@@ -27,6 +27,8 @@ private:
 	static TSharedPtr<FJsonValue> GetChannelKeys(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetChannelKeys(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RemoveSection(const TSharedPtr<FJsonObject>& Params);
-	// #1232: runtime players and their bindings (SequencerHandlers_Bindings.cpp).
+	// #1356/#1232: binding resolution, retargeting and runtime players (SequencerHandlers_Bindings.cpp).
+	static TSharedPtr<FJsonValue> ResolveBindings(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> RebindPossessable(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> GetRuntimeBindings(const TSharedPtr<FJsonObject>& Params);
 };

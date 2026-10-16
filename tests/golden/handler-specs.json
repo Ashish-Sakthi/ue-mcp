@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1083,
+  "handlerCount": 1085,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -24537,6 +24537,63 @@
         }
       ]
     },
+    "rebind_possessable": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "The possessable to retarget. Pass this or bindingName"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "The possessable's name, when it is unique"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "includeChildren",
+          "type": "boolean",
+          "required": false,
+          "description": "Also retarget the binding's component possessables to the new actor's components (default true)"
+        },
+        {
+          "name": "componentMap",
+          "type": "object",
+          "required": false,
+          "description": "{childBindingNameOrGuid: componentName} for children whose component name differs from the binding name"
+        },
+        {
+          "name": "renameBinding",
+          "type": "boolean",
+          "required": false,
+          "description": "Rename the binding to the new actor's label (default false)"
+        }
+      ]
+    },
     "rebuild_navigation": {
       "category": "gameplay",
       "params": [],
@@ -27576,6 +27633,33 @@
           "type": "boolean",
           "required": false,
           "description": "Include the unused GameTraceChannel slots (default false)"
+        }
+      ]
+    },
+    "resolve_sequence_bindings": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Report only this binding"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Report only the binding with this name"
         }
       ]
     },

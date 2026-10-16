@@ -194,6 +194,22 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("sectionIndex"), EType::Integer, TEXT("Index of the section to remove, as get_sequence_info lists them")),
 	});
 
+	// #1356: what bindings resolve to, and retargeting a stale possessable.
+	Registry.RegisterHandler(TEXT("resolve_sequence_bindings"), &ResolveBindings, {
+		SequencePathParam(TEXT("Level Sequence asset path"), true),
+		MCPParam::Optional(TEXT("bindingGuid"), EType::String, TEXT("Report only this binding")),
+		MCPParam::Optional(TEXT("bindingName"), EType::String, TEXT("Report only the binding with this name")),
+	});
+	Registry.RegisterHandler(TEXT("rebind_possessable"), &RebindPossessable, {
+		SequencePathParam(TEXT("Level Sequence asset path"), true),
+		MCPParam::Optional(TEXT("bindingGuid"), EType::String, TEXT("The possessable to retarget. Pass this or bindingName")),
+		MCPParam::Optional(TEXT("bindingName"), EType::String, TEXT("The possessable's name, when it is unique")),
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Optional(TEXT("includeChildren"), EType::Boolean, TEXT("Also retarget the binding's component possessables to the new actor's components (default true)")),
+		MCPParam::Optional(TEXT("componentMap"), EType::Object, TEXT("{childBindingNameOrGuid: componentName} for children whose component name differs from the binding name")),
+		MCPParam::Optional(TEXT("renameBinding"), EType::Boolean, TEXT("Rename the binding to the new actor's label (default false)")),
+	});
 	// #1232: runtime players and what each of their bindings resolved to.
 	Registry.RegisterHandler(TEXT("get_sequence_runtime_bindings"), &GetRuntimeBindings, {
 		MCPParam::Optional(TEXT("world"), EType::String, TEXT("auto (default: PIE when running, else editor) | pie | editor")),

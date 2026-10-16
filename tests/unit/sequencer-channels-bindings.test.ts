@@ -69,9 +69,24 @@ describe("sequencer channel actions (#1407)", () => {
   });
 });
 
-describe("sequencer runtime bindings (#1232)", () => {
-  it("advertises runtime bindings as a read", () => {
+describe("sequencer binding actions (#1356, #1232)", () => {
+  it("advertises rebind, resolve and runtime bindings", () => {
+    expect(editorTool.actions.rebind_possessable.description).toContain("bindingGuid?, bindingName?, actorLabel?, actorPath?, includeChildren?, componentMap?, renameBinding?");
+    expect(classifyAction("editor.resolve_sequence_bindings", { sequencePath: "/Game/S" }).mutates).toBe(false);
     expect(classifyAction("editor.get_sequence_runtime_bindings", {}).mutates).toBe(false);
+    expect(classifyAction("editor.rebind_possessable", { sequencePath: "/Game/S", bindingName: "Cam", actorLabel: "Cam" }).mutates).toBe(true);
+  });
+
+  it("keeps the binding guid and verifies the retarget by resolving it again", () => {
+    const rebind = body(bindings, "RebindPossessable", "GetRuntimeBindings");
+    expect(rebind).toContain("UnbindPossessableObjects(Guid)");
+    expect(rebind).toContain("BindPossessableObject(Guid, *Actor, World)");
+    expect(rebind).not.toContain("AddPossessable");
+    expect(rebind).not.toContain("RemovePossessable");
+    const bind = rebind.indexOf("BindPossessableObject(Guid, *Actor, World)");
+    const verify = rebind.indexOf("const TArray<UObject*> AfterObjects = LocateInWorld(");
+    expect(verify).toBeGreaterThan(bind);
+    expect(rebind).toContain("AfterObjects[0] == Actor");
   });
 
   it("asks each runtime player, not the editor, what a binding resolved to", () => {
