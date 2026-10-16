@@ -497,6 +497,11 @@
       "summary": "the daemon reports and applies bridge updates over /v1/update"
     },
     {
+      "id": "package.dist-server",
+      "group": "daemon",
+      "summary": "the compiled package, laid out as npm installs it, starts from dist/index.js and serves what the source does"
+    },
+    {
       "id": "exports.task",
       "group": "daemon",
       "summary": "the ue-mcp/task export resolves and its Task base class runs a plugin task"
