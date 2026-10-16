@@ -3781,9 +3781,12 @@ namespace
 		}
 
 		FMCPSaveDiagnostics SaveDiagnostics;
-		if (ToSave.Num() > 0)
+		// One package per call, so the engine's own success flag is per package.
+		// File mtimes are whole seconds, which cannot prove a same-second rewrite.
+		TMap<UPackage*, bool> SaveReported;
+		for (UPackage* Package : ToSave)
 		{
-			UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty=*/false);
+			SaveReported.Add(Package, UEditorLoadingAndSavingUtils::SavePackages({ Package }, /*bOnlyDirty=*/false));
 		}
 
 		TArray<TSharedPtr<FJsonValue>> Results;
@@ -3805,9 +3808,10 @@ namespace
 				ResolvePackageFileName(Package, FileName);
 				const FDateTime StampAfter = FileName.IsEmpty() ? FDateTime::MinValue() : IFileManager::Get().GetTimeStamp(*FileName);
 				const bool bFileExists = StampAfter != FDateTime::MinValue();
-				// ponytail: a forced save of a clean package is judged by the file's mtime alone; a same-second rewrite on a filesystem with one-second mtimes reads as failed until the save reports per package.
 				const bool bWritten = bFileExists
-					&& ((Row->GetBoolField(TEXT("wasDirty")) && !Package->IsDirty()) || StampAfter != StampBefore[i]);
+					&& ((SaveReported.FindRef(Package) && !Package->IsDirty())
+						|| (Row->GetBoolField(TEXT("wasDirty")) && !Package->IsDirty())
+						|| StampAfter != StampBefore[i]);
 				Row->SetBoolField(TEXT("stillDirty"), Package->IsDirty());
 				if (bWritten)
 				{
@@ -4072,14 +4076,30 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAllDirty(const TSharedPtr<FJsonObject
 	TArray<UPackage*> DirtyBefore;
 	if (bSaveContentPackages) FEditorFileUtils::GetDirtyContentPackages(DirtyBefore);
 	if (bSaveMapPackages) FEditorFileUtils::GetDirtyWorldPackages(DirtyBefore);
+	// A /Temp/ or /Memory/ package (an untitled map and its external actors)
+	// has no file to write, and the engine's sweep opens a modal Save As for
+	// it. The bridge never prompts, so those are reported and left alone.
 	TArray<FString> TargetNames;
+	TArray<UPackage*> ToSave;
+	TArray<FString> Skipped;
 	for (UPackage* Package : DirtyBefore)
 	{
-		if (Package && Package->IsDirty()) TargetNames.AddUnique(Package->GetName());
+		if (!Package || !Package->IsDirty()) continue;
+		const FString Name = Package->GetName();
+		if (FPackageName::IsTempPackage(Name) || FPackageName::IsMemoryPackage(Name))
+		{
+			Skipped.AddUnique(Name);
+			continue;
+		}
+		if (!TargetNames.Contains(Name))
+		{
+			TargetNames.Add(Name);
+			ToSave.Add(Package);
+		}
 	}
 
 	FMCPSaveDiagnostics SaveDiagnostics;
-	const bool bOk = UEditorLoadingAndSavingUtils::SaveDirtyPackages(bSaveMapPackages, bSaveContentPackages);
+	const bool bOk = ToSave.Num() == 0 || UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty*/ true);
 
 	TArray<TSharedPtr<FJsonValue>> Written;
 	TArray<TSharedPtr<FJsonValue>> StillDirty;
@@ -4102,6 +4122,9 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAllDirty(const TSharedPtr<FJsonObject
 	Result->SetNumberField(TEXT("attempted"), TargetNames.Num());
 	Result->SetArrayField(TEXT("saved"), Written);
 	Result->SetArrayField(TEXT("stillDirty"), StillDirty);
+	TArray<TSharedPtr<FJsonValue>> SkippedJson;
+	for (const FString& Name : Skipped) SkippedJson.Add(MakeShared<FJsonValueString>(Name));
+	Result->SetArrayField(TEXT("skippedUnsaveable"), SkippedJson);
 	// Keyed off what reached disk, not off what was dirty going in: a run where
 	// every package failed to write attempted work and changed nothing.
 	Result->SetBoolField(TEXT("unchanged"), Written.Num() == 0);

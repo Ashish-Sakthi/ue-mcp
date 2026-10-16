@@ -1690,7 +1690,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ListEqsQueries(const TSharedPtr<FJsonO
 
 	IAssetRegistry& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
 	TArray<FAssetData> Assets;
-	AR.GetAssetsByClass(FTopLevelAssetPath(TEXT("/Script/AIModule"), TEXT("EnvironmentQuery")), Assets, true);
+	AR.GetAssetsByClass(FTopLevelAssetPath(TEXT("/Script/AIModule"), TEXT("EnvQuery")), Assets, true);
 
 	TArray<TSharedPtr<FJsonValue>> AssetArray;
 	for (const FAssetData& Asset : Assets)
@@ -3530,10 +3530,11 @@ TSharedPtr<FJsonValue> FGameplayHandlers::AddStateTreeComponent(const TSharedPtr
 
 	REQUIRE_ASSET(UBlueprint, BP, BPPath);
 
-	UClass* CompClass = FindObject<UClass>(nullptr, TEXT("/Script/StateTreeModule.StateTreeComponent"));
+	// UStateTreeComponent lives in the GameplayStateTree plugin's module.
+	UClass* CompClass = LoadClass<UActorComponent>(nullptr, TEXT("/Script/GameplayStateTreeModule.StateTreeComponent"));
 	if (!CompClass)
 	{
-		return MCPError(TEXT("StateTreeComponent not found. Enable StateTree plugin."));
+		return MCPError(TEXT("StateTreeComponent not found. Enable the GameplayStateTree plugin."));
 	}
 
 	// Idempotency: check for existing component by name/class on the SCS

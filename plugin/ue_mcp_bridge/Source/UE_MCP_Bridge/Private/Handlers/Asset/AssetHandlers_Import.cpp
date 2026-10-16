@@ -1498,11 +1498,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReadCurveTable(const TSharedPtr<FJsonObje
 	for (const TPair<FName, FRealCurve*>& Pair : Table->GetRowMap())
 	{
 		const FString Name = Pair.Key.ToString();
-		RowNames.Add(MakeShared<FJsonValueString>(Name));
 		if (!RowFilter.IsEmpty() && !Name.ToLower().Contains(RowFilter))
 		{
 			continue;
 		}
+		RowNames.Add(MakeShared<FJsonValueString>(Name));
 
 		TArray<TSharedPtr<FJsonValue>> Keys = CurveKeysToJson(Pair.Value, Mode);
 		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
@@ -4012,16 +4012,20 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportStringTableCsv(const TSharedPtr<FJs
 			*CsvPath, *AssetPath));
 	}
 
+	// The engine importer resets the table before reading the CSV, so a merge
+	// puts back every earlier entry the CSV does not carry.
 	TArray<FString> RemovedKeys;
-	if (bReplaceExisting)
+	for (const TPair<FString, FString>& Entry : Before)
 	{
-		for (const TPair<FString, FString>& Entry : Before)
+		if (Incoming.Contains(Entry.Key)) continue;
+		if (bReplaceExisting)
 		{
-			if (!Incoming.Contains(Entry.Key))
-			{
-				StringTable->GetMutableStringTable()->RemoveSourceString(FTextKey(Entry.Key));
-				RemovedKeys.Add(Entry.Key);
-			}
+			StringTable->GetMutableStringTable()->RemoveSourceString(FTextKey(Entry.Key));
+			RemovedKeys.Add(Entry.Key);
+		}
+		else
+		{
+			StringTable->GetMutableStringTable()->SetSourceString(FTextKey(Entry.Key), Entry.Value);
 		}
 	}
 
