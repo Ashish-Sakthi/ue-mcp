@@ -65,6 +65,10 @@ export const widgetTool: ToolDef = categoryTool(
       ...specBp("mutate", "Add widget to widget tree. Idempotent by assetPath + widgetName: passing widgetName makes a retry safe, and the result carries requestedWidgetName/persistedWidgetName/renamed plus compileStatus.", "add_widget"),
       timeoutMs: 120_000,
     },
+    build_tree: {
+      ...specBp("mutate", "Build a nested widget subtree in one call (#1300). tree is one node {widgetClass, widgetName?, properties?, children?}, children nesting the same shape; properties take set_widget_property names, slot.* included, with JSON values (a string, number or bool goes through set_widget_property's routes, an object or array through the JSON setter). The whole spec is validated (classes, panels, unique and unused names) before anything is built, any failure undoes every widget it built, and the blueprint is compiled and saved once. Lands under parentWidgetName, else the root panel, else becomes the root. The one rollback is remove_widget on the subtree root, which removes everything under it. Wrap several siblings in a panel node.", "build_tree"),
+      timeoutMs: 120_000,
+    },
     remove_widget: {
       ...specBp("mutate", "Remove widget from tree. Idempotent, and clears the widget's Widget Blueprint GUID metadata so later compiles stop reporting a deleted variable (#799).", "remove_widget"),
       timeoutMs: 120_000,

@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1080,
+  "handlerCount": 1081,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -6396,6 +6396,32 @@
           "type": "boolean",
           "required": false,
           "description": "Block until the build resolves (default true)"
+        }
+      ]
+    },
+    "build_tree": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "tree",
+          "type": "object",
+          "required": true,
+          "description": "One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values"
+        },
+        {
+          "name": "parentWidgetName",
+          "type": "string",
+          "required": false,
+          "description": "Panel to build under (default: the root panel, or the tree root when there is none)"
         }
       ]
     },
