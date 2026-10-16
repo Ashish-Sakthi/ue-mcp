@@ -466,6 +466,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::NudgeComponent(const TSharedPtr<FJsonObje
 	if (!bRuntimeWorld)
 	{
 		Actor->PostEditMove(true);
+		MCPNotifyEditorMove(Actor);
 	}
 	return MCPResult(Result);
 }
@@ -581,6 +582,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::RestoreComponentRelativeTransform(const T
 	if (!bRuntimeWorld)
 	{
 		Actor->PostEditMove(true);
+		MCPNotifyEditorMove(Actor);
 	}
 	return MCPResult(Result);
 }

@@ -1966,6 +1966,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 	if (bEditorWorld)
 	{
 		Actor->PostEditMove(true);
+		MCPNotifyEditorMove(Actor);
 	}
 	return MCPResult(Result);
 }
