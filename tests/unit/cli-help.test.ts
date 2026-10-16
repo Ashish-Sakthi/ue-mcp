@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
@@ -10,9 +10,9 @@ import { formatUsage, isHelpRequest, preflight, runCli, unknownFlags, type CliUs
 
 let dir: string;
 let cwd: string;
-let exit: ReturnType<typeof vi.spyOn>;
-let log: ReturnType<typeof vi.spyOn>;
-let error: ReturnType<typeof vi.spyOn>;
+let exit: MockInstance<typeof process.exit>;
+let log: MockInstance<typeof console.log>;
+let error: MockInstance<typeof console.error>;
 
 /** Every file under `root` with its contents, to prove nothing was written. */
 function snapshot(root: string): Record<string, string> {
