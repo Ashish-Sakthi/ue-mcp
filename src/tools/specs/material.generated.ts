@@ -462,8 +462,204 @@ export const handlerSpecs: HandlerSpecs = {
       {
         "name": "textures",
         "type": "object",
-        "required": true,
-        "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)"
+        "required": false,
+        "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it"
+      },
+      {
+        "name": "textureParameters",
+        "type": "boolean",
+        "required": false,
+        "description": "true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them",
+        "orTypes": [
+          "object"
+        ]
+      },
+      {
+        "name": "parameters",
+        "type": "array",
+        "required": false,
+        "description": "Parameter nodes to create, reused by name when present",
+        "items": "object",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "required": true,
+            "description": "Parameter name; connections can name it too"
+          },
+          {
+            "name": "type",
+            "type": "string",
+            "required": true,
+            "description": "scalar | vector | texture"
+          },
+          {
+            "name": "default",
+            "type": "any",
+            "required": false,
+            "description": "A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)"
+          },
+          {
+            "name": "group",
+            "type": "string",
+            "required": false,
+            "description": "Parameter group"
+          }
+        ]
+      },
+      {
+        "name": "nodes",
+        "type": "array",
+        "required": false,
+        "description": "Nodes to create. Every node is created or none is",
+        "items": "object",
+        "fields": [
+          {
+            "name": "name",
+            "type": "string",
+            "required": true,
+            "description": "Your name for the node; connections refer to it, and it becomes the node description"
+          },
+          {
+            "name": "class",
+            "type": "string",
+            "required": true,
+            "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+          },
+          {
+            "name": "posX",
+            "type": "number",
+            "required": false,
+            "description": "Graph X position"
+          },
+          {
+            "name": "posY",
+            "type": "number",
+            "required": false,
+            "description": "Graph Y position"
+          },
+          {
+            "name": "parameterName",
+            "type": "string",
+            "required": false,
+            "description": "Parameter name on a parameter node"
+          },
+          {
+            "name": "group",
+            "type": "string",
+            "required": false,
+            "description": "Parameter group"
+          },
+          {
+            "name": "sortPriority",
+            "type": "number",
+            "required": false,
+            "description": "Sort priority within the group"
+          },
+          {
+            "name": "defaultValue",
+            "type": "any",
+            "required": false,
+            "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+          },
+          {
+            "name": "value",
+            "type": "any",
+            "required": false,
+            "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+          },
+          {
+            "name": "channels",
+            "type": "object",
+            "required": false,
+            "description": "ComponentMask channels {r,g,b,a} as booleans"
+          },
+          {
+            "name": "texturePath",
+            "type": "string",
+            "required": false,
+            "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+          },
+          {
+            "name": "properties",
+            "type": "object",
+            "required": false,
+            "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+          }
+        ]
+      },
+      {
+        "name": "connections",
+        "type": "array",
+        "required": false,
+        "description": "Node-to-node wires",
+        "items": "object",
+        "fields": [
+          {
+            "name": "from",
+            "type": "string",
+            "required": true,
+            "description": "Source node: a name from nodes, or an expression already in the material"
+          },
+          {
+            "name": "fromOutput",
+            "type": "any",
+            "required": false,
+            "description": "Source output by name (RGB, R, G) or index (default 0)"
+          },
+          {
+            "name": "to",
+            "type": "string",
+            "required": true,
+            "description": "Target node, named the same way"
+          },
+          {
+            "name": "toInput",
+            "type": "any",
+            "required": false,
+            "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+          }
+        ]
+      },
+      {
+        "name": "propertyConnections",
+        "type": "array",
+        "required": false,
+        "description": "Wires into the material's outputs",
+        "items": "object",
+        "fields": [
+          {
+            "name": "property",
+            "type": "string",
+            "required": true,
+            "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+          },
+          {
+            "name": "from",
+            "type": "string",
+            "required": true,
+            "description": "Source node, named as in connections"
+          },
+          {
+            "name": "output",
+            "type": "any",
+            "required": false,
+            "description": "Source output by name or index (default 0)"
+          },
+          {
+            "name": "outputIndex",
+            "type": "integer",
+            "required": false,
+            "description": "Source output index, instead of output"
+          }
+        ]
+      },
+      {
+        "name": "instances",
+        "type": "array",
+        "required": false,
+        "description": "MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated",
+        "items": "object"
       },
       {
         "name": "samplerTypes",
@@ -2466,7 +2662,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   assign_rvt_to_landscape: "Params: actorLabel OR actorPath, rvtPaths?, rvtPath?, assignMode?",
   batch_set_material_instances: "Params: instances",
   begin_material_transaction: "Params: label?",
-  build_material: "Params: materialPath (or assetPath) OR name, packagePath?, textures, samplerTypes?, clearExisting?, assignToMesh? (or meshPath), meshSlots?",
+  build_material: "Params: materialPath (or assetPath) OR name, packagePath?, textures?, textureParameters?, parameters?, nodes?, connections?, propertyConnections?, instances?, samplerTypes?, clearExisting?, assignToMesh? (or meshPath), meshSlots?",
   build_material_graph: "Params: assetPath (or materialPath), nodes, connections?, propertyConnections?",
   clear_material_instance_parameters: "Params: assetPath (or path, or materialPath)",
   connect_expressions_in_function: "Params: functionPath (or materialFunctionPath), sourceExpression, sourceOutput?, targetExpression, targetInput?",
@@ -2557,7 +2753,7 @@ export const schema: Record<string, z.ZodType> = {
   inputName: z.string().optional().describe("FunctionInput name (#463)"),
   inputs: z.array(z.string()).optional().describe("Named input pins; rebuilds the node's inputs (#617)"),
   inputType: z.string().optional().describe("FunctionInput type: Scalar|Vector2|Vector3|Vector4|Texture2D|TextureCube|StaticBool|MaterialAttributes (#463)"),
-  instances: z.array(z.record(z.unknown())).optional().describe("[{assetPath, parentPath?, parameters?:[{name, type (scalar|vector|texture), value}]}]. value: number (scalar), {r,g,b,a} (vector), or texture path (texture) (#594)"),
+  instances: z.array(z.record(z.unknown())).optional().describe("[{assetPath, parentPath?, parameters?:[{name, type (scalar|vector|texture), value}]}]. value: number (scalar), {r,g,b,a} (vector), or texture path (texture) (#594) (batch_set_material_instances). MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated (build_material)"),
   label: z.string().optional().describe("Transaction label (default MCP Material Edit)"),
   layerIndex: z.number().int().optional().describe("Only this layer of the slot (read_material_designer). Material Designer layer index within the slot (remove_material_designer_layer, set_material_designer_value)"),
   layerName: z.string().optional().describe("Name for the new layer (add_material_designer_layer). Material Designer layer name (remove_material_designer_layer, set_material_designer_value)"),
@@ -2583,6 +2779,7 @@ export const schema: Record<string, z.ZodType> = {
   packagePath: z.string().optional().describe("Folder for a new material (default /Game/Materials) (build_material). Folder for the new material (default /Game/Materials) (create_material, create_material_designer, create_material_simple). Folder for the new function (default /Game/Materials/Functions) (create_material_function). Folder for the new instance (default /Game/Materials) (create_material_instance). Folder for the new RVT (default /Game/Textures/RVT) (create_runtime_virtual_texture)"),
   parameterIndex: z.number().optional().describe("Material layer/blend parameter index"),
   parameterName: z.string().optional().describe("Parameter name, on a parameter node (add_material_expression). Rename a scalar or vector parameter node (set_expression_value). Material parameter name (set_material_parameter, set_material_static_switch)"),
+  parameters: z.array(z.object({ name: z.string().describe("Parameter name; connections can name it too"), type: z.string().describe("scalar | vector | texture"), default: z.unknown().optional().describe("A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)"), group: z.string().optional().describe("Parameter group") })).optional().describe("Parameter nodes to create, reused by name when present"),
   parameterType: z.string().optional().describe("scalar | vector (alias color) | texture; detected from the instance when omitted"),
   parentPath: z.string().optional().describe("Parent material or material instance (create_material_instance). Alias for newParentPath (set_material_instance_parent)"),
   path: z.string().optional().describe("Alias for materialPath (add_material_expression, connect_material_expressions, connect_texture_to_material, connect_to_material_property, delete_material_expression, list_material_expressions, read_material_graph, recompile_material, set_custom_expression, set_expression_value). Alias for assetPath (clear_material_instance_parameters, get_material_usage, list_material_parameters, list_material_static_switches, read_material, read_material_instance, read_material_parameter_collection, set_material_base_color, set_material_blend_mode, set_material_domain, set_material_instance_parent, set_material_parameter, set_material_shading_model, set_material_static_switch, set_material_usage)"),
@@ -2610,8 +2807,9 @@ export const schema: Record<string, z.ZodType> = {
   stage: z.string().optional().describe("Stage of the addressed layer: base | mask | index"),
   targetExpression: z.string().optional().describe("Expression the wire enters (name, or index inside a MaterialFunction)"),
   targetInput: z.string().optional().describe("Input of the target expression, by name or index (default: its first input)"),
+  textureParameters: z.union([z.boolean(), z.record(z.unknown())]).optional().describe("true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them"),
   texturePath: z.string().optional().describe("Texture asset path (connect_texture_to_material). Default texture of a TextureSample node (set_expression_value). Texture asset path, instead of value, for a texture parameter (set_material_parameter)"),
-  textures: z.record(z.unknown()).optional().describe("{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)"),
+  textures: z.record(z.unknown()).optional().describe("{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it"),
   usage: z.string().optional().describe("One MATUSAGE flag name"),
   usages: z.array(z.string()).optional().describe("MATUSAGE flag names to turn on, e.g. InstancedStaticMeshes, Nanite, NiagaraSprites (create_material_simple). MATUSAGE flag names (InstancedStaticMeshes, Nanite, VolumetricCloud, ...); get_usage lists every name this engine accepts (set_material_usage)"),
   uTiling: z.number().optional().describe("U tiling multiplier of a TextureCoordinate node"),

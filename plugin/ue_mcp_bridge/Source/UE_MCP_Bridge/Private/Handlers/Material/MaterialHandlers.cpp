@@ -420,12 +420,27 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPSpec::ContractExempt(TEXT("Commits whatever editor transaction is open")));
 
 	// #946: texture-set build with automatic virtual/UDIM sampler selection.
-	// The contract values' empty textures object is refused before anything is built.
+	// #1229: parameters, a node graph and per-piece instances in the same call.
+	// The contract values' empty textures, parameters and nodes are refused before anything is built.
+	FMCPParamSpec BuildNodes = SpecGraphNodes();
+	BuildNodes.bRequired = false;
 	Registry.RegisterHandler(TEXT("build_material"), &BuildMaterial, {
 		MCPParam::Optional(TEXT("materialPath"), EType::String, TEXT("Existing material to build into")).Alias(TEXT("assetPath")),
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Name of a new material to create and build")),
 		SpecPackagePath(TEXT("Folder for a new material (default /Game/Materials)")),
-		MCPParam::Required(TEXT("textures"), EType::Object, TEXT("{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)")),
+		MCPParam::Optional(TEXT("textures"), EType::Object, TEXT("{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it")),
+		MCPParam::Optional(TEXT("textureParameters"), EType::Boolean, TEXT("true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them")).Or(EType::Object),
+		MCPParam::Optional(TEXT("parameters"), EType::Array, TEXT("Parameter nodes to create, reused by name when present")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("name"), EType::String, TEXT("Parameter name; connections can name it too")),
+			MCPParam::RequiredField(TEXT("type"), EType::String, TEXT("scalar | vector | texture")),
+			MCPParam::OptionalField(TEXT("default"), EType::Any, TEXT("A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)")),
+			MCPParam::OptionalField(TEXT("group"), EType::String, TEXT("Parameter group")),
+		}),
+		BuildNodes,
+		SpecGraphConnections(),
+		SpecPropertyConnections(),
+		// One category key has one type, and batch_set_instances already declares instances as plain objects.
+		MCPParam::Optional(TEXT("instances"), EType::Array, TEXT("MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated")).Items(EType::Object),
 		MCPParam::Optional(TEXT("samplerTypes"), EType::Object, TEXT("Per-texture EMaterialSamplerType override, e.g. {normal: 'VirtualNormal'}; omit to let the texture decide (#946)")),
 		MCPParam::Optional(TEXT("clearExisting"), EType::Boolean, TEXT("Delete every existing expression before building (#946)")),
 		MCPParam::Optional(TEXT("assignToMesh"), EType::String, TEXT("StaticMesh or SkeletalMesh asset to put the finished material on (#946)")).Alias(TEXT("meshPath")),

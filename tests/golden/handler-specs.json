@@ -6288,8 +6288,204 @@
         {
           "name": "textures",
           "type": "object",
-          "required": true,
-          "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)"
+          "required": false,
+          "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it"
+        },
+        {
+          "name": "textureParameters",
+          "type": "boolean",
+          "required": false,
+          "description": "true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them",
+          "orTypes": [
+            "object"
+          ]
+        },
+        {
+          "name": "parameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter nodes to create, reused by name when present",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name; connections can name it too"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": true,
+              "description": "scalar | vector | texture"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            }
+          ]
+        },
+        {
+          "name": "nodes",
+          "type": "array",
+          "required": false,
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
+        },
+        {
+          "name": "propertyConnections",
+          "type": "array",
+          "required": false,
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
+        },
+        {
+          "name": "instances",
+          "type": "array",
+          "required": false,
+          "description": "MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated",
+          "items": "object"
         },
         {
           "name": "samplerTypes",
