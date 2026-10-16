@@ -267,7 +267,10 @@ namespace
 		bool bOk = true;
 		if (bEditorSyntax)
 		{
-			bOk = static_cast<FPCGAttributePropertySelector*>(static_cast<void*>(Scratch.GetData()))->Update(Text);
+			// Update reports a change, not a parse: the text the struct already defaults to (@Last on an input
+			// selector) returns false, so a selector that now reads as written also counts.
+			FPCGAttributePropertySelector* Selector = static_cast<FPCGAttributePropertySelector*>(static_cast<void*>(Scratch.GetData()));
+			bOk = Selector->Update(Text) || PCGSelectorText(Selector) == Text;
 			if (!bOk) OutError = FString::Printf(TEXT("'%s' is not a selector the PCG editor accepts (MyAttr, $Density, @Last, $Position.Z)"), *Text);
 		}
 		else
