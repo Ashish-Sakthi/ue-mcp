@@ -556,6 +556,12 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecOutputPath,
 	});
 	Registry.RegisterHandlerWithTimeout(TEXT("audit_blueprint_dead_code"), &AuditDeadCode, SearchCallSitesTimeoutSeconds);
+	Registry.RegisterHandler(TEXT("list_subclasses"), &ListSubclasses, {
+		MCPParam::Required(TEXT("className"), EType::String, TEXT("Base class: a native name or path such as Character, or a Blueprint asset path")),
+		MCPParam::Optional(TEXT("directory"), EType::String, TEXT("Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it")),
+		MCPParam::Optional(TEXT("includeTransitive"), EType::Boolean, TEXT("Include indirect subclasses (default true); false lists direct children only")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Rows to return (default 2000, max 20000); count stays complete")),
+	});
 
 	// V9 Blueprint depth (BlueprintHandlers_Members.cpp). Interface removal and
 	// listing, function flags and metadata, parameter CRUD across functions,

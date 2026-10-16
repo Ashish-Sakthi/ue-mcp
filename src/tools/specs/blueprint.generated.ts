@@ -1708,6 +1708,35 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "list_subclasses": {
+    "category": "blueprint",
+    "params": [
+      {
+        "name": "className",
+        "type": "string",
+        "required": true,
+        "description": "Base class: a native name or path such as Character, or a Blueprint asset path"
+      },
+      {
+        "name": "directory",
+        "type": "string",
+        "required": false,
+        "description": "Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it"
+      },
+      {
+        "name": "includeTransitive",
+        "type": "boolean",
+        "required": false,
+        "description": "Include indirect subclasses (default true); false lists direct children only"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "Rows to return (default 2000, max 20000); count stays complete"
+      }
+    ]
+  },
   "override_function": {
     "category": "blueprint",
     "params": [
@@ -3048,6 +3077,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   list_local_variables: "Params: assetPath (or path), functionName",
   list_node_types: "Params: category?, cursor?, limit?",
   list_overridable_functions: "Params: assetPath (or path)",
+  list_subclasses: "Params: className, directory?, includeTransitive?, limit?",
   override_function: "Params: assetPath (or path), functionName, source?, preferFunction?, interfacePath?",
   read_blueprint: "Params: assetPath (or path), includeComponentProperties?",
   read_blueprint_graph: "Params: assetPath (or path), graphName?, offset?, limit?, includePins?, includeDefaults?, includeComments?, dumpToFile?, outputPath?, titleFilter?, classFilter?",
@@ -3108,7 +3138,7 @@ export const schema: Record<string, z.ZodType> = {
   channel: z.string().optional().describe("Narrow the answer to one collision channel: its configured name, the C++ enumerator, or the container index"),
   childActorClass: z.string().optional().describe("ChildActorClass for an added ChildActorComponent: a Blueprint path with or without _C, or a C++ class"),
   classFilter: z.string().optional().describe("Case-insensitive substring match on node class name (read_blueprint_graph, read_blueprint_graph_summary). Alias for className (search_node_types)"),
-  className: z.string().optional().describe("C++ class name or path (get_cdo_properties, set_cdo_property). Declaring class to narrow the functions to (search_blueprint_call_sites). Narrow to one owning class, by short name or object path (search_node_types)"),
+  className: z.string().optional().describe("C++ class name or path (get_cdo_properties, set_cdo_property). Base class: a native name or path such as Character, or a Blueprint asset path (list_subclasses). Declaring class to narrow the functions to (search_blueprint_call_sites). Narrow to one owning class, by short name or object path (search_node_types)"),
   columnGap: z.number().int().optional().describe("Horizontal spacing between columns (default 360)"),
   compactNodeTitle: z.string().optional().describe("Render the node in compact form under this title"),
   componentClass: z.string().optional().describe("Component class: a short name such as ChildActorComponent, or a full path"),
@@ -3119,7 +3149,7 @@ export const schema: Record<string, z.ZodType> = {
   deprecated: z.boolean().optional().describe("Mark the function deprecated so its call sites warn"),
   deprecationMessage: z.string().optional().describe("Text shown at a deprecated function's call sites"),
   destinationPath: z.string().optional().describe("Full destination asset path"),
-  directory: z.string().optional().describe("Content path to search under (default /Game)"),
+  directory: z.string().optional().describe("Content path to search under (default /Game) (audit_blueprint_dead_code, export_blueprint_batch, search_blueprint_call_sites). Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it (list_subclasses)"),
   dumpToFile: z.boolean().optional().describe("Write the whole result to a JSON file instead of returning it inline"),
   editFlag: z.string().optional().describe("EditAnywhere, EditDefaultsOnly, EditInstanceOnly or none: the value list_variables reports"),
   entries: z.array(z.record(z.unknown())).optional().describe("[{name or index, tooltip}] per-enumerator tooltips"),
@@ -3147,6 +3177,7 @@ export const schema: Record<string, z.ZodType> = {
   includeNestedGraphs: z.boolean().optional().describe("Also walk collapsed and nested graphs (default true)"),
   includePins: z.boolean().optional().describe("Include pins (default true)"),
   includeT3D: z.boolean().optional().describe("Also write one T3D file per graph (default false)"),
+  includeTransitive: z.boolean().optional().describe("Include indirect subclasses (default true); false lists direct children only"),
   includeValues: z.boolean().optional().describe("Also resolve each variable's default off the generated-class CDO, and report whether the package holds unsaved changes (default false)"),
   inputs: z.array(z.record(z.unknown())).optional().describe("Input parameters [{name, type}]"),
   instanceEditable: z.boolean().optional().describe("true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default (add_variable). Two-state shorthand for editFlag; mutually exclusive with it (set_variable_properties)"),
@@ -3156,7 +3187,7 @@ export const schema: Record<string, z.ZodType> = {
   keyframes: z.array(z.record(z.unknown())).optional().describe("[{time, value}]: value is a number for float and event, {x,y,z} for vector, {r,g,b,a} for color"),
   keywords: z.string().optional().describe("Extra palette search keywords"),
   kind: z.string().optional().describe("exec, data or all (default all)"),
-  limit: z.number().int().optional().describe("Rows to return (default 200, max 5000) (audit_blueprint_dead_code). Rows to return on this page (default 200, max 1000) (get_blueprint_connections, search_blueprint_call_sites, search_blueprint_nodes). Rows to return on this page (default 200, max 2000) (list_blueprint_functions, list_blueprint_variables). Rows to return on this page (default 100, max 1000) (list_node_types). Nodes to return; omit for a safe default page, or dump the whole graph with dumpToFile (read_blueprint_graph). Rows to return on this page (default 50, max 500) (search_node_types)"),
+  limit: z.number().int().optional().describe("Rows to return (default 200, max 5000) (audit_blueprint_dead_code). Rows to return on this page (default 200, max 1000) (get_blueprint_connections, search_blueprint_call_sites, search_blueprint_nodes). Rows to return on this page (default 200, max 2000) (list_blueprint_functions, list_blueprint_variables). Rows to return on this page (default 100, max 1000) (list_node_types). Rows to return (default 2000, max 20000); count stays complete (list_subclasses). Nodes to return; omit for a safe default page, or dump the whole graph with dumpToFile (read_blueprint_graph). Rows to return on this page (default 50, max 500) (search_node_types)"),
   linkedNodeId: z.string().optional().describe("Break only links to this node (GUID or name). Omit to break every link on the pin"),
   linkedPinName: z.string().optional().describe("With linkedNodeId, break only the link to this pin"),
   location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Spawn location for the temporary actor"),

@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1080,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -20131,6 +20131,35 @@
           "type": "integer",
           "required": false,
           "description": "Rows to return on this page (default 200, max 5000)"
+        }
+      ]
+    },
+    "list_subclasses": {
+      "category": "blueprint",
+      "params": [
+        {
+          "name": "className",
+          "type": "string",
+          "required": true,
+          "description": "Base class: a native name or path such as Character, or a Blueprint asset path"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it"
+        },
+        {
+          "name": "includeTransitive",
+          "type": "boolean",
+          "required": false,
+          "description": "Include indirect subclasses (default true); false lists direct children only"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Rows to return (default 2000, max 20000); count stays complete"
         }
       ]
     },

@@ -65,3 +65,11 @@ describe("blueprint container type specs", () => {
     }
   });
 });
+
+describe("blueprint list_subclasses (#1211)", () => {
+  it("forwards className, directory, includeTransitive and limit", async () => {
+    const [method, params] = await route({ action: "list_subclasses", className: "Character", directory: "/Game/AI", includeTransitive: false, limit: 50 });
+    expect(method).toBe("list_subclasses");
+    expect(params).toMatchObject({ className: "Character", directory: "/Game/AI", includeTransitive: false, limit: 50 });
+  });
+});
