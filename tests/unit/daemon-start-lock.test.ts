@@ -15,6 +15,7 @@ import { daemonDir, projectKey, readLiveDiscovery, writeDiscovery, type DaemonDi
 import { isOlder } from "../../src/daemon/daemon.js";
 import { ensureDaemon } from "../../src/daemon/shim.js";
 import { packageVersion } from "../../src/core/package-root.js";
+import { USER_SANDBOX_VARS, userSandboxEnv } from "../helpers/user-sandbox.js";
 import {
   liveStartLock, releaseStartLock, startLockPath, tryTakeStartLock, waitForStartTurn, START_LOCK_STALE_MS,
 } from "../../src/daemon/start-lock.js";
@@ -170,8 +171,7 @@ describe("several `daemon run` processes at once", () => {
     Object.assign(env, {
       UE_MCP_PORT: "1",
       UE_MCP_HOST: "127.0.0.1",
-      UE_MCP_STATE_DIR: path.join(dir, "state"),
-      UE_MCP_CONFIG_DIR: path.join(dir, "config"),
+      ...userSandboxEnv(path.join(dir, "home")),
       UE_MCP_DAEMON_DIR: path.join(dir, "daemons"),
       UE_MCP_DISABLE_UPDATE_CHECK: "1",
       UE_MCP_DAEMON_IDLE_MS: "60000",

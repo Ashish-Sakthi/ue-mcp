@@ -14,6 +14,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { ALL_TOOLS } from "../../src/tools.js";
+import { USER_SANDBOX_VARS, userSandboxEnv } from "../helpers/user-sandbox.js";
 
 const REPO_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 
@@ -88,13 +89,12 @@ beforeAll(async () => {
   uproject = path.join(projectDir, "Daemoned.uproject");
   fs.writeFileSync(uproject, JSON.stringify({ FileVersion: 3, EngineAssociation: "5.8", Modules: [] }));
 
-  const keep = ["UE_MCP_PORT", "UE_MCP_HOST", "UE_MCP_STATE_DIR", "UE_MCP_CONFIG_DIR", "UE_MCP_CONTEXT_STRATEGY", "UE_MCP_DAEMON_DIR", "UE_MCP_DAEMON_IDLE_MS", "UE_MCP_DISABLE_UPDATE_CHECK"];
+  const keep = ["UE_MCP_PORT", "UE_MCP_HOST", ...USER_SANDBOX_VARS, "UE_MCP_CONTEXT_STRATEGY", "UE_MCP_DAEMON_DIR", "UE_MCP_DAEMON_IDLE_MS", "UE_MCP_DISABLE_UPDATE_CHECK"];
   env = {
     ...(process.env as Record<string, string>),
     UE_MCP_PORT: String(port),
     UE_MCP_HOST: "127.0.0.1",
-    UE_MCP_STATE_DIR: path.join(sandbox, "state"),
-    UE_MCP_CONFIG_DIR: path.join(sandbox, "config"),
+    ...userSandboxEnv(path.join(sandbox, "home")),
     UE_MCP_CONTEXT_STRATEGY: "full",
     UE_MCP_DAEMON_DIR: daemonDir,
     UE_MCP_DISABLE_UPDATE_CHECK: "1",
