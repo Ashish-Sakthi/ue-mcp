@@ -1,0 +1,7 @@
+{
+  "note": "Bridge actions with no behavioural test of their own, each with the reason no test in tests/live or the UE.MCP.* automation suite can be credited for it. Read by scripts/behavioural-coverage.ts (#1223). An exemption is not a gap: it says why the inventory cannot see the coverage, and it fails the gate once a test does cover the action.",
+  "exemptions": {
+    "request_editor_shutdown": "The bridge half of editor(stop_editor), a server handler; tests/live/editor-lifecycle.test.ts asserts stop_editor ends the editor process, which is this action's effect, but reaches it through the handler the inventory cannot trace.",
+    "run_automation_tests": "The runner npm run test:automation drives every UE.MCP.* test through (scripts/automation-tests.mjs); each release run asserts its per-test results, so it is exercised by the gate itself rather than by a test body."
+  }
+}

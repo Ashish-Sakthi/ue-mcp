@@ -73,6 +73,7 @@
     "lint:prose": "node scripts/lint-prose.mjs",
     "check:config": "node scripts/check-tracked-config.mjs",
     "check:flows": "node scripts/check-flows.mjs",
+    "coverage:behavioural": "tsx scripts/behavioural-coverage.ts",
     "check:release": "node scripts/check-release-gates.mjs all",
     "audit:unity": "node scripts/audit-unity-collisions.mjs",
     "audit:param-reads": "node scripts/audit-direct-param-reads.mjs",
