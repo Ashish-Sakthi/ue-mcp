@@ -4632,6 +4632,13 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Case-insensitive substring filter on row names"
       },
       {
+        "name": "rowNames",
+        "type": "array",
+        "required": false,
+        "description": "Exact row names to return, in this order; names the table lacks are listed in missingRowNames",
+        "items": "string"
+      },
+      {
         "name": "columns",
         "type": "array",
         "required": false,
@@ -6322,7 +6329,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   read_asset_properties: "Params: assetPath (or path), propertyName?, includeValues?, valueFormat?, expandDepth?, expandExternal?, maxExpandedObjects?",
   read_cloth_data: "Params: skeletalMeshPath (or assetPath)",
   read_curvetable: "Params: assetPath (or path), rowFilter?",
-  read_datatable: "Params: assetPath (or path), rowFilter?, columns?, outputPath?",
+  read_datatable: "Params: assetPath (or path), rowFilter?, rowNames?, columns?, outputPath?",
   read_import_sources: "Params: assetPath (or path)",
   read_skeletal_mesh_bone_vertex_bounds: "Params: assetPath, boneNames?, minWeight?, lodIndex?, profileName?",
   read_skeletal_mesh_build_settings: "Params: assetPath, lodIndex?, allLods?",
@@ -6631,7 +6638,7 @@ export const schema: Record<string, z.ZodType> = {
   row: z.record(z.unknown()).optional().describe("Row-struct fields to write; fields not named keep their values"),
   rowFilter: z.string().optional().describe("Case-insensitive substring filter on row names"),
   rowName: z.string().optional().describe("Row to key (add_curvetable_key). Row to add (add_curvetable_row). Row to append or overwrite (add_datatable_row, set_datatable_row, update_datatable_row). Row to read (get_curvetable_keys, get_datatable_row). Row to remove (remove_curvetable_row). Single row to remove (remove_datatable_row). Alias for oldName (rename_curvetable_row, rename_datatable_row). Row whose keys to replace (set_curvetable_keys). Existing row to edit (set_datatable_cell)"),
-  rowNames: z.array(z.string()).optional().describe("Rows to remove in one transaction, including clone rollback"),
+  rowNames: z.array(z.string()).optional().describe("Exact row names to return, in this order; names the table lacks are listed in missingRowNames (read_datatable). Rows to remove in one transaction, including clone rollback (remove_datatable_row)"),
   rows: z.record(z.unknown()).optional().describe("Rows to upsert: {rowName: {field: value}}"),
   rowStruct: z.string().optional().describe("Row struct, e.g. /Script/Module.MyRow or a UserDefinedStruct path"),
   sampleLimit: z.number().int().optional().describe("Sample asset names per group (default 5, max 25)"),

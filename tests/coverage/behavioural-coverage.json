@@ -7875,6 +7875,11 @@
         {
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/DataTableRowWriteTests.cpp",
+          "test": "UE.MCP.Asset.DataTable.ReadRowNamesSelectsExactRows"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/DataTableRowWriteTests.cpp",
           "test": "UE.MCP.Asset.DataTable.ReadToFileRoundTrips"
         }
       ]

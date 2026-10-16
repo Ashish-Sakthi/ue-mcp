@@ -2221,6 +2221,35 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReadDataTable(const TSharedPtr<FJsonObjec
 	{
 		return MCPError(TEXT("'columns' must be an array of row-struct field names"));
 	}
+	// rowNames reads a known set of rows, in the order asked for. rowFilter is
+	// a substring, so "Axe" also returns "AxeHeavy"; an exact list could only
+	// be had by filtering the whole table afterwards.
+	const bool bHasRowNames = HasParam(Params, TEXT("rowNames"));
+	TArray<FName> WantedRows;
+	if (bHasRowNames)
+	{
+		const TArray<TSharedPtr<FJsonValue>>* RowNamesJson = nullptr;
+		if (!TryGetArrayParam(Params, TEXT("rowNames"), RowNamesJson) || !RowNamesJson || RowNamesJson->Num() == 0)
+		{
+			return MCPError(TEXT("'rowNames' must be a non-empty array of row names"));
+		}
+		for (const TSharedPtr<FJsonValue>& Value : *RowNamesJson)
+		{
+			FString RowName;
+			if (!Value.IsValid() || !Value->TryGetString(RowName) || RowName.TrimStartAndEnd().IsEmpty())
+			{
+				return MCPError(TEXT("'rowNames' must be an array of non-empty row names"));
+			}
+			RowName.TrimStartAndEndInline();
+			// FName asserts on a name this long, and no row can carry one.
+			if (RowName.Len() >= NAME_SIZE)
+			{
+				return MCPError(FString::Printf(
+					TEXT("'rowNames' holds a name of %d characters; a row name is at most %d"), RowName.Len(), NAME_SIZE - 1));
+			}
+			WantedRows.AddUnique(FName(*RowName));
+		}
+	}
 
 	FString AssetPath;
 	UDataTable* DataTable = nullptr;
@@ -2274,15 +2303,42 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReadDataTable(const TSharedPtr<FJsonObjec
 	TArray<TSharedPtr<FJsonValue>> ParsedRows;
 	TSharedRef<TJsonReader<>> JsonReader = TJsonReaderFactory<>::Create(JsonString);
 	const bool bParsed = FJsonSerializer::Deserialize(JsonReader, ParsedRows);
-	if (!bParsed && bHasColumns)
+	if (!bParsed && (bHasColumns || bHasRowNames))
 	{
 		// The raw-export fallback below has no rows to narrow.
 		return MCPError(
-			TEXT("The DataTable's JSON export could not be parsed, so 'columns' cannot be applied. ")
-			TEXT("Call read_datatable without columns to get the raw export as rawJson."));
+			TEXT("The DataTable's JSON export could not be parsed, so 'columns' and 'rowNames' cannot be applied. ")
+			TEXT("Call read_datatable without them to get the raw export as rawJson."));
 	}
+	TArray<TSharedPtr<FJsonValue>> MissingRows;
 	if (bParsed)
 	{
+		// Row names are FNames, so they match case-insensitively, as the
+		// table's own FindRow does. A name the table lacks is reported rather
+		// than refused, so one stale name does not cost the rest of the read.
+		// Selected before rowFilter, so a name rowFilter drops is not reported
+		// as missing from the table.
+		if (bHasRowNames)
+		{
+			TMap<FName, TSharedPtr<FJsonValue>> ByName;
+			for (const TSharedPtr<FJsonValue>& RowValue : ParsedRows)
+			{
+				FString RowName;
+				if (RowValue.IsValid() && RowValue->Type == EJson::Object
+					&& RowValue->AsObject()->TryGetStringField(TEXT("Name"), RowName))
+				{
+					ByName.Add(FName(*RowName), RowValue);
+				}
+			}
+			TArray<TSharedPtr<FJsonValue>> Selected;
+			for (const FName& Wanted : WantedRows)
+			{
+				if (const TSharedPtr<FJsonValue>* Found = ByName.Find(Wanted)) Selected.Add(*Found);
+				else MissingRows.Add(MakeShared<FJsonValueString>(Wanted.ToString()));
+			}
+			ParsedRows = MoveTemp(Selected);
+		}
+
 		// Apply row filter if specified
 		if (!RowFilter.IsEmpty())
 		{
@@ -2327,7 +2383,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReadDataTable(const TSharedPtr<FJsonObjec
 			}
 		}
 	}
-	const bool bFiltered = bParsed && !RowFilter.IsEmpty();
+	const bool bFiltered = bParsed && (!RowFilter.IsEmpty() || bHasRowNames);
+	if (bHasRowNames) Result->SetArrayField(TEXT("missingRowNames"), MissingRows);
 
 	if (!OutputPath.IsEmpty())
 	{
