@@ -57,15 +57,15 @@ async function resolve(argv: string[]): Promise<number> {
     }
   }
   const args = target.rest;
-  const ciMode = args.includes("--ci") || !!process.env.CI;
+  // resolve never prompts, so CI needs nothing different. The flag stays accepted so existing scripts keep working.
+  if (args.includes("--ci")) console.log(`  ${DIM}--ci changes nothing: resolve always runs unattended.${RESET}`);
   const issueArg = args.find((a) => !a.startsWith("-"));
   const issueNum = Number(issueArg);
 
   if (!issueArg || isNaN(issueNum)) {
     console.log("");
-    console.log(`  ${BOLD}Usage:${RESET} npx ue-mcp resolve <issue-number> [--ci]`);
+    console.log(`  ${BOLD}Usage:${RESET} npx ue-mcp resolve <issue-number>`);
     console.log(`  ${DIM}Example: npx ue-mcp resolve 16${RESET}`);
-    console.log(`  ${DIM}   CI:   npx ue-mcp resolve 16 --ci${RESET}`);
     console.log("");
     process.exit(1);
   }
@@ -161,7 +161,7 @@ async function resolve(argv: string[]): Promise<number> {
 
   const claudeArgs = ["--print", "--dangerously-skip-permissions"];
 
-  console.log(`  ${DIM}Launching Claude Code${ciMode ? " (CI mode)" : ""}...${RESET}`);
+  console.log(`  ${DIM}Launching Claude Code...${RESET}`);
   console.log("");
 
   const exitCode = await new Promise<number | null>((resolve) => {
@@ -245,12 +245,12 @@ export const usage: CliUsage = {
   summary: "Work a GitHub issue into a pull request.",
   strict: true,
   flags: [
-    { name: "--ci", description: "Run unattended (also when CI is set)" },
+    { name: "--ci", description: "Accepted for old scripts; resolve always runs unattended" },
     { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
   ],
 };
 
-/** Entry point for `ue-mcp resolve <issue-number> [--ci]`. */
+/** Entry point for `ue-mcp resolve <issue-number>`. */
 export async function run(argv: string[]): Promise<number | void> {
   try {
     return await resolve(argv);

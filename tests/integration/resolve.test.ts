@@ -110,6 +110,8 @@ describe("ue-mcp resolve", () => {
     expect(r.code, r.stdout + r.stderr).toBe(0);
     expect(r.stdout).toContain("PR created: https://github.com/acme/widgets/pull/7");
     expect(r.stdout).toContain("1 commit(s) ready");
+    // The run is unattended either way; the flag only says so.
+    expect(plain(r.stdout)).toContain("--ci changes nothing: resolve always runs unattended.");
 
     const ghCalls = gh.calls().filter((c) => c.args[0] !== "--version");
     expect(ghCalls.map((c) => c.args.slice(0, 2))).toEqual([["issue", "view"], ["api", "repos/acme/widgets/pulls"]]);
@@ -136,6 +138,7 @@ describe("ue-mcp resolve", () => {
     const before = gh.calls().length;
     const r = await resolve(work, ["6"], { FAKE_GH_ISSUE: issueFile("Widget spins forever", "It spins."), FAKE_CLAUDE_EXIT: "3" });
     expect(r.code).toBe(3);
+    expect(plain(r.stdout)).not.toContain("--ci");
     expect(r.stdout).toContain("Claude exited with code 3. Branch resolve/6 preserved.");
     expect(git(work, "rev-parse", "--abbrev-ref", "HEAD")).toBe("resolve/6");
     expect(remoteBranches()).not.toContain("resolve/6");
