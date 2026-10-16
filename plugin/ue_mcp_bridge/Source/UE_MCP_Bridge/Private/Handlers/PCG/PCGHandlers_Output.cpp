@@ -3,6 +3,7 @@
 #include "PCGHandlers_Internal.h"
 #include "HandlerUtils.h"
 #include "PCGComponent.h"
+#include "PCGGraph.h"
 #include "PCGData.h"
 #include "PCGParamData.h"
 #include "PCGSubsystem.h"
@@ -247,10 +248,19 @@ TSharedPtr<FJsonValue> FPCGHandlers::ReadGeneratedOutput(const TSharedPtr<FJsonO
 		TSharedPtr<FJsonObject> Row = Describe(Comp, false);
 		Row->SetStringField(TEXT("source"), TEXT("inspection"));
 		Row->SetStringField(TEXT("nodeName"), Node->GetName());
-		if (!Inspection.IsInspecting())
+		// The executor keeps a node's output only while the component is inspecting
+		// and its graph is inspecting this component's stack, which is what the PCG
+		// editor's debug object sets; the component flag alone records nothing (#1309).
+		UPCGGraph* TopGraph = Comp->GetGraph();
+		FPCGStack RootStack;
+		RootStack.PushFrame(Comp);
+		RootStack.PushFrame(TopGraph);
+		const bool bGraphInspecting = TopGraph && TopGraph->IsInspecting() && TopGraph->IsSameInspectedStack(RootStack);
+		if (!Inspection.IsInspecting() || !bGraphInspecting)
 		{
 			// Inspection records node outputs only from the next generation on.
-			Inspection.EnableInspection();
+			if (!Inspection.IsInspecting()) Inspection.EnableInspection();
+			if (TopGraph && !bGraphInspecting) TopGraph->EnableInspection(RootStack);
 			Row->SetBoolField(TEXT("inspectionEnabled"), true);
 			Row->SetStringField(TEXT("note"), TEXT("Inspection was off, so no node output was recorded. It is on now: regenerate (execute or force_regenerate with wait=true), then call again."));
 			Rows.Add(MakeShared<FJsonValueObject>(Row));
@@ -263,11 +273,21 @@ TSharedPtr<FJsonValue> FPCGHandlers::ReadGeneratedOutput(const TSharedPtr<FJsonO
 			FString StackText;
 			Executed.Stack.CreateStackFramePath(StackText);
 			StackRow->SetStringField(TEXT("stack"), StackText);
+			// Inspection keeps each output pin's data under the executed stack with
+			// the node and then the pin pushed (#1309).
 			TArray<TSharedPtr<FJsonValue>> Data;
-			const bool bFound = Inspection.InspectData(Executed.Stack, [&](const FPCGDataCollection& Collection)
+			bool bFound = false;
+			for (const UPCGPin* OutPin : Node->GetOutputPins())
 			{
-				Data = MCPPCGDescribeCollection(Collection, Pin, Wanted, Offset, Limit);
-			});
+				if (!OutPin) continue;
+				FPCGStack PinStack = Executed.Stack;
+				PinStack.PushFrame(Node);
+				PinStack.PushFrame(OutPin);
+				bFound |= Inspection.InspectData(PinStack, [&](const FPCGDataCollection& Collection)
+				{
+					Data.Append(MCPPCGDescribeCollection(Collection, Pin, Wanted, Offset, Limit));
+				});
+			}
 			StackRow->SetBoolField(TEXT("recorded"), bFound);
 			StackRow->SetArrayField(TEXT("data"), Data);
 			Stacks.Add(MakeShared<FJsonValueObject>(StackRow));
