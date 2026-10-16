@@ -904,7 +904,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddFunctionParameter(const TSharedPtr
 // Copy a Blueprint variable's new compiled default onto every loaded instance
 // that still holds the old default. Instances that override it are left alone
 // and counted. Level packages are dirtied, not saved.
-static void MCPPropagateVariableDefault(UBlueprint* Blueprint, const FString& VarName, bool bHaveOldText, const FString& OldText, TSharedPtr<FJsonObject> Result)
+static void MCPPropagateVariableDefault(UBlueprint* Blueprint, const FString& VarName, bool bHaveOldText, const FString& OldText,
+	const TSet<FString>& HeldOldBefore, TSharedPtr<FJsonObject> Result)
 {
 	UClass* GenClass = Blueprint->GeneratedClass;
 	UObject* CDO = GenClass ? GenClass->GetDefaultObject() : nullptr;
@@ -931,7 +932,12 @@ static void MCPPropagateVariableDefault(UBlueprint* Blueprint, const FString& Va
 		void* Addr = Prop->ContainerPtrToValuePtr<void>(Obj);
 		FString Current;
 		Prop->ExportTextItem_Direct(Current, Addr, nullptr, nullptr, PPF_None);
-		if (Current == NewText) continue;
+		if (Current == NewText)
+		{
+			// The compile's reinstancing already carried the new default onto an instance that held the old one.
+			if (HeldOldBefore.Contains(Obj->GetPathName())) Updated.Add(MakeShared<FJsonValueString>(Obj->GetPathName()));
+			continue;
+		}
 		if (Current != OldText) { ++Overridden; continue; }
 
 		FString ImportError;
@@ -1080,6 +1086,23 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<F
 			bHaveOldCDOText = true;
 		}
 	}
+	// Which instances hold the old default now, before the compile reinstances them (#1209).
+	TSet<FString> HeldOldBefore;
+	if (bHaveOldCDOText)
+	{
+		UClass* OldClass = Blueprint->GeneratedClass;
+		for (TObjectIterator<UObject> It; It; ++It)
+		{
+			UObject* Obj = *It;
+			if (!Obj || Obj->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject) || !Obj->IsA(OldClass)) continue;
+			if (Obj->GetOutermost()->HasAnyPackageFlags(PKG_PlayInEditor) || Obj->GetOutermost() == GetTransientPackage()) continue;
+			const FProperty* Prop = Obj->GetClass()->FindPropertyByName(FName(*VarName));
+			if (!Prop) continue;
+			FString Current;
+			Prop->ExportTextItem_Direct(Current, Prop->ContainerPtrToValuePtr<void>(Obj), nullptr, nullptr, PPF_None);
+			if (Current == OldCDOText) HeldOldBefore.Add(Obj->GetPathName());
+		}
+	}
 
 	FoundVar->DefaultValue = StoredValue;
 
@@ -1126,7 +1149,7 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetVariableDefault(const TSharedPtr<F
 
 	if (bPropagate)
 	{
-		MCPPropagateVariableDefault(Blueprint, VarName, bHaveOldCDOText, OldCDOText, Result);
+		MCPPropagateVariableDefault(Blueprint, VarName, bHaveOldCDOText, OldCDOText, HeldOldBefore, Result);
 	}
 
 	// Rollback: self-inverse with previous value
