@@ -771,6 +771,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
 		Row->SetStringField(TEXT("filePath"), File);
 		TArray<TSharedPtr<FJsonValue>> FileAssets;
+		TArray<FString> OtherClasses;
+		int32 FileAnimations = 0;
 		for (UObject* ImportedObj : Task->GetObjects())
 		{
 			if (!ImportedObj) continue;
@@ -779,13 +781,25 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 			if (UAnimSequence* Seq = Cast<UAnimSequence>(ImportedObj))
 			{
 				Animations.Add(MakeShared<FJsonValueObject>(MCPDescribeImportedAnimation(Seq)));
+				++FileAnimations;
+			}
+			else
+			{
+				OtherClasses.AddUnique(ImportedObj->GetClass()->GetName());
 			}
 		}
 		Row->SetArrayField(TEXT("importedAssets"), FileAssets);
-		Row->SetBoolField(TEXT("success"), FileAssets.Num() > 0);
+		// An animation import that produced no AnimSequence did not do its job, whatever else it made.
+		Row->SetBoolField(TEXT("success"), FileAnimations > 0);
 		if (FileAssets.Num() == 0)
 		{
 			Row->SetStringField(TEXT("error"), TEXT("The import produced no asset"));
+			++FailedFiles;
+		}
+		else if (FileAnimations == 0)
+		{
+			Row->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("The import produced no AnimSequence, only %s"), *FString::Join(OtherClasses, TEXT(", "))));
 			++FailedFiles;
 		}
 		Rows.Add(MakeShared<FJsonValueObject>(Row));
@@ -812,7 +826,9 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 	}
 	else if (FailedFiles > 0)
 	{
-		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("%d of %d file(s) produced no asset; files lists each one"), FailedFiles, Files.Num()));
+		Result->SetStringField(TEXT("error"), bHasFiles
+			? FString::Printf(TEXT("%d of %d file(s) produced no AnimSequence; files lists each one"), FailedFiles, Files.Num())
+			: FString::Printf(TEXT("The import produced no AnimSequence from %s; importedAssets lists what it made instead"), *Files[0]));
 	}
 
 	EmitImportedAssetsRollback(Result, ImportedPaths);
