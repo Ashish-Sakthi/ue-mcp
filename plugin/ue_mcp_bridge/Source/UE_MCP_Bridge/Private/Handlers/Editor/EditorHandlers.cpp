@@ -800,6 +800,13 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("launchSeparateServer"), EType::Boolean, TEXT("Launch a separate dedicated server")),
 		MCPParam::Optional(TEXT("newWindowWidth"), EType::Number, TEXT("Play-in-New-Window width")),
 		MCPParam::Optional(TEXT("newWindowHeight"), EType::Number, TEXT("Play-in-New-Window height")),
+		MCPParam::Optional(TEXT("clientWindowWidth"), EType::Number, TEXT("Width of each additional multiplayer client window")),
+		MCPParam::Optional(TEXT("clientWindowHeight"), EType::Number, TEXT("Height of each additional multiplayer client window")),
+		MCPParam::Optional(TEXT("newWindowPosition"), EType::Object, TEXT("Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed")).WithFields({
+			MCPParam::RequiredField(TEXT("x"), EType::Number, TEXT("Screen X in pixels")),
+			MCPParam::RequiredField(TEXT("y"), EType::Number, TEXT("Screen Y in pixels")),
+		}),
+		MCPParam::Optional(TEXT("centerNewWindow"), EType::Boolean, TEXT("Center new PIE windows; false places them at newWindowPosition")),
 	}, MCPSpec::ContractExempt(TEXT("writes the editor's Play settings")));
 	Registry.RegisterHandler(TEXT("get_pie_config"), &GetPieConfig, NoParams);
 	Registry.RegisterHandler(TEXT("pie_set_player_view"), &PieSetPlayerView, {

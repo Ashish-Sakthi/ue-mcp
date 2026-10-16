@@ -8213,6 +8213,44 @@
           "type": "number",
           "required": false,
           "description": "Play-in-New-Window height"
+        },
+        {
+          "name": "clientWindowWidth",
+          "type": "number",
+          "required": false,
+          "description": "Width of each additional multiplayer client window"
+        },
+        {
+          "name": "clientWindowHeight",
+          "type": "number",
+          "required": false,
+          "description": "Height of each additional multiplayer client window"
+        },
+        {
+          "name": "newWindowPosition",
+          "type": "object",
+          "required": false,
+          "description": "Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed",
+          "fields": [
+            {
+              "name": "x",
+              "type": "number",
+              "required": true,
+              "description": "Screen X in pixels"
+            },
+            {
+              "name": "y",
+              "type": "number",
+              "required": true,
+              "description": "Screen Y in pixels"
+            }
+          ]
+        },
+        {
+          "name": "centerNewWindow",
+          "type": "boolean",
+          "required": false,
+          "description": "Center new PIE windows; false places them at newWindowPosition"
         }
       ],
       "contractExempt": "writes the editor's Play settings"

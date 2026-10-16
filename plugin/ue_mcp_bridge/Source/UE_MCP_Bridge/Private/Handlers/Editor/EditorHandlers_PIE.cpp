@@ -186,6 +186,28 @@ namespace
 		return 0;
 	}
 
+	static bool GetIntPointPropOn(const UObject* Obj, const TCHAR* Name, FIntPoint& Out)
+	{
+		FStructProperty* P = CastField<FStructProperty>(Obj->GetClass()->FindPropertyByName(FName(Name)));
+		if (!P || P->Struct != TBaseStructure<FIntPoint>::Get()) return false;
+		Out = *P->ContainerPtrToValuePtr<FIntPoint>(Obj);
+		return true;
+	}
+	static bool SetIntPointPropOn(UObject* Obj, const TCHAR* Name, const FIntPoint& NewVal)
+	{
+		FStructProperty* P = CastField<FStructProperty>(Obj->GetClass()->FindPropertyByName(FName(Name)));
+		if (!P || P->Struct != TBaseStructure<FIntPoint>::Get()) return false;
+		*P->ContainerPtrToValuePtr<FIntPoint>(Obj) = NewVal;
+		return true;
+	}
+	static TSharedPtr<FJsonObject> IntPointToJson(const FIntPoint& Point)
+	{
+		TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+		Out->SetNumberField(TEXT("x"), Point.X);
+		Out->SetNumberField(TEXT("y"), Point.Y);
+		return Out;
+	}
+
 	static const TCHAR* NetModeNameFromValue(int64 V)
 	{
 		switch (V)
@@ -1990,6 +2012,21 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	const bool bPrevLaunchSeparateServer = GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false);
 	const int32 PrevNewWindowWidth = GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0);
 	const int32 PrevNewWindowHeight = GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0);
+	// #1235: separate-process clients take their size from ClientWindow* and
+	// their position from NewWindowPosition once CenterNewWindow is off.
+	const int32 PrevClientWindowWidth = GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0);
+	const int32 PrevClientWindowHeight = GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0);
+	FIntPoint PrevNewWindowPosition = FIntPoint::ZeroValue;
+	GetIntPointPropOn(Settings, TEXT("NewWindowPosition"), PrevNewWindowPosition);
+	const bool bPrevCenterNewWindow = GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true);
+
+	int32 ClientW = 0, ClientH = 0;
+	const bool bHasClientW = TryGetNumberParam(Params, TEXT("clientWindowWidth"), ClientW);
+	const bool bHasClientH = TryGetNumberParam(Params, TEXT("clientWindowHeight"), ClientH);
+	const TSharedPtr<FJsonObject>* PositionObj = nullptr;
+	const bool bHasPosition = TryGetObjectParam(Params, TEXT("newWindowPosition"), PositionObj) && PositionObj && PositionObj->IsValid();
+	bool bCenterNewWindow = false;
+	const bool bHasCenter = TryGetBoolParam(Params, TEXT("centerNewWindow"), bCenterNewWindow);
 
 	bool bAny = false;
 	int32 NumClients = 0;
@@ -2047,9 +2084,43 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 		bAny = true;
 	}
 
+	if (bHasClientW)
+	{
+		if (ClientW <= 0) return MCPError(TEXT("clientWindowWidth must be greater than zero"));
+		SetIntPropOn(Settings, TEXT("ClientWindowWidth"), ClientW);
+		bAny = true;
+	}
+	if (bHasClientH)
+	{
+		if (ClientH <= 0) return MCPError(TEXT("clientWindowHeight must be greater than zero"));
+		SetIntPropOn(Settings, TEXT("ClientWindowHeight"), ClientH);
+		bAny = true;
+	}
+	if (bHasPosition)
+	{
+		double X = 0.0, Y = 0.0;
+		if (!(*PositionObj)->TryGetNumberField(TEXT("x"), X) || !(*PositionObj)->TryGetNumberField(TEXT("y"), Y))
+		{
+			return MCPError(TEXT("newWindowPosition takes {x, y} in screen pixels"));
+		}
+		if (!SetIntPointPropOn(Settings, TEXT("NewWindowPosition"), FIntPoint(FMath::RoundToInt(X), FMath::RoundToInt(Y))))
+		{
+			return MCPError(TEXT("NewWindowPosition property not found - engine drift?"));
+		}
+		// The engine ignores the position of a centred window, so placing one
+		// turns centring off unless centerNewWindow was also passed.
+		if (!bHasCenter) SetBoolPropOn(Settings, TEXT("CenterNewWindow"), false);
+		bAny = true;
+	}
+	if (bHasCenter)
+	{
+		SetBoolPropOn(Settings, TEXT("CenterNewWindow"), bCenterNewWindow);
+		bAny = true;
+	}
+
 	if (!bAny)
 	{
-		return MCPError(TEXT("Nothing to configure - provide numClients / netMode / runUnderOneProcess / launchSeparateServer / newWindowWidth / newWindowHeight"));
+		return MCPError(TEXT("Nothing to configure - provide numClients / netMode / runUnderOneProcess / launchSeparateServer / newWindowWidth / newWindowHeight / clientWindowWidth / clientWindowHeight / newWindowPosition / centerNewWindow"));
 	}
 
 	Settings->SaveConfig();
@@ -2062,6 +2133,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	Result->SetBoolField(TEXT("launchSeparateServer"), GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false));
 	Result->SetNumberField(TEXT("newWindowWidth"), GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0));
 	Result->SetNumberField(TEXT("newWindowHeight"), GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0));
+	FIntPoint NewWindowPosition = FIntPoint::ZeroValue;
+	GetIntPointPropOn(Settings, TEXT("NewWindowPosition"), NewWindowPosition);
+	Result->SetNumberField(TEXT("clientWindowWidth"), GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0));
+	Result->SetNumberField(TEXT("clientWindowHeight"), GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0));
+	Result->SetObjectField(TEXT("newWindowPosition"), IntPointToJson(NewWindowPosition));
+	Result->SetBoolField(TEXT("centerNewWindow"), GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true));
 
 	Result->SetNumberField(TEXT("previousNumClients"), PrevNumClients);
 	Result->SetStringField(TEXT("previousNetMode"), PrevNetMode);
@@ -2069,13 +2146,21 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	Result->SetBoolField(TEXT("previousLaunchSeparateServer"), bPrevLaunchSeparateServer);
 	Result->SetNumberField(TEXT("previousNewWindowWidth"), PrevNewWindowWidth);
 	Result->SetNumberField(TEXT("previousNewWindowHeight"), PrevNewWindowHeight);
+	Result->SetNumberField(TEXT("previousClientWindowWidth"), PrevClientWindowWidth);
+	Result->SetNumberField(TEXT("previousClientWindowHeight"), PrevClientWindowHeight);
+	Result->SetObjectField(TEXT("previousNewWindowPosition"), IntPointToJson(PrevNewWindowPosition));
+	Result->SetBoolField(TEXT("previousCenterNewWindow"), bPrevCenterNewWindow);
 	const bool bChanged =
 		GetIntPropOn(Settings, TEXT("PlayNumberOfClients"), 1) != PrevNumClients
 		|| PrevNetMode != NetModeNameFromValue(GetEnumPropOn(Settings, TEXT("PlayNetMode")))
 		|| GetBoolPropOn(Settings, TEXT("RunUnderOneProcess"), true) != bPrevRunUnderOneProcess
 		|| GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false) != bPrevLaunchSeparateServer
 		|| GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0) != PrevNewWindowWidth
-		|| GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0) != PrevNewWindowHeight;
+		|| GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0) != PrevNewWindowHeight
+		|| GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0) != PrevClientWindowWidth
+		|| GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0) != PrevClientWindowHeight
+		|| NewWindowPosition != PrevNewWindowPosition
+		|| GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true) != bPrevCenterNewWindow;
 	Result->SetBoolField(TEXT("changed"), bChanged);
 
 	// Self-inverse: the same handler with every field's previous value. The
@@ -2088,6 +2173,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	Payload->SetBoolField(TEXT("launchSeparateServer"), bPrevLaunchSeparateServer);
 	Payload->SetNumberField(TEXT("newWindowWidth"), PrevNewWindowWidth);
 	Payload->SetNumberField(TEXT("newWindowHeight"), PrevNewWindowHeight);
+	if (PrevClientWindowWidth > 0) Payload->SetNumberField(TEXT("clientWindowWidth"), PrevClientWindowWidth);
+	if (PrevClientWindowHeight > 0) Payload->SetNumberField(TEXT("clientWindowHeight"), PrevClientWindowHeight);
+	Payload->SetObjectField(TEXT("newWindowPosition"), IntPointToJson(PrevNewWindowPosition));
+	Payload->SetBoolField(TEXT("centerNewWindow"), bPrevCenterNewWindow);
 	MCPSetRollback(Result, TEXT("configure_pie"), Payload);
 	// This handler ignores a non-positive numClients / newWindowWidth /
 	// newWindowHeight, so a previous value of zero cannot be written back and
@@ -2096,11 +2185,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	if (PrevNumClients <= 0) Unrestorable.Add(TEXT("numClients"));
 	if (PrevNewWindowWidth <= 0) Unrestorable.Add(TEXT("newWindowWidth"));
 	if (PrevNewWindowHeight <= 0) Unrestorable.Add(TEXT("newWindowHeight"));
+	if (PrevClientWindowWidth <= 0) Unrestorable.Add(TEXT("clientWindowWidth"));
+	if (PrevClientWindowHeight <= 0) Unrestorable.Add(TEXT("clientWindowHeight"));
 	Result->SetBoolField(TEXT("rollbackLossy"), Unrestorable.Num() > 0);
 	if (Unrestorable.Num() > 0)
 	{
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
-			TEXT("Restores every field except %s, which was zero or negative before this call. This handler only applies those three when they are greater than zero, so replaying the previous value is a no-op for them and they keep the value written here."),
+			TEXT("Restores every field except %s, which was zero or negative before this call. This handler only applies window sizes and numClients when they are greater than zero, so replaying the previous value is a no-op for them and they keep the value written here."),
 			*FString::Join(Unrestorable, TEXT(", "))));
 	}
 	return MCPResult(Result);
@@ -2204,5 +2295,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetPieConfig(const TSharedPtr<FJsonObjec
 	Result->SetStringField(TEXT("netMode"), NetModeNameFromValue(GetEnumPropOn(Settings, TEXT("PlayNetMode"))));
 	Result->SetBoolField(TEXT("runUnderOneProcess"), GetBoolPropOn(Settings, TEXT("RunUnderOneProcess"), true));
 	Result->SetBoolField(TEXT("launchSeparateServer"), GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false));
+	Result->SetNumberField(TEXT("newWindowWidth"), GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0));
+	Result->SetNumberField(TEXT("newWindowHeight"), GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0));
+	Result->SetNumberField(TEXT("clientWindowWidth"), GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0));
+	Result->SetNumberField(TEXT("clientWindowHeight"), GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0));
+	FIntPoint NewWindowPosition = FIntPoint::ZeroValue;
+	GetIntPointPropOn(Settings, TEXT("NewWindowPosition"), NewWindowPosition);
+	Result->SetObjectField(TEXT("newWindowPosition"), IntPointToJson(NewWindowPosition));
+	Result->SetBoolField(TEXT("centerNewWindow"), GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true));
 	return MCPResult(Result);
 }

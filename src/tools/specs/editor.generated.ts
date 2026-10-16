@@ -360,6 +360,44 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "number",
         "required": false,
         "description": "Play-in-New-Window height"
+      },
+      {
+        "name": "clientWindowWidth",
+        "type": "number",
+        "required": false,
+        "description": "Width of each additional multiplayer client window"
+      },
+      {
+        "name": "clientWindowHeight",
+        "type": "number",
+        "required": false,
+        "description": "Height of each additional multiplayer client window"
+      },
+      {
+        "name": "newWindowPosition",
+        "type": "object",
+        "required": false,
+        "description": "Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed",
+        "fields": [
+          {
+            "name": "x",
+            "type": "number",
+            "required": true,
+            "description": "Screen X in pixels"
+          },
+          {
+            "name": "y",
+            "type": "number",
+            "required": true,
+            "description": "Screen Y in pixels"
+          }
+        ]
+      },
+      {
+        "name": "centerNewWindow",
+        "type": "boolean",
+        "required": false,
+        "description": "Center new PIE windows; false places them at newWindowPosition"
       }
     ],
     "contractExempt": "writes the editor's Play settings"
@@ -2857,7 +2895,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   check_for_crashes: "Params: none",
   clear_dialog_policy: "Params: pattern?",
   close_sequence: "Params: none",
-  configure_pie: "Params: numClients?, netMode?, runUnderOneProcess?, launchSeparateServer?, newWindowWidth?, newWindowHeight?",
+  configure_pie: "Params: numClients?, netMode?, runUnderOneProcess?, launchSeparateServer?, newWindowWidth?, newWindowHeight?, clientWindowWidth?, clientWindowHeight?, newWindowPosition?, centerNewWindow?",
   cook_content: "Params: platform?",
   create_level_sequence: "Params: name, packagePath?, onConflict?",
   create_new_level: "Params: levelPath, templateLevel?, onConflict?",
@@ -2979,10 +3017,13 @@ export const schema: Record<string, z.ZodType> = {
   cameraSpeed: z.number().optional().describe("Viewport camera speed, greater than 0"),
   captureLog: z.boolean().optional().describe("false drops everything the script logged except its errors (default true)"),
   category: z.string().optional().describe("Case-insensitive substring the log category must contain (get_output_log). Settings category, e.g. Engine (open_settings)"),
+  centerNewWindow: z.boolean().optional().describe("Center new PIE windows; false places them at newWindowPosition"),
   channel: z.string().optional().describe("Location.X/Y/Z or Rotation.X/Y/Z (also x/y/z, yaw/pitch/roll) on a Transform track; the float channel on Fade or Float"),
   channels: z.union([z.array(z.string()), z.string()]).optional().describe("Trace channels or a preset, as an array or a comma-separated string. Passing it (or traceFile) adds -trace and -tracefile (launch_standalone_game). Trace channels or a preset, as an array or a comma-separated string (default 'default'). list_trace_channels lists what this build registers (start_insights_trace)"),
   classFilter: z.string().optional().describe("Actor or component class name substring; omit to match every actor"),
   className: z.string().optional().describe("Class to search for: a short name, a /Script path, a generated class name (WBP_Hud_C) or a Blueprint asset path (find_object). UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path (invoke_static_function)"),
+  clientWindowHeight: z.number().optional().describe("Height of each additional multiplayer client window"),
+  clientWindowWidth: z.number().optional().describe("Width of each additional multiplayer client window"),
   command: z.string().optional().describe("Console command to run in the editor world (execute_command). Full console command; wins over name (run_stat_command)"),
   commitDeletes: z.boolean().optional().describe("Use the editor's dirty-package save, which deletes the packages of deleted World Partition actors and reports written and deleted files (default false)"),
   component: z.string().optional().describe("Component subobject name to call the function on instead of the actor"),
@@ -3075,6 +3116,7 @@ export const schema: Record<string, z.ZodType> = {
   nearClip: z.number().optional().describe("Near clip plane; negative clears the override"),
   netMode: z.string().optional().describe("standalone | listen | client"),
   newWindowHeight: z.number().optional().describe("Play-in-New-Window height"),
+  newWindowPosition: z.object({ x: z.number().describe("Screen X in pixels"), y: z.number().describe("Screen Y in pixels") }).optional().describe("Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed"),
   newWindowWidth: z.number().optional().describe("Play-in-New-Window width"),
   numClients: z.number().optional().describe("Number of PIE clients"),
   objectPath: z.string().optional().describe("Object, asset, class or Blueprint path. A class or Blueprint resolves to its default object (describe_object, get_property, set_property). Check one path: reports found and isValid rather than failing when it is gone. Wins over the search filters (find_object). Object path of the live instance. Wins over target (get_object_properties, invoke_object_function, set_object_property)"),

@@ -79,3 +79,25 @@ describe("runtime property paths and physics reads (#1212)", () => {
     expect(bag.world).toBe("pie");
   });
 });
+
+describe("configure_pie client windows (#1235)", () => {
+  it("forwards client window size, position and centering", async () => {
+    const { call, ctx } = mockContext();
+    await editorTool.handler(ctx, {
+      action: "configure_pie",
+      clientWindowWidth: 960,
+      clientWindowHeight: 540,
+      newWindowPosition: { x: 1920, y: 0 },
+      centerNewWindow: false,
+    });
+    const bag = forwarded(call, "configure_pie");
+    expect(bag.clientWindowWidth).toBe(960);
+    expect(bag.clientWindowHeight).toBe(540);
+    expect(bag.newWindowPosition).toEqual({ x: 1920, y: 0 });
+    expect(bag.centerNewWindow).toBe(false);
+  });
+
+  it("refuses a position without both coordinates", () => {
+    expect(editorTool.schema.newWindowPosition.safeParse({ x: 10 }).success).toBe(false);
+  });
+});
