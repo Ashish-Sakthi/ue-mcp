@@ -15,6 +15,7 @@
  * generated code calls `epicToolCall`, so nothing has to read a catalog at
  * startup to know how to dispatch one.
  */
+import { z } from "zod";
 import { McpError, ErrorCode } from "../core/errors.js";
 import { coerceAssetPathValue } from "./asset-path.js";
 
@@ -28,6 +29,63 @@ interface SchemaProp {
   type?: string;
   properties?: Record<string, unknown>;
   required?: string[];
+  enum?: readonly string[];
+  items?: unknown;
+}
+
+/**
+ * Why a value does not fit its recorded property, naming the field, or
+ * undefined when it fits (#1281). Checks enums and array/struct shape only;
+ * field names and enum spellings match case-insensitively, as the engine reads them.
+ */
+export function epicValueProblem(propValue: unknown, value: unknown, at: string): string | undefined {
+  const prop = asProp(propValue);
+  if (!prop || isAssetRefProp(prop) || value === undefined || value === null) return undefined;
+  if (prop.type === "string" && prop.enum?.length && typeof value === "string") {
+    const want = value.toLowerCase();
+    if (!prop.enum.some((e) => e.toLowerCase() === want)) {
+      return `${at} is ${JSON.stringify(value)}, which is not one of ${prop.enum.join(", ")}`;
+    }
+  }
+  if (prop.type === "array") {
+    if (!Array.isArray(value)) return `${at} must be an array, got ${typeof value}`;
+    for (let i = 0; i < value.length; i++) {
+      const problem = epicValueProblem(prop.items, value[i], `${at}[${i}]`);
+      if (problem) return problem;
+    }
+  }
+  if (prop.type === "object" && prop.properties) {
+    if (typeof value !== "object" || Array.isArray(value)) return `${at} must be an object, got ${Array.isArray(value) ? "array" : typeof value}`;
+    const fields = Object.entries(prop.properties);
+    for (const [key, field] of Object.entries(value as Record<string, unknown>)) {
+      const match = fields.find(([name]) => name.toLowerCase() === key.toLowerCase());
+      const problem = match ? epicValueProblem(match[1], field, `${at}.${key}`) : undefined;
+      if (problem) return problem;
+    }
+  }
+  return undefined;
+}
+
+/** The zod shape of one recorded property, for describe_action's nested fields and enums. */
+export function epicPropZod(propValue: unknown, depth = 0): z.ZodTypeAny {
+  const prop = asProp(propValue);
+  if (!prop) return z.unknown();
+  if (isAssetRefProp(prop)) return z.union([z.string(), z.record(z.unknown())]);
+  switch (prop.type) {
+    case "string":
+      return prop.enum?.length ? z.enum(prop.enum as [string, ...string[]]) : z.string();
+    case "number": return z.number();
+    case "integer": return z.number().int();
+    case "boolean": return z.boolean();
+    case "array": return z.array(prop.items && depth < 4 ? epicPropZod(prop.items, depth + 1) : z.unknown());
+    case "object": {
+      if (!prop.properties || depth >= 4) return z.record(z.unknown());
+      const shape = Object.fromEntries(Object.entries(prop.properties)
+        .map(([k, v]) => [k, epicPropZod(v, depth + 1).optional()]));
+      return z.object(shape).passthrough();
+    }
+    default: return z.unknown();
+  }
 }
 
 function asProp(value: unknown): SchemaProp | undefined {
@@ -134,10 +192,23 @@ export function resolveEpicToolInput(
 
   // Every reference, flat or inside an explicit `input`, takes the object path.
   for (const name of propNames) {
-    if (input[name] !== undefined && isAssetRefProp(asProp(props[name]))) input[name] = expandRefValue(input[name]);
+    const prop = asProp(props[name]);
+    if (input[name] === undefined) continue;
+    if (isAssetRefProp(prop)) input[name] = expandRefValue(input[name]);
+    // A list of references, once its item schema is recorded (#1281).
+    else if (prop?.type === "array" && isAssetRefProp(asProp(prop.items)) && Array.isArray(input[name])) {
+      input[name] = (input[name] as unknown[]).map(expandRefValue);
+    }
   }
 
-  // 3. Refuse rather than dispatch a call the engine will reject anyway.
+  // 3. Refuse rather than dispatch a call the engine will reject anyway: a
+  //    value off its recorded shape, named by field, then a missing argument.
+  for (const name of propNames) {
+    const problem = epicValueProblem(props[name], input[name], name);
+    if (problem) {
+      throw new McpError(ErrorCode.INVALID_PARAMS, `${toolName}: ${problem}. project(action="describe_action") lists every field and value.`);
+    }
+  }
   const missing = required.filter((n) => input[n] === undefined);
   if (missing.length > 0) {
     const known = new Set([...propNames, "action", "input", "inputJson"]);

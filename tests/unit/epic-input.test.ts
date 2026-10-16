@@ -10,6 +10,9 @@
 import { describe, expect, it, vi } from "vitest";
 import { expandRefPath, resolveEpicToolInput, type EpicInputSchema } from "../../src/surface/epic-input.js";
 import { widgetTool } from "../../src/tools/widget.js";
+import { pcgTool } from "../../src/tools/pcg.js";
+import { actionSignature } from "../../src/surface/action-signature.js";
+import { actionSchema } from "../../src/surface/action-schema.js";
 import type { ToolContext } from "../../src/core/types.js";
 
 const GET_WIDGETS_NAME = "UMGToolSet.UMGToolSet.GetWidgets";
@@ -134,5 +137,42 @@ describe("wrapped engine tool input envelope", () => {
       },
       undefined,
     );
+  });
+});
+
+describe("array-of-struct parameters on epic_* wrappers (#1281)", () => {
+  const spec = pcgTool.actions.epic_set_graph_params as { epicSchema: EpicInputSchema };
+  const graph = "/Game/PCG/SG_Sites";
+
+  it("names the failing field and the accepted enum values", () => {
+    expect(() => resolveEpicToolInput("PCGToolset.PCGToolset.SetGraphParams", spec.epicSchema, {
+      graph, params: [{ name: "Count", type: "Int32" }],
+    })).toThrow(/params\[0\]\.type is "Int32", which is not one of .*Integer32/);
+  });
+
+  it("accepts a valid list, matching field names and enum spellings case-insensitively", () => {
+    const resolved = resolveEpicToolInput("PCGToolset.PCGToolset.SetGraphParams", spec.epicSchema, {
+      graph, params: [{ Name: "Count", Type: "integer32", containerType: "None" }],
+    });
+    expect((resolved.input as Record<string, unknown>).params).toEqual([{ Name: "Count", Type: "integer32", containerType: "None" }]);
+  });
+
+  it("carries the item type in the signature and the item fields in describe_action", () => {
+    expect(actionSignature(pcgTool, "epic_set_graph_params")).toContain("params:[o]");
+    const described = actionSchema(pcgTool, "epic_set_graph_params").params.find((p) => p.name === "params")!;
+    expect(described.items?.properties?.type.enumValues).toContain("Integer32");
+    expect(described.items?.properties?.containerType.enumValues).toEqual(["None", "Array", "Set", "Map", "Count"]);
+  });
+});
+
+describe("a list of references (#1281, #1289)", () => {
+  it("wraps and expands every item", () => {
+    const schema: EpicInputSchema = {
+      properties: { actors: { type: "array", items: { type: "object", properties: { refPath: {} } } } },
+      required: ["actors"],
+    };
+    expect(resolveEpicToolInput("T.T.AddActors", schema, { actors: ["/Game/A/B", { refPath: "/Game/C/D.D" }] })).toEqual({
+      input: { actors: [{ refPath: "/Game/A/B.B" }, { refPath: "/Game/C/D.D" }] },
+    });
   });
 });

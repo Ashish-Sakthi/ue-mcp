@@ -25,7 +25,7 @@ import { ROUTING_PARAM_NAMES } from "./routing-params.js";
 import type { ActionEffectSource, ActionSpec, ToolDef } from "../core/types.js";
 import { paramZod, type ParamSpec, type ValueForm } from "./handler-spec.js";
 import type { ActionClass } from "./action-class.js";
-import { epicForwardedParams } from "./epic-input.js";
+import { epicForwardedParams, epicPropZod } from "./epic-input.js";
 
 /** A readable schema summary, not a substitute for runtime validation. */
 export interface ValueSchema {
@@ -835,16 +835,20 @@ export function actionSchema(tool: ToolDef, action: string): ActionSchema {
       });
       continue;
     }
+    // A wrapped engine tool's recorded property carries its own item fields and
+    // enums, which the category's shared key cannot (#1281).
+    const epicProp = spec.kind === "bridge" ? spec.epicSchema?.properties?.[name] : undefined;
+    const own = epicProp ? valueSchema(epicPropZod(epicProp)) : undefined;
     params.push({
-      ...valueSchema(schema),
+      ...(own ?? valueSchema(schema)),
       name,
-      type: typeName(inner),
+      type: own ? own.type : typeName(inner),
       // The description's `?` marker wins: it is per-action, whereas the
       // category shape has to declare nearly everything optional to let its
       // other actions through.
       required: doc ? group === undefined && !doc.optional : !optional,
       description: paramDoc,
-      enumValues: enumValues(inner),
+      enumValues: own ? own.enumValues : enumValues(inner),
       default: dflt,
       sources,
       alternativeGroup: group,
