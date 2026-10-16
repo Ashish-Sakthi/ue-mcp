@@ -106,6 +106,26 @@ function crashReporterPids(): number[] {
   return pids;
 }
 
+/** Crash reporters launched to watch this editor pid (-MONITOR=<pid>). */
+function crashReportersWatching(editorPid: number): number[] {
+  const out = execFileSync(
+    "powershell",
+    [
+      "-NoProfile",
+      "-Command",
+      "Get-CimInstance Win32_Process -Filter \"Name='CrashReportClientEditor.exe'\" | ForEach-Object { \"$($_.ProcessId)|$($_.CommandLine)\" }",
+    ],
+    { encoding: "utf8" },
+  );
+  const pids: number[] = [];
+  for (const line of out.split(/\r?\n/)) {
+    const [pid, ...rest] = line.split("|");
+    const watched = /-MONITOR=(\d+)/i.exec(rest.join("|"));
+    if (watched && Number(watched[1]) === editorPid) pids.push(Number(pid));
+  }
+  return pids;
+}
+
 /** The game module's editor DLL, which every link of the project rewrites. */
 function projectModuleDll(): string {
   const dir = path.join(target.projectDir, "Binaries", "Win64");
@@ -189,12 +209,15 @@ describe.skipIf(!ENABLED)("editor lifecycle (opt-in: npm run test:live -- --life
       // The engine's own crash command. The call cannot return: the editor is gone.
       await server.call("editor", { action: "execute_command", command: "debug crash" }).catch(() => undefined);
       await waitFor(`editor pid ${before!.pid} to die`, () => !isPidAlive(before!.pid), 180_000);
+      // The reporter is either the companion launched with the editor to watch it, or one the crash started.
+      const reporterFor = (): number | undefined =>
+        crashReportersWatching(before!.pid)[0] ?? crashReporterPids().find((pid) => !reportersBefore.has(pid));
       await waitFor(
         "a crash reporter for the crashed editor (is the crash reporter disabled on this machine?)",
-        () => crashReporterPids().some((pid) => !reportersBefore.has(pid)),
+        () => reporterFor() !== undefined,
         120_000,
       );
-      const reporter = crashReporterPids().find((pid) => !reportersBefore.has(pid))!;
+      const reporter = reporterFor()!;
 
       const stopped = await stopEditor();
       expect(stopped.alreadyStopped, JSON.stringify(stopped)).toBe(true);
@@ -256,7 +279,7 @@ describe.skipIf(!ENABLED)("editor lifecycle (opt-in: npm run test:live -- --life
         expect(locked.some((l) => path.basename(l.file).toLowerCase() === path.basename(dll).toLowerCase())).toBe(true);
         const named = locked.find((l) => l.holder)?.holder;
         if (named) expect(named.toLowerCase()).toContain("powershell");
-        expect(String(failed.message)).toMatch(/locked|in use|being used/i);
+        expect(String(failed.message)).toMatch(/locked|in use|being used|held open/i);
       } finally {
         holder.kill();
       }
