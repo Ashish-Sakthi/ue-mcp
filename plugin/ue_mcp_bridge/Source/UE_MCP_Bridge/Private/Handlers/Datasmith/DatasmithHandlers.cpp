@@ -519,6 +519,10 @@ TSharedPtr<FJsonValue> FDatasmithHandlers::Import(const TSharedPtr<FJsonObject>&
 		if (SceneActorCls && A->IsA(SceneActorCls)) { SceneActor = A; break; }
 	}
 
+	// The import result leaves its Scene field empty on some paths while the scene actor holds the
+	// asset it created, so the actor is the fallback for the path reimport needs.
+	if (!SceneAsset && SceneActor) SceneAsset = GetObjectProp(SceneActor, TEXT("Scene"));
+
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("filePath"), FilePath);
