@@ -73,7 +73,8 @@ const BASELINE = {
   // 139: material(delete_orphans) deletes unreachable nodes and keeps no copy to restore (#1403).
   // 141: datasmith(import) creates an asset set and actors, and datasmith(reimport) rewrites them from source (#1383).
   // 145: metahuman(set_wardrobe, request_rig, request_textures, assemble) replace or create character data with no inverse (#1354).
-  mutationsWithoutRollback: 145,
+  // 147: source_control(sync) moves the workspace to other revisions, and source_control(connect) changes no files (#1357).
+  mutationsWithoutRollback: 147,
   // Zero, and held there by a flat assertion. Every mutation with no inverse
   // now says so in its own result body with the reason, which is the half a
   // caller can act on.

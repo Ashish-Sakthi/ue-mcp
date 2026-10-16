@@ -112,6 +112,26 @@ tasks:
 
 The key under each category is the **bare** action name. The loader prepends your `actionPrefix` to compute the injected name: `mypfx` + `inspect_something` -> `mypfx_inspect_something`. The user always sees the prefixed form.
 
+### Source control provider plugins
+
+The core `source_control` category is provider-neutral. Every action in it (`get_provider`, `connect`, `get_status`, `history`, `list_changes`, `checkout`, `add`, `mark_for_delete`, `revert`, `sync`, `diff`, `submit`, `set_checkout_mode`) goes through Unreal's `ISourceControlModule` and `ISourceControlProvider`, whichever provider the editor has configured, and is gated on what that provider reports it can do (`get_provider` returns it as `operations`). Core never checks a provider's name.
+
+Anything only one provider has belongs in that provider's plugin: shelves, streams and changelist edits for Perforce, branches and stashes for Git, and so on. Such a plugin injects into `source_control` under its own `actionPrefix`, so its actions sit beside the core ones without colliding: `p4_*` for Perforce, `git_*` for Git, `dv_*` for Diversion.
+
+```yaml
+actionPrefix: p4
+
+inject:
+  source_control:
+    shelve:                      # -> source_control(action="p4_shelve")
+      task: p4.shelve
+      description: "Shelve the files of a pending changelist."
+      schema:
+        changelist: { type: string, required: true }
+```
+
+Do not re-implement a core action under a prefix. A plugin action should call the provider for what core cannot express, and leave checkout, add, delete, revert, sync and submit to `source_control`. Checkout on write is core's too: see [Guards](plugins-guards.md#source-control-core-first-guards-opt-in).
+
 `knowledge:` and `flows:` are optional - omit them when you have nothing to attach. A plugin can ship a single action and nothing else.
 
 Param schemas under `schema:` accept these types: `string`, `number`, `boolean`, `object`, `array`. Every param is optional at the top level of the host category tool's schema, because one schema serves all of that category's actions. `required: true` holds on the action itself: `describe_action` and the action's signature report it as required, and a call to that action without it is refused before your task runs. Never name a parameter `action`, `timeoutMs`, `select`, `omit`, `editor` or `toEditor`: the dispatcher consumes those before any handler runs, so such a parameter could never arrive, and the server drops the action that declares one at load with the reason in `project(get_status)`. The bridge refuses the same names in a C++ contract. A native C++ handler declares its parameters in C++ instead, with required names, integers, enums, ranges and nested fields, and every call is checked against them; see [Typed contracts](plugins-native-modules.md#typed-contracts).
