@@ -36,21 +36,24 @@ export async function ensureDaemon(uproject: string, wantVersion = packageVersio
   const usable = (d: DaemonDiscovery | null): d is DaemonDiscovery =>
     !!d && d.apiVersion === DAEMON_API_VERSION && !isOlder(d.version, wantVersion);
 
-  let spawned = false;
+  let spawned: { exitCode: number | null; exited: boolean } | null = null;
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const d = readLiveDiscovery(projectDir);
     if (usable(d)) return d;
+    // The daemon we started died without publishing and nobody else is starting one: waiting cannot help.
+    if (spawned?.exited && !liveStartLock(projectDir)) {
+      throw new Error(`daemon for ${projectDir} exited (code ${spawned.exitCode}) before it started; see ${logFile}`);
+    }
     if (!spawned && !liveStartLock(projectDir)) {
-      spawnDaemon(uproject, projectDir, logDir, logFile);
-      spawned = true;
+      spawned = spawnDaemon(uproject, projectDir, logDir, logFile);
     }
     await new Promise((r) => setTimeout(r, 250));
   }
   throw new Error(`daemon for ${projectDir} did not start within ${START_TIMEOUT_MS / 1000}s; see ${logFile}`);
 }
 
-function spawnDaemon(uproject: string, projectDir: string, logDir: string, logFile: string): void {
+function spawnDaemon(uproject: string, projectDir: string, logDir: string, logFile: string): { exitCode: number | null; exited: boolean } {
   // The daemon runs the same entry this process was started with, so a dev
   // checkout under tsx starts a dev daemon and a published package its own.
   fs.mkdirSync(logDir, { recursive: true });
@@ -61,9 +64,15 @@ function spawnDaemon(uproject: string, projectDir: string, logDir: string, logFi
     windowsHide: true,
     env: process.env,
   });
+  const state = { exitCode: null as number | null, exited: false };
+  child.on("exit", (code) => {
+    state.exitCode = code;
+    state.exited = true;
+  });
   child.unref();
   fs.closeSync(log);
   info("shim", `started daemon (pid ${child.pid}) for ${path.basename(projectDir)}`);
+  return state;
 }
 
 export async function runShim(uproject: string): Promise<void> {
