@@ -46,6 +46,22 @@ private:
 	// issue #1253 - assign a Subgraph node's graph through SetSubgraph, and override its user parameters.
 	static TSharedPtr<FJsonValue> SetSubgraph(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetSubgraphParameters(const TSharedPtr<FJsonObject>& Params);
+	// issue #1318 - a graph's own input or output pins.
+	static TSharedPtr<FJsonValue> SetGraphPins(const TSharedPtr<FJsonObject>& Params);
+
+	// issue #1264 - graph user parameters, graph instance assets and overrides, Get Graph Parameter nodes by name.
+	static TSharedPtr<FJsonValue> SetGraphParameters(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CreateGraphInstance(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetGraphInstanceOverrides(const TSharedPtr<FJsonObject>& Params);
+	static void ExportUserParameterNode(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
+	static bool ImportUserParameterNode(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
+
+	// issue #1309 - the data a component generated, or one node's output under inspection.
+	static TSharedPtr<FJsonValue> ReadGeneratedOutput(const TSharedPtr<FJsonObject>& Params);
+
+	// issue #1365 - generation state for waiting on a run started by anything.
+	static TSharedPtr<FJsonValue> GetPCGGenerationState(const TSharedPtr<FJsonObject>& Params);
+
 	static void ExportSubgraphSettings(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
 	static bool ImportSubgraphSettings(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
 };

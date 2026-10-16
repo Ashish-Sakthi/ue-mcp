@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1082,
+  "handlerCount": 1088,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -1764,6 +1764,12 @@
           "type": "number",
           "required": false,
           "description": "Graph editor Y position for the new node"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused"
         }
       ]
     },
@@ -10718,6 +10724,41 @@
       ],
       "contractExempt": "Creates and saves a graph under the contract values; nothing it reads fails first"
     },
+    "create_pcg_graph_instance": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Graph instance asset name"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph or PCGGraphInstance the instance runs"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the new instance (default /Game/PCG)"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "{parameterName: value} overrides to set on the new instance"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the asset exists: skip (default, report it) | error"
+        }
+      ]
+    },
     "create_player_controller": {
       "category": "gameplay",
       "params": [
@@ -13078,6 +13119,18 @@
           "type": "integer",
           "required": false,
           "description": "Write the component's Seed before generating; the old one is reported as previousSeed"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -13293,7 +13346,7 @@
           "name": "assetPath",
           "type": "string",
           "required": false,
-          "description": "Content folder for the PCG data asset (default: the level's folder)"
+          "description": "The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder)"
         },
         {
           "name": "assetName",
@@ -13968,6 +14021,18 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -16283,6 +16348,42 @@
       "category": "pcg",
       "params": []
     },
+    "get_pcg_generation_state": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "This PCG component (default: the actor's first, the one execute regenerates)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
+    },
     "get_perceived_actors": {
       "category": "gameplay",
       "params": [
@@ -17544,7 +17645,7 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "[{name, class, posX?, posY?, settings?}]",
+          "description": "[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]",
           "items": "object"
         },
         {
@@ -17559,6 +17660,20 @@
           "type": "boolean",
           "required": false,
           "description": "Wipe existing user nodes first (default false)"
+        },
+        {
+          "name": "removeNodes",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: node names to remove before importing; a missing name is skipped",
+          "items": "string"
+        },
+        {
+          "name": "removeConnections",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: edges [{from, fromPin, to, toPin}] to cut before importing",
+          "items": "object"
         }
       ]
     },
@@ -24109,6 +24224,85 @@
           "description": "Pin or reflected node property name",
           "aliases": [
             "pinName"
+          ]
+        }
+      ]
+    },
+    "read_pcg_generated_output": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "Only this PCG component (default: every PCG component on the actor)"
+        },
+        {
+          "name": "pin",
+          "type": "string",
+          "required": false,
+          "description": "Only data on this output pin"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)",
+          "items": "string"
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "required": false,
+          "description": "First entry to return (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Entries to return per data (default 100, max 10000)"
+        },
+        {
+          "name": "nodeName",
+          "type": "string",
+          "required": false,
+          "description": "Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+)"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": false,
+          "description": "Graph holding nodeName, for a node in a subgraph (default: the component's graph)"
+        },
+        {
+          "name": "includeLocalComponents",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read a partitioned component's local components (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
           ]
         }
       ]
@@ -33282,6 +33476,158 @@
           "type": "boolean",
           "required": false,
           "description": "bOnlyRelevantToOwner (default false)"
+        }
+      ]
+    },
+    "set_pcg_graph_instance_overrides": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraphInstance asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": true,
+          "description": "{parameterName: value}; null clears that override"
+        }
+      ]
+    },
+    "set_pcg_graph_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "graphParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameters to add or change, by name",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one"
+            },
+            {
+              "name": "typeObject",
+              "type": "string",
+              "required": false,
+              "description": "Class for object/class (default Object), the enum for enum, the struct for struct"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "Default value, JSON or UE export text"
+            }
+          ]
+        },
+        {
+          "name": "removeParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter names to remove",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "graphParameters"
+            ],
+            [
+              "removeParameters"
+            ]
+          ]
+        }
+      ]
+    },
+    "set_pcg_graph_pins": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": true,
+          "description": "input | output: the graph node whose pins change"
+        },
+        {
+          "name": "pins",
+          "type": "array",
+          "required": true,
+          "description": "Pins matched by label",
+          "items": "object",
+          "fields": [
+            {
+              "name": "label",
+              "type": "string",
+              "required": true,
+              "description": "Pin label; edges are wired by it"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"
+            },
+            {
+              "name": "tooltip",
+              "type": "string",
+              "required": false,
+              "description": "Pin tooltip"
+            },
+            {
+              "name": "allowMultipleData",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one data (default true)"
+            },
+            {
+              "name": "allowMultipleConnections",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one edge (default true)"
+            }
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"
         }
       ]
     },
