@@ -718,6 +718,9 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 	ImportUI->bImportTextures = false;
 	ImportUI->bIsObjImport = false;
 	ImportUI->MeshTypeToImport = FBXIT_Animation;
+	// An automated import detects the type from the file by default, so an FBX that also carries a
+	// mesh came in as a SkeletalMesh and no AnimSequence at all (#1228).
+	ImportUI->bAutomatedImportShouldDetectType = false;
 	ImportUI->Skeleton = Skeleton;
 	if (bHasImportCustomAttribute)
 	{
