@@ -1344,7 +1344,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::AssignRvtToLandscape(const TSharedPtr<
 	if (!Target)
 	{
 		return MCPError(FString::Printf(
-			TEXT("Actor '%s' is a %s, not a Landscape. landscape(get_landscape_info) lists the landscapes in this level."),
+			TEXT("Actor '%s' is a %s, not a Landscape. landscape(get_info) lists the landscapes in this level."),
 			*Actor->GetActorLabel(), *Actor->GetClass()->GetName()));
 	}
 

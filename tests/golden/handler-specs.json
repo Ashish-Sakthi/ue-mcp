@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1084,
+  "handlerCount": 1099,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -1726,6 +1726,12 @@
           "type": "object",
           "required": false,
           "description": "Node-specific settings, such as functionName and className for a CallFunction node"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -1758,6 +1764,12 @@
           "type": "number",
           "required": false,
           "description": "Graph editor Y position for the new node"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused"
         }
       ]
     },
@@ -3207,6 +3219,24 @@
           "type": "string",
           "required": false,
           "description": "skip (default) reports the existing entry; error refuses"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "Category shown in My Blueprint and the details panel"
+        },
+        {
+          "name": "tooltip",
+          "type": "string",
+          "required": false,
+          "description": "Tooltip"
+        },
+        {
+          "name": "instanceEditable",
+          "type": "boolean",
+          "required": false,
+          "description": "true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default"
         }
       ]
     },
@@ -5065,6 +5095,18 @@
           "type": "string",
           "required": false,
           "description": "Socket or bone on the resolved parent component"
+        },
+        {
+          "name": "relativeLocation",
+          "type": "vec3",
+          "required": false,
+          "description": "Relative location set after the attach, in the parent component or socket frame"
+        },
+        {
+          "name": "relativeRotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Relative rotation set after the attach, in the parent component or socket frame"
         }
       ]
     },
@@ -6710,6 +6752,32 @@
         }
       ]
     },
+    "build_tree": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "tree",
+          "type": "object",
+          "required": true,
+          "description": "One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values"
+        },
+        {
+          "name": "parentWidgetName",
+          "type": "string",
+          "required": false,
+          "description": "Panel to build under (default: the root panel, or the tree root when there is none)"
+        }
+      ]
+    },
     "bulk_line_trace": {
       "category": "level",
       "params": [
@@ -6931,8 +6999,40 @@
           "name": "renames",
           "type": "array",
           "required": true,
-          "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-          "items": "object"
+          "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourcePath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+            },
+            {
+              "name": "destinationPath",
+              "type": "string",
+              "required": false,
+              "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+            },
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to rename in place, with newName"
+            },
+            {
+              "name": "newPackagePath",
+              "type": "string",
+              "required": false,
+              "description": "Destination folder, with sourcePath and newName"
+            },
+            {
+              "name": "newName",
+              "type": "string",
+              "required": false,
+              "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+            }
+          ]
         }
       ]
     },
@@ -7505,6 +7605,20 @@
         }
       ]
     },
+    "check_widget_structure": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
+        }
+      ]
+    },
     "chooser_add_column": {
       "category": "chooser",
       "params": [
@@ -8010,6 +8124,18 @@
       "category": "editor",
       "params": [],
       "contractExempt": "closes the open Sequencer"
+    },
+    "close_window": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to close, by the id list_windows reported"
+        }
+      ],
+      "contractExempt": "closes an open editor window"
     },
     "commit_skeleton_edit": {
       "category": "animation",
@@ -8621,6 +8747,44 @@
           "type": "number",
           "required": false,
           "description": "Play-in-New-Window height"
+        },
+        {
+          "name": "clientWindowWidth",
+          "type": "number",
+          "required": false,
+          "description": "Width of each additional multiplayer client window"
+        },
+        {
+          "name": "clientWindowHeight",
+          "type": "number",
+          "required": false,
+          "description": "Height of each additional multiplayer client window"
+        },
+        {
+          "name": "newWindowPosition",
+          "type": "object",
+          "required": false,
+          "description": "Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed",
+          "fields": [
+            {
+              "name": "x",
+              "type": "number",
+              "required": true,
+              "description": "Screen X in pixels"
+            },
+            {
+              "name": "y",
+              "type": "number",
+              "required": true,
+              "description": "Screen Y in pixels"
+            }
+          ]
+        },
+        {
+          "name": "centerNewWindow",
+          "type": "boolean",
+          "required": false,
+          "description": "Center new PIE windows; false places them at newWindowPosition"
         }
       ],
       "contractExempt": "writes the editor's Play settings"
@@ -8897,6 +9061,12 @@
           "type": "boolean",
           "required": false,
           "description": "Break every existing link on the target pin first"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -10900,6 +11070,12 @@
           "type": "string",
           "required": false,
           "description": "When the level exists: skip (default) returns it untouched, error refuses"
+        },
+        {
+          "name": "worldPartition",
+          "type": "boolean",
+          "required": false,
+          "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
         }
       ],
       "contractExempt": "creates and opens a level"
@@ -11100,6 +11276,41 @@
         }
       ],
       "contractExempt": "Creates and saves a graph under the contract values; nothing it reads fails first"
+    },
+    "create_pcg_graph_instance": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Graph instance asset name"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph or PCGGraphInstance the instance runs"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the new instance (default /Game/PCG)"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "{parameterName: value} overrides to set on the new instance"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the asset exists: skip (default, report it) | error"
+        }
+      ]
     },
     "create_player_controller": {
       "category": "gameplay",
@@ -11896,7 +12107,7 @@
               "name": "type",
               "type": "string",
               "required": false,
-              "description": "MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor"
+              "description": "Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>"
             }
           ]
         },
@@ -12372,6 +12583,12 @@
           "aliases": [
             "nodeName"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -13276,7 +13493,7 @@
           "name": "type",
           "type": "string",
           "required": false,
-          "description": "MakePinType string for add_field (default bool) and set_field_type"
+          "description": "Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips"
         }
       ]
     },
@@ -13450,7 +13667,25 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "Console command to run in the editor world"
+          "description": "Console command to run"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose console runs a PIE command (default 0)"
         }
       ],
       "contractExempt": "runs a console command"
@@ -13475,6 +13710,18 @@
           "type": "integer",
           "required": false,
           "description": "Write the component's Seed before generating; the old one is reported as previousSeed"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -13690,7 +13937,7 @@
           "name": "assetPath",
           "type": "string",
           "required": false,
-          "description": "Content folder for the PCG data asset (default: the level's folder)"
+          "description": "The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder)"
         },
         {
           "name": "assetName",
@@ -14296,7 +14543,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless"
+          "description": "Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference"
         },
         {
           "name": "allowProjectWide",
@@ -14365,6 +14612,18 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -15144,7 +15403,13 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "Variable name"
+          "description": "Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects"
+        },
+        {
+          "name": "includeChildren",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)"
         }
       ]
     },
@@ -16566,19 +16831,25 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "propertyNames",
           "type": "array",
           "required": false,
-          "description": "Only these properties. The Details-panel spelling is accepted",
+          "description": "Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components",
           "items": "string"
         },
         {
@@ -16618,7 +16889,7 @@
           "name": "maxLines",
           "type": "integer",
           "required": false,
-          "description": "How far back into the ring buffer to read (default 100)"
+          "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
         },
         {
           "name": "filter",
@@ -16679,6 +16950,42 @@
     "get_pcg_components": {
       "category": "pcg",
       "params": []
+    },
+    "get_pcg_generation_state": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "This PCG component (default: the actor's first, the one execute regenerates)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
     },
     "get_perceived_actors": {
       "category": "gameplay",
@@ -17736,7 +18043,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported assets (default false)"
+          "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
         },
         {
           "name": "automated",
@@ -18130,7 +18437,7 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "[{name, class, posX?, posY?, settings?}]",
+          "description": "[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]",
           "items": "object"
         },
         {
@@ -18145,6 +18452,20 @@
           "type": "boolean",
           "required": false,
           "description": "Wipe existing user nodes first (default false)"
+        },
+        {
+          "name": "removeNodes",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: node names to remove before importing; a missing name is skipped",
+          "items": "string"
+        },
+        {
+          "name": "removeConnections",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: edges [{from, fromPin, to, toPin}] to cut before importing",
+          "items": "object"
         }
       ]
     },
@@ -18714,13 +19035,19 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "args",
@@ -18732,6 +19059,32 @@
             "stringList",
             "argEntryList",
             "string"
+          ]
+        },
+        {
+          "name": "modify",
+          "type": "object",
+          "required": false,
+          "description": "Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument",
+          "fields": [
+            {
+              "name": "argument",
+              "type": "string",
+              "required": true,
+              "description": "Struct parameter of functionName to fill"
+            },
+            {
+              "name": "getter",
+              "type": "string",
+              "required": true,
+              "description": "Zero-argument UFUNCTION on the same object that returns that struct"
+            },
+            {
+              "name": "patch",
+              "type": "object",
+              "required": false,
+              "description": "Field name or dotted path to structured JSON value, applied to the struct the getter returned"
+            }
           ]
         },
         {
@@ -18787,13 +19140,19 @@
               "name": "subsystemClass",
               "type": "string",
               "required": false,
-              "description": "Subsystem class name or /Script path, with target=subsystem"
+              "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
             },
             {
               "name": "playerIndex",
               "type": "integer",
               "required": false,
-              "description": "Player index for target=playercontroller or playerpawn (default 0)"
+              "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+            },
+            {
+              "name": "propertyPath",
+              "type": "string",
+              "required": false,
+              "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
             },
             {
               "name": "args",
@@ -20770,6 +21129,35 @@
         }
       ]
     },
+    "list_subclasses": {
+      "category": "blueprint",
+      "params": [
+        {
+          "name": "className",
+          "type": "string",
+          "required": true,
+          "description": "Base class: a native name or path such as Character, or a Blueprint asset path"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it"
+        },
+        {
+          "name": "includeTransitive",
+          "type": "boolean",
+          "required": false,
+          "description": "Include indirect subclasses (default true); false lists direct children only"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Rows to return (default 2000, max 20000); count stays complete"
+        }
+      ]
+    },
     "list_textures": {
       "category": "asset",
       "params": [
@@ -20955,6 +21343,35 @@
         }
       ]
     },
+    "list_windows": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": false,
+          "description": "Describe only this window, by the id list_windows or list_dialogs reported"
+        },
+        {
+          "name": "maxTexts",
+          "type": "integer",
+          "required": false,
+          "description": "Texts reported per window (default 200)"
+        },
+        {
+          "name": "maxTextChars",
+          "type": "integer",
+          "required": false,
+          "description": "Characters kept per text (default 2000)"
+        },
+        {
+          "name": "maxButtons",
+          "type": "integer",
+          "required": false,
+          "description": "Buttons reported per window (default 200)"
+        }
+      ]
+    },
     "live_coding_compile": {
       "category": "project",
       "params": [
@@ -21039,6 +21456,21 @@
           "type": "string",
           "required": true,
           "description": "Map package to open"
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the open map and its dirty external actor packages before switching (default false)",
+          "aliases": [
+            "saveCurrent"
+          ]
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ],
       "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -22493,6 +22925,18 @@
           "aliases": [
             "path"
           ]
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: save the open map's unsaved packages before switching (default false)"
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ]
     },
@@ -22805,6 +23249,19 @@
               "type": "string",
               "required": false,
               "description": "Actor label"
+            },
+            {
+              "name": "tags",
+              "type": "array",
+              "required": false,
+              "description": "Actor tags to add",
+              "items": "string"
+            },
+            {
+              "name": "parentLabel",
+              "type": "string",
+              "required": false,
+              "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
             }
           ]
         }
@@ -23103,6 +23560,96 @@
         }
       ]
     },
+    "pose_debug_camera": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "required": false,
+          "description": "true (default) ejects the debug camera if needed and poses it; false returns control to the player"
+        },
+        {
+          "name": "location",
+          "type": "vec3",
+          "required": false,
+          "description": "Camera location; omit to keep the current one"
+        },
+        {
+          "name": "rotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Camera rotation; omit to keep the current one"
+        },
+        {
+          "name": "lookAtActorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Aim at this PIE actor's bounds center; wins over rotation"
+        },
+        {
+          "name": "lookAtActorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full path of the PIE actor to aim at. Wins over lookAtActorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose debug camera is used (default 0)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
+    "press_window_button": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to press a button on, by the id list_windows reported"
+        },
+        {
+          "name": "buttonLabel",
+          "type": "string",
+          "required": false,
+          "description": "Label of the button to press, matched exactly first, then as a substring; refused when ambiguous"
+        },
+        {
+          "name": "buttonIndex",
+          "type": "number",
+          "required": false,
+          "description": "Index of the button to press, in the order list_windows reports"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "buttonLabel"
+            ],
+            [
+              "buttonIndex"
+            ]
+          ]
+        }
+      ],
+      "contractExempt": "presses a button on an open editor window"
+    },
     "preview_animation": {
       "category": "animation",
       "params": [
@@ -23252,7 +23799,7 @@
           "name": "fields",
           "type": "array",
           "required": false,
-          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health",
+          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData",
           "items": "string"
         },
         {
@@ -23260,6 +23807,13 @@
           "type": "array",
           "required": false,
           "description": "Component UPROPERTY names projected under props.*, at most 32",
+          "items": "string"
+        },
+        {
+          "name": "actorPropertyNames",
+          "type": "array",
+          "required": false,
+          "description": "Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32",
           "items": "string"
         },
         {
@@ -24647,6 +25201,85 @@
           "description": "Pin or reflected node property name",
           "aliases": [
             "pinName"
+          ]
+        }
+      ]
+    },
+    "read_pcg_generated_output": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "Only this PCG component (default: every PCG component on the actor)"
+        },
+        {
+          "name": "pin",
+          "type": "string",
+          "required": false,
+          "description": "Only data on this output pin"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)",
+          "items": "string"
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "required": false,
+          "description": "First entry to return (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Entries to return per data (default 100, max 10000)"
+        },
+        {
+          "name": "nodeName",
+          "type": "string",
+          "required": false,
+          "description": "Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+)"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": false,
+          "description": "Graph holding nodeName, for a node in a subgraph (default: the component's graph)"
+        },
+        {
+          "name": "includeLocalComponents",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read a partitioned component's local components (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
           ]
         }
       ]
@@ -30623,7 +31256,7 @@
           "name": "propertyName",
           "type": "string",
           "required": true,
-          "description": "Property name"
+          "description": "Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius"
         },
         {
           "name": "value",
@@ -33750,6 +34383,12 @@
           "aliases": [
             "defaultValue"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -33784,13 +34423,19 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "postEditChange",
@@ -33826,6 +34471,158 @@
           "type": "boolean",
           "required": false,
           "description": "bOnlyRelevantToOwner (default false)"
+        }
+      ]
+    },
+    "set_pcg_graph_instance_overrides": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraphInstance asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": true,
+          "description": "{parameterName: value}; null clears that override"
+        }
+      ]
+    },
+    "set_pcg_graph_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "graphParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameters to add or change, by name",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one"
+            },
+            {
+              "name": "typeObject",
+              "type": "string",
+              "required": false,
+              "description": "Class for object/class (default Object), the enum for enum, the struct for struct"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "Default value, JSON or UE export text"
+            }
+          ]
+        },
+        {
+          "name": "removeParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter names to remove",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "graphParameters"
+            ],
+            [
+              "removeParameters"
+            ]
+          ]
+        }
+      ]
+    },
+    "set_pcg_graph_pins": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": true,
+          "description": "input | output: the graph node whose pins change"
+        },
+        {
+          "name": "pins",
+          "type": "array",
+          "required": true,
+          "description": "Pins matched by label",
+          "items": "object",
+          "fields": [
+            {
+              "name": "label",
+              "type": "string",
+              "required": true,
+              "description": "Pin label; edges are wired by it"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"
+            },
+            {
+              "name": "tooltip",
+              "type": "string",
+              "required": false,
+              "description": "Pin tooltip"
+            },
+            {
+              "name": "allowMultipleData",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one data (default true)"
+            },
+            {
+              "name": "allowMultipleConnections",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one edge (default true)"
+            }
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"
         }
       ]
     },
@@ -33987,6 +34784,41 @@
         }
       ]
     },
+    "set_pie_paused": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "paused",
+          "type": "boolean",
+          "required": true,
+          "description": "true pauses, false resumes"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "required": false,
+          "description": "game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
     "set_pie_time_scale": {
       "category": "editor",
       "params": [
@@ -33995,6 +34827,60 @@
           "type": "number",
           "required": true,
           "description": "Time-scale factor, greater than 0 (e.g. 500)"
+        }
+      ]
+    },
+    "set_pie_view_target": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Player whose view target is set (default 0)"
+        },
+        {
+          "name": "blendTime",
+          "type": "number",
+          "required": false,
+          "description": "Seconds to blend from the current view (default 0, a cut)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
         }
       ]
     },
@@ -36136,6 +37022,12 @@
           "type": "any",
           "required": true,
           "description": "New default value, as a string"
+        },
+        {
+          "name": "propagateToInstances",
+          "type": "boolean",
+          "required": false,
+          "description": "Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"
         }
       ]
     },

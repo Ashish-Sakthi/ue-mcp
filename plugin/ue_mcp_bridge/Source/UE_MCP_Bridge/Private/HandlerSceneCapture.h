@@ -13,7 +13,12 @@
 #include "ContentStreaming.h"
 #include "RenderingThread.h"
 #include "HAL/FileManager.h"
+#include "Misc/FileHelper.h"
 #include "Misc/Paths.h"
+#include "TextureResource.h"
+#include "IImageWrapper.h"
+#include "IImageWrapperModule.h"
+#include "Modules/ModuleManager.h"
 
 namespace UEMCP::SceneCapture
 {
@@ -104,6 +109,10 @@ namespace UEMCP::SceneCapture
 		void Capture(bool bFullyLoadTextures)
 		{
 			if (!Comp) return;
+			// Components created or moved this frame (BeginPlay attachments,
+			// skinned poses) reach the renderer at end of frame; push them now
+			// so the capture sees the same scene the game viewport does (#1203).
+			if (World) World->SendAllEndOfFrameUpdates();
 			if (bFullyLoadTextures)
 			{
 				IStreamingManager::Get().StreamAllResources(0.0f);
@@ -115,15 +124,36 @@ namespace UEMCP::SceneCapture
 			FlushRenderingCommands();
 		}
 
-		/** Writes the target to AbsPath, which must already end in .png. */
+		/** Writes the target to AbsPath, which must already end in .png. Encoded here so the file holds
+		 *  exactly the PNG bytes; ExportRenderTarget wrote a padded buffer past IEND (#1399). */
 		bool ExportPng(const FString& AbsPath, int64& OutSizeBytes, FString& OutError)
 		{
 			OutSizeBytes = -1;
 			if (!Target) { OutError = TEXT("No render target to export"); return false; }
-			const FString OutDir = FPaths::GetPath(AbsPath);
-			const FString OutName = FPaths::GetCleanFilename(AbsPath);
-			IFileManager::Get().MakeDirectory(*OutDir, /*Tree*/ true);
-			UKismetRenderingLibrary::ExportRenderTarget(World, Target, OutDir, OutName);
+			FTextureRenderTargetResource* Resource = Target->GameThread_GetRenderTargetResource();
+			TArray<FColor> Pixels;
+			if (!Resource || !Resource->ReadPixels(Pixels) || Pixels.Num() != Target->SizeX * Target->SizeY)
+			{
+				OutError = TEXT("Could not read the captured pixels back from the render target");
+				return false;
+			}
+			// A scene capture leaves alpha as inverse coverage; a screenshot is opaque.
+			for (FColor& Pixel : Pixels) Pixel.A = 255;
+			IImageWrapperModule& ImageWrapperModule = FModuleManager::LoadModuleChecked<IImageWrapperModule>(FName("ImageWrapper"));
+			TSharedPtr<IImageWrapper> PngWrapper = ImageWrapperModule.CreateImageWrapper(EImageFormat::PNG);
+			if (!PngWrapper.IsValid()
+				|| !PngWrapper->SetRaw(Pixels.GetData(), Pixels.Num() * sizeof(FColor), Target->SizeX, Target->SizeY, ERGBFormat::BGRA, 8))
+			{
+				OutError = TEXT("The captured pixels could not be PNG-encoded");
+				return false;
+			}
+			const TArray64<uint8> PngData = PngWrapper->GetCompressed();
+			IFileManager::Get().MakeDirectory(*FPaths::GetPath(AbsPath), /*Tree*/ true);
+			if (!FFileHelper::SaveArrayToFile(PngData, *AbsPath))
+			{
+				OutError = FString::Printf(TEXT("Could not write %s; the directory may be read-only or the path invalid"), *AbsPath);
+				return false;
+			}
 			OutSizeBytes = IFileManager::Get().FileSize(*AbsPath);
 			if (OutSizeBytes < 0)
 			{

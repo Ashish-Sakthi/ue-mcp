@@ -400,3 +400,43 @@ inline void MCPSetWidgetGuidOutcome(
 		TEXT("failure on every compile until one of %s is deleted and recreated in the UMG editor."),
 		*AssetPath, *Report.DefectList(), *Report.UnusableList()));
 }
+
+/**
+ * Compile state of a Widget Blueprint as a stable string (#799). A caller that
+ * gets `created: true` still needs to know whether the asset it just changed
+ * compiles, so the mutation handlers report this alongside the outcome.
+ */
+inline FString WidgetCompileStatusString(const UWidgetBlueprint* WidgetBP)
+{
+	if (!WidgetBP) return TEXT("unknown");
+	switch (WidgetBP->Status.GetValue())
+	{
+	case BS_UpToDate:             return TEXT("upToDate");
+	case BS_UpToDateWithWarnings: return TEXT("upToDateWithWarnings");
+	case BS_Dirty:                return TEXT("dirty");
+	case BS_Error:                return TEXT("error");
+	case BS_BeingCreated:         return TEXT("beingCreated");
+	default:                      return TEXT("unknown");
+	}
+}
+
+/** Stamp compile state onto a mutation result, and withdraw the success claim
+ *  when the blueprint no longer compiles (#799). */
+inline void MCPSetWidgetCompileOutcome(
+	TSharedPtr<FJsonObject> Result,
+	const UWidgetBlueprint* WidgetBP,
+	const FString& AssetPath,
+	const FString& WhatHappened)
+{
+	const FString CompileStatus = WidgetCompileStatusString(WidgetBP);
+	Result->SetStringField(TEXT("compileStatus"), CompileStatus);
+	if (CompileStatus == TEXT("error"))
+	{
+		// The mutation is already on disk, so keep reporting what landed, but a
+		// blueprint that no longer compiles is not a success.
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("%s and saved, but '%s' no longer compiles - open the blueprint's compiler results for the cause."),
+			*WhatHappened, *AssetPath));
+	}
+}

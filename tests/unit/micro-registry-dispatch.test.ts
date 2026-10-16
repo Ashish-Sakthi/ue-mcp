@@ -57,6 +57,17 @@ function context(answer: unknown = { success: true }) {
 const withoutDuration = ({ duration: _duration, ...result }: TaskResult) => result;
 
 describe("micro calls use the session task registry", () => {
+  it("refuses args.action instead of dropping it (#1216)", async () => {
+    const { registry, pie } = fixture();
+    const { ctx, calls } = context();
+    await expect(registry.create("tools.call", ctx, { category: "pie", method: "inject_input", args: { action: "/Game/IA", assetPath: "/A" } }))
+      .rejects.toThrow(/args.action was not sent to pie.inject_input/);
+    const gateway = buildMicroGateway([pie]);
+    await expect(gateway.handler(ctx, { action: "call", category: "pie", method: "inject_input", args: { action: "/Game/IA" } }))
+      .rejects.toThrow(/'action' is the dispatcher's own key/);
+    expect(calls).toEqual([]);
+  });
+
   it.each(["full", "lean", "micro"] as const)("runs the native plugin task in %s mode", async (mode) => {
     const { pie, registry } = fixture(mode);
     const { ctx, calls } = context({ success: true, accepted: 1 });
@@ -74,7 +85,7 @@ describe("micro calls use the session task registry", () => {
     const { ctx, calls } = context({ success: true, kept: { value: 1, hidden: 2 }, dropped: 3 });
     const task = await registry.create("tools.call", ctx, {
       category: "pie", method: "inject_input", timeoutMs: 600_000, select: ["kept"],
-      args: { action: "not_a_parameter", editor: "already_routed", assetPath: "\\Game\\Take",
+      args: { editor:"already_routed", assetPath: "\\Game\\Take",
         timeoutMs: 200_000, select: ["dropped"], omit: ["kept.hidden"] },
     });
     const result = await task.run();

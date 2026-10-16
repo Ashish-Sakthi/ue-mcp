@@ -1081,7 +1081,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetNiagaraParameter(const TSharedPtr<FJ
 	{
 		Result->SetBoolField(TEXT("rollbackPossible"), false);
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
-			TEXT("The component had no readable '%s' of type %s before this call, so there is no previous value to write back and no action that removes a user-parameter override. Check the name against niagara(list_niagara_system_parameters) if this is unexpected."),
+			TEXT("The component had no readable '%s' of type %s before this call, so there is no previous value to write back and no action that removes a user-parameter override. Check the name against niagara(list_system_parameters) if this is unexpected."),
 			*ParameterName, *ParameterType));
 	}
 	return MCPResult(Result);

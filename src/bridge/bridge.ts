@@ -144,9 +144,15 @@ export interface BridgeResponse {
   error?: { code: number; message: string };
 }
 
-/** One request frame, as the plugin reads it. Every sender builds it here. */
-function encodeRequest(id: string, method: string, params?: Record<string, unknown>): string {
-  return JSON.stringify({ id, method, params: params ?? {} });
+/**
+ * One request frame, as the plugin reads it. Every sender builds it here.
+ * `timeoutMs` is the caller's explicit budget; the plugin waits at least that
+ * long on the game thread instead of its 30s default (#1339).
+ */
+export function encodeRequest(id: string, method: string, params?: Record<string, unknown>, timeoutMs?: number): string {
+  return JSON.stringify(timeoutMs === undefined
+    ? { id, method, params: params ?? {} }
+    : { id, method, params: params ?? {}, timeoutMs });
 }
 
 /**
@@ -280,6 +286,23 @@ export interface BridgeConnectionChange {
   at: number;
 }
 
+/**
+ * The toolset names in an epic_list_toolsets answer: the list when it has one,
+ * empty when the registry itself is absent, null when the answer says neither.
+ */
+export function epicToolsetNames(answer: unknown): readonly string[] | null {
+  if (!answer || typeof answer !== "object" || Array.isArray(answer)) return null;
+  const body = answer as Record<string, unknown>;
+  if (Array.isArray(body.toolsets)) {
+    return body.toolsets
+      .map((t) => (t && typeof t === "object" ? (t as Record<string, unknown>).name : undefined))
+      .filter((n): n is string => typeof n === "string" && n !== "")
+      .sort();
+  }
+  if (body.success === false && typeof body.error === "string" && /ToolsetRegistry not available/i.test(body.error)) return [];
+  return null;
+}
+
 export interface IBridge {
   readonly isConnected: boolean;
   /** #821: what the connected bridge reported at handshake, when there is one. */
@@ -290,6 +313,10 @@ export interface IBridge {
    * does not re-advertise what it lacks.
    */
   readonly registeredActions?: readonly string[] | null;
+  /** The engine toolsets the editor's registry has, or null while unknown (#1323). */
+  readonly epicToolsets?: readonly string[] | null;
+  /** Re-read epicToolsets from the editor. */
+  refreshEpicToolsets?(): Promise<readonly string[] | null>;
   call(method: string, params?: Record<string, unknown>, timeoutMs?: number): Promise<unknown>;
   connect(timeoutMs?: number): Promise<void>;
   /**
@@ -318,9 +345,62 @@ export class EditorBridge implements IBridge {
 
   private registered: readonly string[] | null = null;
   private readonly registeredListeners = new Set<(actions: readonly string[] | null) => void>();
+  private toolsets: readonly string[] | null = null;
+  private toolsetsInFlight: Promise<readonly string[] | null> | null = null;
 
   get registeredActions(): readonly string[] | null {
     return this.registered;
+  }
+
+  /**
+   * The engine toolsets the editor's registry has, or null while unknown. An
+   * `epic_*` action whose toolset is not listed is withheld (#1323).
+   */
+  get epicToolsets(): readonly string[] | null {
+    return this.toolsets;
+  }
+
+  /**
+   * Read the editor's toolset names. A registry that is absent is an empty
+   * list; a call that fails or a plugin without the method leaves it unknown.
+   */
+  refreshEpicToolsets(): Promise<readonly string[] | null> {
+    if (this.toolsetsInFlight) return this.toolsetsInFlight;
+    if (!this.registered?.includes("epic_list_toolsets")) return Promise.resolve(this.toolsets);
+    const run = (async () => {
+      let names: readonly string[] | null = null;
+      try {
+        const answer = await this.call("epic_list_toolsets", {});
+        names = epicToolsetNames(answer);
+      } catch {
+        names = null;
+      }
+      if (names !== null) this.setToolsets(names);
+      return this.toolsets;
+    })().finally(() => {
+      this.toolsetsInFlight = null;
+    });
+    this.toolsetsInFlight = run;
+    return run;
+  }
+
+  private setToolsets(names: readonly string[] | null): void {
+    const same = names === this.toolsets
+      || (names !== null && this.toolsets !== null && names.length === this.toolsets.length
+        && names.every((n, i) => n === this.toolsets![i]));
+    if (same) return;
+    this.toolsets = names;
+    this.notifyRegistered();
+  }
+
+  private notifyRegistered(): void {
+    for (const listener of this.registeredListeners) {
+      try {
+        listener(this.registered);
+      } catch (e) {
+        warn("bridge", "registered-actions listener failed", e);
+      }
+    }
   }
 
   /** Called whenever registeredActions changes. Returns the unsubscribe. */
@@ -357,13 +437,9 @@ export class EditorBridge implements IBridge {
         && actions.every((a, i) => a === this.registered![i]));
     if (same) return;
     this.registered = actions;
-    for (const listener of this.registeredListeners) {
-      try {
-        listener(actions);
-      } catch (e) {
-        warn("bridge", "registered-actions listener failed", e);
-      }
-    }
+    // Another plugin build may have another registry.
+    this.toolsets = null;
+    this.notifyRegistered();
   }
 
   // How this.port was decided. Precedence for the *preferred* port (the one
@@ -744,7 +820,8 @@ export class EditorBridge implements IBridge {
     }
 
     const id = String(++this.idCounter);
-    const frame = encodeRequest(id, method, params);
+    const explicit = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0;
+    const frame = encodeRequest(id, method, params, explicit ? resolveBridgeTimeout(method, timeoutMs) : undefined);
     // #989: not a flat 30s any more. An explicit per-call budget is honoured,
     // and a method the C++ side registered a longer timeout for is waited out
     // to that limit, so the client stops declaring a failure on a call the
@@ -868,6 +945,8 @@ export class EditorBridge implements IBridge {
           this.setRegistered(Array.isArray(capabilities.actions) && capabilities.actions.length > 0
             ? [...capabilities.actions].sort()
             : null);
+          // Read off the handshake's critical path; a failure leaves it unknown.
+          queueMicrotask(() => void this.refreshEpicToolsets());
         }
 
         const mismatch = describeProtocolMismatch(capabilities);

@@ -35,10 +35,9 @@ export function writeScaffold(dir: string, pkgName: string, prefix: string): voi
   const greetClass = "Greet";
   const uePlugin = deriveUePluginName(pkgName);
   const nativeCategory = `${prefix}_native`;
-  // The scaffold's tasks import `ue-mcp/task`, which only exists from the
-  // version that introduced it. Default the floor to the running server's
-  // version so a freshly scaffolded plugin declares a dependency that can
-  // actually resolve the import; an explicit env override still wins.
+  // minServerVersion is the server gate, checked at install and load. No npm
+  // peer range can admit prereleases, and the server answers `ue-mcp/task`
+  // itself, so package.json carries ue-mcp as a dev dependency only.
   const minServer = readEnv("pluginMinServer") ?? packageVersion();
   const year = new Date().getFullYear();
 
@@ -55,9 +54,6 @@ export function writeScaffold(dir: string, pkgName: string, prefix: string): voi
     author: "",
     license: "MIT",
     repository: { type: "git", url: "" },
-    peerDependencies: {
-      "ue-mcp": `>=${minServer}`,
-    },
     devDependencies: {
       "ue-mcp": `^${minServer}`,
       "js-yaml": "^4.1.0",

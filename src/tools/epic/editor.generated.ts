@@ -15,8 +15,8 @@ import { bp } from "../../surface/category-tool.js";
 
 const S_epic_capture_asset_image = {"properties":{"assetPath":{"type":"string"}},"required":["assetPath"]} as const;
 const S_epic_capture_editor_image = {"properties":{}} as const;
-const S_epic_capture_viewport = {"properties":{"captureTransform":{"type":"object"},"annotations":{"type":"object"},"bShowUI":{"type":"boolean"}}} as const;
-const S_epic_focus_on_actors = {"properties":{"actors":{"type":"array"}},"required":["actors"]} as const;
+const S_epic_capture_viewport = {"properties":{"captureTransform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}},"annotations":{"type":"object","properties":{"gridSpacing":{"type":"number"},"gridExtent":{"type":"number"},"gridHeight":{"type":"number"},"maxLabelDistance":{"type":"number"},"classFilter":{"type":"object","properties":{"refPath":{}}},"maxLabels":{"type":"integer"}}},"bShowUI":{"type":"boolean"}}} as const;
+const S_epic_focus_on_actors = {"properties":{"actors":{"type":"array","items":{"type":"object","properties":{"refPath":{}}}}},"required":["actors"]} as const;
 const S_epic_get_camera_transform = {"properties":{}} as const;
 const S_epic_get_content_browser_path = {"properties":{}} as const;
 const S_epic_get_log_categories = {"properties":{"filter":{"type":"string"}},"required":["filter"]} as const;
@@ -28,16 +28,16 @@ const S_epic_get_verbosity = {"properties":{"category":{"type":"string"}}} as co
 const S_epic_get_visible_actors = {"properties":{}} as const;
 const S_epic_is_pierunning = {"properties":{}} as const;
 const S_epic_open_editor_for_asset = {"properties":{"assetPath":{"type":"string"}},"required":["assetPath"]} as const;
-const S_epic_screen_coords_to_world = {"properties":{"coords":{"type":"object"},"traceDistance":{"type":"number"}},"required":["coords"]} as const;
+const S_epic_screen_coords_to_world = {"properties":{"coords":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"}}},"traceDistance":{"type":"number"}},"required":["coords"]} as const;
 const S_epic_search_cvars = {"properties":{"name":{"type":"string"}},"required":["name"]} as const;
-const S_epic_select_actors = {"properties":{"actors":{"type":"array"}},"required":["actors"]} as const;
-const S_epic_select_assets = {"properties":{"assetPaths":{"type":"array"}},"required":["assetPaths"]} as const;
-const S_epic_set_camera_transform = {"properties":{"transform":{"type":"object"}},"required":["transform"]} as const;
+const S_epic_select_actors = {"properties":{"actors":{"type":"array","items":{"type":"object","properties":{"refPath":{}}}}},"required":["actors"]} as const;
+const S_epic_select_assets = {"properties":{"assetPaths":{"type":"array","items":{"type":"string"}}},"required":["assetPaths"]} as const;
+const S_epic_set_camera_transform = {"properties":{"transform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}}},"required":["transform"]} as const;
 const S_epic_set_content_browser_path = {"properties":{"path":{"type":"string"}},"required":["path"]} as const;
 const S_epic_set_verbosity = {"properties":{"category":{"type":"string"},"verbosity":{"type":"string"}},"required":["verbosity"]} as const;
-const S_epic_start_pie = {"properties":{"options":{"type":"object"}},"required":["options"]} as const;
+const S_epic_start_pie = {"properties":{"options":{"type":"object","properties":{"bSimulate":{"type":"boolean"},"playMode":{"type":"string","enum":["PlayMode_InViewPort","PlayMode_InEditorFloating","PlayMode_InMobilePreview","PlayMode_InTargetedMobilePreview","PlayMode_InVulkanPreview","PlayMode_InNewProcess","PlayMode_InVR","PlayMode_Simulate","PlayMode_QuickLaunch","PlayMode_Count"]},"startTransform":{"type":"object","properties":{"location":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}},"rotation":{"type":"object","properties":{"pitch":{"type":"number"},"yaw":{"type":"number"},"roll":{"type":"number"}}},"scale":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}}},"warmupSeconds":{"type":"number"}}}},"required":["options"]} as const;
 const S_epic_stop_pie = {"properties":{}} as const;
-const S_epic_world_pos_to_screen_coords = {"properties":{"position":{"type":"object"}},"required":["position"]} as const;
+const S_epic_world_pos_to_screen_coords = {"properties":{"position":{"type":"object","properties":{"x":{"type":"number"},"y":{"type":"number"},"z":{"type":"number"}}}},"required":["position"]} as const;
 
 /** 25 wrapped engine tools routed to the `editor` category. */
 export const actions: Record<string, ActionSpec> = {

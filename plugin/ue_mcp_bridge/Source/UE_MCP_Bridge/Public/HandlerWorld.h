@@ -9,6 +9,8 @@
 #include "Editor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "UnrealEngine.h"
+#include "Templates/UniquePtr.h"
 #include "HandlerResult.h"
 #include "HandlerParams.h"
 
@@ -28,7 +30,7 @@ inline FString MCPPlayInEditorLoadNote()
 	if (!MCPIsPlayInEditorActive()) return FString();
 	return TEXT(" A play-in-editor session is running, which changes how assets load: ")
 		TEXT("the editor's own asset loader refuses every call while in play mode. ")
-		TEXT("Stop play with editor(action=\"stop_pie\") and retry before treating this as an asset problem.");
+		TEXT("Stop play with editor(action=\"play_in_editor\", pieAction=\"stop\") and retry before treating this as an asset problem.");
 }
 
 /** A precondition refusal for an editor-world action while PIE is running,
@@ -39,7 +41,7 @@ inline TSharedPtr<FJsonValue> MCPRefuseDuringPlayInEditor(const TCHAR* ActionNam
 	return MCPError(FString::Printf(
 		TEXT("%s cannot run while a play-in-editor session is running: the editor's asset loader refuses every call in play mode, ")
 		TEXT("so the sequence would read as missing and captures would not follow the playhead. ")
-		TEXT("Stop play with editor(action=\"stop_pie\") and retry."),
+		TEXT("Stop play with editor(action=\"play_in_editor\", pieAction=\"stop\") and retry."),
 		ActionName));
 }
 
@@ -129,6 +131,41 @@ inline UWorld* ResolveWorldFromParams(const TSharedPtr<FJsonObject>& Params, con
 	}
 	return ResolveWorldScope(Scope, PIEInstance);
 }
+
+/** The play-in-editor world Object lives in, or nullptr for an editor-world or unowned object. */
+inline UWorld* MCPPlayWorldOf(const UObject* Object)
+{
+	UWorld* World = Object ? Object->GetWorld() : nullptr;
+	return (World && World->IsPlayInEditor()) ? World : nullptr;
+}
+
+/**
+ * Runs the enclosed code as the PIE instance that owns World: GWorld and the
+ * PIE id point at that instance, the way the engine switches them for script
+ * running in it. A no-op for an editor world or when World is null.
+ */
+class FMCPScopedPlayWorldContext : public FNoncopyable
+{
+public:
+	explicit FMCPScopedPlayWorldContext(UWorld* World)
+	{
+		if (!World || !World->IsPlayInEditor() || !GEngine) return;
+		const FWorldContext* Context = GEngine->GetWorldContextFromWorld(World);
+		if (!Context) return;
+		PieInstance = Context->PIEInstance;
+		IdOverride = MakeUnique<FTemporaryPlayInEditorIDOverride>(Context->PIEInstance);
+		Switcher = MakeUnique<FScopedConditionalWorldSwitcher>(World);
+	}
+
+	/** The PIE instance the scope switched to, or INDEX_NONE when it did nothing. */
+	int32 GetPieInstance() const { return PieInstance; }
+
+private:
+	int32 PieInstance = INDEX_NONE;
+	// Declared in construction order so the world is restored before the id.
+	TUniquePtr<FTemporaryPlayInEditorIDOverride> IdOverride;
+	TUniquePtr<FScopedConditionalWorldSwitcher> Switcher;
+};
 
 /** Get the editor world or return an error response. */
 #define REQUIRE_EDITOR_WORLD(WorldVar) \

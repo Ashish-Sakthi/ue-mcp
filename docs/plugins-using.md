@@ -18,6 +18,12 @@ It's a thin wrapper that:
 4. Copies any skills the plugin ships into `.claude/skills/`.
 5. Prints the restart instruction.
 
+## Updating
+
+`ue-mcp plugin update [name] [--version x.y.z]` moves each plugin declared in `ue-mcp.yml` (or just `name`) to the given version, or to the newest published one, crossing a minor where a caret range would stop. A plugin whose package, `ue-mcp.yml` pin or deployed native module is not at that version goes through the same path as `install`: npm and `package.json`, the pin (kept only if the entry was pinned), the native module with stale files removed, and skills. It ends by saying whether the UE project needs a rebuild and whether your MCP client needs a restart, and fails rather than reporting success when any step does not complete.
+
+## Installing manually
+
 You can also install manually - `npm install --save <package-name>` and edit `ue-mcp.yml` yourself. The plugin's skills then arrive on the next `ue-mcp plugin update`, `ue-mcp init` or `ue-mcp deploy`.
 
 ## The `plugins:` array

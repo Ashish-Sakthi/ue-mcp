@@ -51,6 +51,8 @@ const ADDRESSES_THE_SERVER = new Set([
   "project.use_editor",
   "project.add_editor",
   "project.drop_editor",
+  // Posts an issue to GitHub; it reads no editor and changes none.
+  "feedback.submit",
 ]);
 
 export interface UntargetedCall {
@@ -118,12 +120,23 @@ export function routeEditorCall(
   params: Record<string, unknown>,
   sessions: SessionRegistry,
 ): RoutedCall {
-  if (!tool.injectedEditorParam) return { session: sessions.active, params, targeted: false };
   // The micro gateway carries every real parameter inside `args`, so a target
   // arrives there rather than at the top level. Read both, and strip both.
   const nested = params.args && typeof params.args === "object"
     ? (params.args as Record<string, unknown>)
     : undefined;
+  if (!tool.injectedEditorParam) {
+    // One editor: the parameter is not advertised, but a name a caller still
+    // holds resolves strictly, so a stale one refuses instead of falling
+    // through to the active editor (#1278). A tool's own `editor` is left alone.
+    if (EDITOR_TARGET_PARAM in tool.schema) return { session: sessions.active, params, targeted: false };
+    const held = params[EDITOR_TARGET_PARAM] ?? nested?.[EDITOR_TARGET_PARAM];
+    if (held === undefined || held === null || held === "") return { session: sessions.active, params, targeted: false };
+    const session = sessions.resolve(held);
+    const stripped = { ...stripEditorTarget(params) };
+    if (nested) stripped.args = stripEditorTarget(nested);
+    return { session, params: stripped, targeted: true };
+  }
   const target = params[EDITOR_TARGET_PARAM] ?? nested?.[EDITOR_TARGET_PARAM];
   const stripped = stripEditorTarget(params);
   if (nested) stripped.args = stripEditorTarget(nested);

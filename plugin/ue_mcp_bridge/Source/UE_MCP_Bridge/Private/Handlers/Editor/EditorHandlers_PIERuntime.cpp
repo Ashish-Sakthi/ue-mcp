@@ -35,8 +35,11 @@
 #include "GameFramework/PawnMovementComponent.h"
 #include "GameFramework/PlayerController.h"
 #include "Kismet/GameplayStatics.h"
+#include "EditorSubsystem.h"
+#include "Engine/LocalPlayer.h"
 #include "Subsystems/EngineSubsystem.h"
 #include "Subsystems/GameInstanceSubsystem.h"
+#include "Subsystems/LocalPlayerSubsystem.h"
 #include "Subsystems/WorldSubsystem.h"
 #include "UObject/UObjectHash.h"
 #include "UObject/Script.h"
@@ -46,13 +49,198 @@
 namespace
 {
 	/**
+	 * #802: match a requested property name against a reflected one, accepting
+	 * the spelling the Details panel shows. A Blueprint variable declared as
+	 * WorldContextObject is displayed (and asked for) as "World Context Object",
+	 * and a bool bIsActive is displayed as "Is Active", so an exact-name filter
+	 * reports a property that plainly exists as missing.
+	 */
+	bool PropertyNameMatches(const FProperty* Prop, const FString& Requested)
+	{
+		if (!Prop) return false;
+		const FString Actual = Prop->GetName();
+		if (Actual.Equals(Requested, ESearchCase::IgnoreCase)) return true;
+
+		const FString Squashed = Requested.Replace(TEXT(" "), TEXT(""));
+		if (Squashed.IsEmpty()) return false;
+		if (Actual.Equals(Squashed, ESearchCase::IgnoreCase)) return true;
+		// The display name of a bool drops the Unreal "b" prefix.
+		if (Prop->IsA<FBoolProperty>() && Actual.Equals(TEXT("b") + Squashed, ESearchCase::IgnoreCase)) return true;
+		return false;
+	}
+
+	/** A reflected property on Struct by exact name, or by its Details-panel spelling. */
+	FProperty* FindPropertyBySpelling(const UStruct* Struct, const FString& Requested)
+	{
+		if (!Struct) return nullptr;
+		if (FProperty* Exact = Struct->FindPropertyByName(FName(*Requested))) return Exact;
+		for (TFieldIterator<FProperty> It(Struct, EFieldIteratorFlags::IncludeSuper); It; ++It)
+		{
+			if (PropertyNameMatches(*It, Requested)) return *It;
+		}
+		return nullptr;
+	}
+
+	/**
+	 * #802: rewrite the leading token of a dotted property path to the reflected
+	 * name when the caller used the Details-panel spelling. Only the leading
+	 * token needs it: that is the one an agent copies out of the editor UI, and
+	 * the rest of the path is typed against what this handler reports back.
+	 */
+	FString CanonicalizeLeadingToken(UStruct* Owner, const FString& PropertyPath)
+	{
+		if (!Owner) return PropertyPath;
+
+		FString Head = PropertyPath;
+		FString Tail;
+		int32 DotPos = INDEX_NONE;
+		if (PropertyPath.FindChar(TEXT('.'), DotPos))
+		{
+			Head = PropertyPath.Left(DotPos);
+			Tail = PropertyPath.RightChop(DotPos);
+		}
+
+		FString Bare = Head;
+		FString IndexSuffix;
+		int32 BracketPos = INDEX_NONE;
+		if (Bare.FindChar(TEXT('['), BracketPos))
+		{
+			IndexSuffix = Bare.RightChop(BracketPos);
+			Bare = Bare.Left(BracketPos);
+		}
+
+		if (Owner->FindPropertyByName(FName(*Bare))) return PropertyPath;
+		for (TFieldIterator<FProperty> It(Owner, EFieldIteratorFlags::IncludeSuper); It; ++It)
+		{
+			if (PropertyNameMatches(*It, Bare))
+			{
+				return It->GetName() + IndexSuffix + Tail;
+			}
+		}
+		return PropertyPath;
+	}
+
+	/**
+	 * #1212: resolve a dotted or indexed property path on a live object. The
+	 * leading token takes the Details-panel spelling, and on an actor it may
+	 * name a component instance when no property of that name exists.
+	 */
+	bool ResolveRuntimePropertyPath(UObject* Target, const FString& Path,
+		FProperty*& OutProp, void*& OutValueAddr, UObject*& OutOwner, FString& OutError)
+	{
+		const FString Canonical = CanonicalizeLeadingToken(Target->GetClass(), Path);
+		if (MCPJsonProperty::ResolveDottedPath(Target, Canonical, OutProp, OutValueAddr, OutOwner, OutError)) return true;
+
+		int32 DotPos = INDEX_NONE;
+		AActor* AsActor = Cast<AActor>(Target);
+		if (!AsActor || !Path.FindChar(TEXT('.'), DotPos)) return false;
+		const FString Head = Path.Left(DotPos);
+		for (UActorComponent* Comp : AsActor->GetComponents())
+		{
+			if (Comp && Comp->GetName().Equals(Head, ESearchCase::IgnoreCase))
+			{
+				const FString Rest = CanonicalizeLeadingToken(Comp->GetClass(), Path.RightChop(DotPos + 1));
+				return MCPJsonProperty::ResolveDottedPath(Comp, Rest, OutProp, OutValueAddr, OutOwner, OutError);
+			}
+		}
+		return false;
+	}
+
+	/**
+	 * #1215: follow a dotted chain of object-reference properties from Root,
+	 * e.g. "GameSettings.Game Settings". A segment may index an array of object
+	 * references ("Items[2]") or, on an actor, name a component instance.
+	 */
+	UObject* FollowObjectPropertyPath(UObject* Root, const FString& Path, FString& OutError)
+	{
+		TArray<FString> Segments;
+		Path.ParseIntoArray(Segments, TEXT("."), true);
+		UObject* Current = Root;
+		for (const FString& RawSegment : Segments)
+		{
+			FString Name = RawSegment.TrimStartAndEnd();
+			int32 Index = INDEX_NONE;
+			int32 Bracket = INDEX_NONE;
+			if (Name.FindChar(TEXT('['), Bracket) && Name.EndsWith(TEXT("]")))
+			{
+				const FString IndexText = Name.Mid(Bracket + 1, Name.Len() - Bracket - 2);
+				if (!IndexText.IsNumeric())
+				{
+					OutError = FString::Printf(TEXT("propertyPath segment '%s' has a non-numeric index"), *RawSegment);
+					return nullptr;
+				}
+				Index = FCString::Atoi(*IndexText);
+				Name = Name.Left(Bracket);
+			}
+
+			UObject* Next = nullptr;
+			if (FProperty* Prop = FindPropertyBySpelling(Current->GetClass(), Name))
+			{
+				FProperty* ValueProp = Prop;
+				void* ValueAddr = Prop->ContainerPtrToValuePtr<void>(Current);
+				if (Index != INDEX_NONE)
+				{
+					FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop);
+					if (!ArrayProp)
+					{
+						OutError = FString::Printf(TEXT("propertyPath segment '%s': %s is not an array"), *RawSegment, *Prop->GetName());
+						return nullptr;
+					}
+					FScriptArrayHelper Helper(ArrayProp, ValueAddr);
+					if (!Helper.IsValidIndex(Index))
+					{
+						OutError = FString::Printf(TEXT("propertyPath segment '%s': index %d out of range (num=%d)"), *RawSegment, Index, Helper.Num());
+						return nullptr;
+					}
+					ValueProp = ArrayProp->Inner;
+					ValueAddr = Helper.GetRawPtr(Index);
+				}
+				FObjectPropertyBase* ObjectProp = CastField<FObjectPropertyBase>(ValueProp);
+				if (!ObjectProp)
+				{
+					OutError = FString::Printf(TEXT("propertyPath segment '%s' on %s is a %s, not an object reference"),
+						*RawSegment, *Current->GetClass()->GetName(), *ValueProp->GetCPPType());
+					return nullptr;
+				}
+				Next = ObjectProp->GetObjectPropertyValue(ValueAddr);
+				if (!IsValid(Next))
+				{
+					OutError = FString::Printf(TEXT("propertyPath segment '%s' on %s is null"), *RawSegment, *Current->GetPathName());
+					return nullptr;
+				}
+			}
+			else if (AActor* AsActor = Cast<AActor>(Current))
+			{
+				for (UActorComponent* Comp : AsActor->GetComponents())
+				{
+					if (Comp && Comp->GetName().Equals(Name, ESearchCase::IgnoreCase)) { Next = Comp; break; }
+				}
+			}
+			if (!Next)
+			{
+				TArray<FString> Candidates;
+				for (TFieldIterator<FObjectPropertyBase> It(Current->GetClass(), EFieldIteratorFlags::IncludeSuper); It && Candidates.Num() < 40; ++It)
+				{
+					Candidates.Add(It->GetName());
+				}
+				OutError = FString::Printf(TEXT("propertyPath segment '%s' is not an object property%s of %s. Object properties: [%s]"),
+					*RawSegment, Current->IsA<AActor>() ? TEXT(" or component") : TEXT(""),
+					*Current->GetClass()->GetName(), *FString::Join(Candidates, TEXT(", ")));
+				return nullptr;
+			}
+			Current = Next;
+		}
+		return Current;
+	}
+
+	/**
 	 * #739: resolve any UObject a caller might want to call into, not just a
 	 * placed actor. Accepts an explicit object path, or one of the well-known
 	 * runtime singletons an agent actually reaches for, none of which have an
 	 * actor label to target: the GameInstance, GameMode, GameState, a player
 	 * controller/pawn, or a named subsystem.
 	 */
-	UObject* ResolveRuntimeObject(
+	UObject* ResolveRuntimeRoot(
 		const TSharedPtr<FJsonObject>& Params,
 		UWorld* World,
 		FString& OutDescription,
@@ -136,35 +324,74 @@ namespace
 				OutError = TEXT("target=subsystem requires 'subsystemClass'");
 				return nullptr;
 			}
-			UClass* Cls = MCPResolveClass(SubsystemName);
+			UClass* Cls = MCPResolveClassOfType(SubsystemName, USubsystem::StaticClass());
 			if (!Cls)
 			{
-				OutError = FString::Printf(TEXT("Subsystem class not found: %s"), *SubsystemName);
+				OutError = FString::Printf(TEXT("Subsystem class not found: %s (a short name, /Script/Module.Class path, or Blueprint subsystem class)"), *SubsystemName);
 				return nullptr;
 			}
+			// Each collection ensures the class derives from its own base, so a
+			// class is only handed to the collection that owns its kind (#1249).
 			UObject* Found = nullptr;
+			FString Scope;
 			if (Cls->IsChildOf(UWorldSubsystem::StaticClass()))
 			{
+				Scope = TEXT("world");
 				Found = World->GetSubsystemBase(Cls);
 			}
 			else if (Cls->IsChildOf(UGameInstanceSubsystem::StaticClass()))
 			{
+				Scope = TEXT("game instance");
 				if (UGameInstance* GI = World->GetGameInstance())
 				{
 					Found = GI->GetSubsystemBase(Cls);
 				}
 			}
-			else if (Cls->IsChildOf(UEngineSubsystem::StaticClass()) && GEngine)
+			else if (Cls->IsChildOf(ULocalPlayerSubsystem::StaticClass()))
 			{
-				Found = GEngine->GetEngineSubsystemBase(Cls);
+				Scope = FString::Printf(TEXT("local player %d"), PlayerIndex);
+				ULocalPlayer* LocalPlayer = nullptr;
+				if (APlayerController* PC = UGameplayStatics::GetPlayerController(World, PlayerIndex))
+				{
+					LocalPlayer = PC->GetLocalPlayer();
+				}
+				if (!LocalPlayer)
+				{
+					if (UGameInstance* GI = World->GetGameInstance())
+					{
+						LocalPlayer = GI->GetLocalPlayerByIndex(PlayerIndex);
+					}
+				}
+				if (!LocalPlayer)
+				{
+					OutError = FString::Printf(
+						TEXT("'%s' is a LocalPlayer subsystem and world %s has no local player at playerIndex %d. A dedicated server has none; pick a client with pieInstance."),
+						*SubsystemName, *World->GetName(), PlayerIndex);
+					return nullptr;
+				}
+				Found = LocalPlayer->GetSubsystemBase(Cls);
 			}
-			else if (GEditor)
+			else if (Cls->IsChildOf(UEngineSubsystem::StaticClass()))
 			{
-				Found = GEditor->GetEditorSubsystemBase(Cls);
+				Scope = TEXT("engine");
+				if (GEngine) Found = GEngine->GetEngineSubsystemBase(Cls);
+			}
+			else if (Cls->IsChildOf(UEditorSubsystem::StaticClass()))
+			{
+				Scope = TEXT("editor");
+				if (GEditor) Found = GEditor->GetEditorSubsystemBase(Cls);
+			}
+			else
+			{
+				OutError = FString::Printf(
+					TEXT("'%s' (%s) is not a world, game instance, local player, engine or editor subsystem class"),
+					*SubsystemName, *Cls->GetPathName());
+				return nullptr;
 			}
 			if (!Found)
 			{
-				OutError = FString::Printf(TEXT("Subsystem '%s' is not active in this context"), *SubsystemName);
+				OutError = FString::Printf(TEXT("Subsystem '%s' is not active in the %s scope of world %s"),
+					*SubsystemName, *Scope, *World->GetName());
 				return nullptr;
 			}
 			OutDescription = Found->GetPathName();
@@ -176,24 +403,110 @@ namespace
 	}
 
 	/**
-	 * #802: match a requested property name against a reflected one, accepting
-	 * the spelling the Details panel shows. A Blueprint variable declared as
-	 * WorldContextObject is displayed (and asked for) as "World Context Object",
-	 * and a bool bIsActive is displayed as "Is Active", so an exact-name filter
-	 * reports a property that plainly exists as missing.
+	 * #1203: read a struct from a zero-argument getter on Target, apply Patch to
+	 * its fields (dotted paths, structured JSON values) and return it in the
+	 * structured form an `args` entry takes.
 	 */
-	bool PropertyNameMatches(const FProperty* Prop, const FString& Requested)
+	TSharedPtr<FJsonValue> ReadPatchedStructFromGetter(UObject* Target, const FString& GetterName,
+		const TSharedPtr<FJsonObject>& Patch, const UScriptStruct* ExpectedStruct, FString& OutError)
 	{
-		if (!Prop) return false;
-		const FString Actual = Prop->GetName();
-		if (Actual.Equals(Requested, ESearchCase::IgnoreCase)) return true;
+		UFunction* Getter = Target->FindFunction(FName(*GetterName));
+		if (!Getter)
+		{
+			OutError = FString::Printf(TEXT("modify.getter '%s' not found on %s"), *GetterName, *Target->GetClass()->GetName());
+			return nullptr;
+		}
+		FStructProperty* ReturnProp = CastField<FStructProperty>(Getter->GetReturnProperty());
+		if (!ReturnProp)
+		{
+			OutError = FString::Printf(TEXT("modify.getter '%s' does not return a struct"), *GetterName);
+			return nullptr;
+		}
+		if (ExpectedStruct && ReturnProp->Struct != ExpectedStruct)
+		{
+			OutError = FString::Printf(TEXT("modify.getter '%s' returns %s but the argument takes %s"),
+				*GetterName, *ReturnProp->Struct->GetName(), *ExpectedStruct->GetName());
+			return nullptr;
+		}
+		for (TFieldIterator<FProperty> It(Getter); It && (It->PropertyFlags & CPF_Parm); ++It)
+		{
+			const bool bInput = !(It->PropertyFlags & CPF_ReturnParm)
+				&& (!(It->PropertyFlags & CPF_OutParm) || (It->PropertyFlags & CPF_ReferenceParm));
+			if (bInput)
+			{
+				OutError = FString::Printf(TEXT("modify.getter '%s' takes arguments; only a zero-argument getter can be read here"), *GetterName);
+				return nullptr;
+			}
+		}
 
-		const FString Squashed = Requested.Replace(TEXT(" "), TEXT(""));
-		if (Squashed.IsEmpty()) return false;
-		if (Actual.Equals(Squashed, ESearchCase::IgnoreCase)) return true;
-		// The display name of a bool drops the Unreal "b" prefix.
-		if (Prop->IsA<FBoolProperty>() && Actual.Equals(TEXT("b") + Squashed, ESearchCase::IgnoreCase)) return true;
-		return false;
+		TArray<uint8> Frame;
+		Frame.SetNumZeroed(Getter->ParmsSize);
+		for (TFieldIterator<FProperty> It(Getter); It && (It->PropertyFlags & CPF_Parm); ++It)
+		{
+			It->InitializeValue_InContainer(Frame.GetData());
+		}
+		bool bUsedEditorGuard = false;
+		MCPFunctionCall::ProcessEventInOwnContext(Target, Getter, Frame.GetData(), bUsedEditorGuard);
+
+		void* StructMemory = ReturnProp->ContainerPtrToValuePtr<void>(Frame.GetData());
+		TSharedPtr<FJsonValue> Out;
+		bool bPatched = true;
+		if (Patch.IsValid())
+		{
+			for (const auto& Entry : Patch->Values)
+			{
+				const FString Key(Entry.Key);
+				TArray<FString> Parts;
+				Key.ParseIntoArray(Parts, TEXT("."), true);
+				const UStruct* Owner = ReturnProp->Struct;
+				void* Container = StructMemory;
+				FProperty* Leaf = nullptr;
+				for (int32 Index = 0; Index < Parts.Num(); ++Index)
+				{
+					FProperty* Field = FindPropertyBySpelling(Owner, Parts[Index]);
+					if (!Field)
+					{
+						OutError = FString::Printf(TEXT("modify.patch '%s': no field '%s' on %s"), *Key, *Parts[Index], *Owner->GetName());
+						break;
+					}
+					if (Index == Parts.Num() - 1) { Leaf = Field; break; }
+					FStructProperty* Nested = CastField<FStructProperty>(Field);
+					if (!Nested)
+					{
+						OutError = FString::Printf(TEXT("modify.patch '%s': '%s' is not a struct"), *Key, *Parts[Index]);
+						break;
+					}
+					Container = Nested->ContainerPtrToValuePtr<void>(Container);
+					Owner = Nested->Struct;
+				}
+				FString SetError;
+				if (!Leaf || !MCPJsonProperty::SetJsonOnProperty(Leaf, Leaf->ContainerPtrToValuePtr<void>(Container), Entry.Value, SetError))
+				{
+					if (Leaf) OutError = FString::Printf(TEXT("modify.patch '%s': %s"), *Key, *SetError);
+					bPatched = false;
+					break;
+				}
+			}
+		}
+		if (bPatched) Out = FMCPJsonSerializer::SerializeValue(StructMemory, ReturnProp);
+		MCPFunctionCall::DestroyFrame(Getter, Frame.GetData());
+		return Out;
+	}
+
+	/** The root selected by objectPath or target, then propertyPath followed from it (#1215). */
+	UObject* ResolveRuntimeObject(
+		const TSharedPtr<FJsonObject>& Params,
+		UWorld* World,
+		FString& OutDescription,
+		FString& OutError)
+	{
+		const FString PropertyPath = OptionalString(Params, TEXT("propertyPath"));
+		UObject* Root = ResolveRuntimeRoot(Params, World, OutDescription, OutError);
+		if (!Root || PropertyPath.IsEmpty()) return Root;
+		UObject* Leaf = FollowObjectPropertyPath(Root, PropertyPath, OutError);
+		if (!Leaf) return nullptr;
+		OutDescription = Leaf->GetPathName();
+		return Leaf;
 	}
 
 	/**
@@ -277,14 +590,15 @@ namespace
 		// below to export out params.
 		FGCObjectScopeGuard TargetGuard(CallTarget);
 
-		// #973: read the callspace BEFORE the guard opens. That is the only
-		// moment it is observable: inside the guard
-		// GAllowActorScriptExecutionInEditor makes AActor::GetFunctionCallspace
-		// answer Local in its first branch, so a UFUNCTION(Server) runs its
-		// implementation on this copy instead of being sent.
+		// #1217: a target in a running PIE instance is called in that instance's
+		// context without the editor script guard, so an RPC routes the way game
+		// code on that instance would. The guard, which forces every actor
+		// callspace to Local (#973), is only opened for editor-world targets.
+		const bool bNeedsGuard = MCPFunctionCall::NeedsEditorScriptGuard(CallTarget);
 		FString NaturalCallspace;
-		const bool bCallspaceForcedLocal =
-			MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+		const bool bCallspaceForcedLocal = bNeedsGuard
+			&& MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+		if (!bNeedsGuard) NaturalCallspace = MCPFunctionCall::NetCallspaceOf(CallTarget, Func);
 
 		// The opt-in escape from that override: queued for the next engine tick,
 		// the send happens after the guard's scope has ended and the call routes
@@ -309,11 +623,16 @@ namespace
 
 		// #806: an actor whose world never initialised for play (every editor
 		// world) silently skips ProcessEvent unless the function is marked
-		// CallInEditor, leaving the zeroed frame to be exported as the result.
-		// The guard opens that gate for the duration of this call only.
+		// CallInEditor, so that case runs under the guard.
+		bool bUsedEditorGuard = false;
+		MCPFunctionCall::ProcessEventInOwnContext(CallTarget, Func, ParamBuf.GetData(), bUsedEditorGuard);
+		Result->SetStringField(TEXT("callContext"), bUsedEditorGuard ? TEXT("editorScriptGuard") : TEXT("playInstance"));
+		if (const UWorld* PlayWorld = MCPPlayWorldOf(CallTarget))
 		{
-			FEditorScriptExecutionGuard ScriptGuard;
-			CallTarget->ProcessEvent(Func, ParamBuf.GetData());
+			if (const FWorldContext* Ctx = GEngine ? GEngine->GetWorldContextFromWorld(PlayWorld) : nullptr)
+			{
+				Result->SetNumberField(TEXT("callPieInstance"), Ctx->PIEInstance);
+			}
 		}
 
 		if (bCallspaceForcedLocal)
@@ -322,6 +641,11 @@ namespace
 			Result->SetBoolField(TEXT("callspaceForcedLocal"), true);
 			Result->SetStringField(TEXT("warning"),
 				MCPFunctionCall::DescribeForcedLocalCallspace(FunctionName, NaturalCallspace));
+		}
+		else if (!NaturalCallspace.IsEmpty())
+		{
+			Result->SetStringField(TEXT("netCallspace"), NaturalCallspace);
+			Result->SetBoolField(TEXT("callspaceForcedLocal"), false);
 		}
 		// NOTE: UObject* out-params live in ParamBuf, which is raw bytes and
 		// invisible to GC. Guarding them after the fact cannot help - by then a
@@ -393,6 +717,8 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunction(const TSharedPtr<FJ
 	// target is resolved (#811).
 	TSharedPtr<FJsonObject> ArgsMap;
 	if (auto Err = MCPReadFunctionArgs(Params, TEXT("args"), ArgsMap)) return Err;
+	const TSharedPtr<FJsonObject>* ModifyObj = nullptr;
+	const bool bHasModify = TryGetObjectParam(Params, TEXT("modify"), ModifyObj) && ModifyObj && ModifyObj->IsValid();
 
 	UWorld* World = ResolveWorldFromParams(Params, TEXT("auto"));
 
@@ -400,7 +726,42 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunction(const TSharedPtr<FJ
 	UObject* Target = ResolveRuntimeObject(Params, World, Description, Error);
 	if (!Target) return MCPError(Error);
 
+	// #1203: read-modify-write of a struct argument in one call. The getter's
+	// struct is patched and handed to the setter as that argument.
+	FString ModifiedArgument;
+	if (bHasModify)
+	{
+		FString ArgumentName, GetterName;
+		(*ModifyObj)->TryGetStringField(TEXT("argument"), ArgumentName);
+		(*ModifyObj)->TryGetStringField(TEXT("getter"), GetterName);
+		const TSharedPtr<FJsonObject>* PatchObj = nullptr;
+		(*ModifyObj)->TryGetObjectField(TEXT("patch"), PatchObj);
+		if (ArgumentName.IsEmpty() || GetterName.IsEmpty())
+		{
+			return MCPError(TEXT("modify takes {argument, getter, patch}: the setter's struct argument, the zero-argument getter that returns it, and the fields to change"));
+		}
+		UFunction* Setter = Target->FindFunction(FName(*FunctionName));
+		FStructProperty* ArgProp = Setter ? CastField<FStructProperty>(Setter->FindPropertyByName(FName(*ArgumentName))) : nullptr;
+		if (!ArgProp)
+		{
+			return MCPError(FString::Printf(TEXT("modify.argument '%s' is not a struct parameter of '%s' on %s"),
+				*ArgumentName, *FunctionName, *Target->GetClass()->GetName()));
+		}
+		FString ModifyError;
+		TSharedPtr<FJsonValue> Patched = ReadPatchedStructFromGetter(
+			Target, GetterName, PatchObj ? *PatchObj : nullptr, ArgProp->Struct, ModifyError);
+		if (!Patched.IsValid()) return MCPError(ModifyError);
+		if (!ArgsMap.IsValid()) ArgsMap = MakeShared<FJsonObject>();
+		ArgsMap->SetField(ArgProp->GetName(), Patched);
+		ModifiedArgument = ArgProp->GetName();
+	}
+
 	auto Result = MCPSuccess();
+	if (!ModifiedArgument.IsEmpty())
+	{
+		Result->SetStringField(TEXT("modifiedArgument"), ModifiedArgument);
+		Result->SetField(TEXT("modifiedValue"), ArgsMap->TryGetField(ModifiedArgument));
+	}
 	Result->SetStringField(TEXT("objectPath"), Description);
 	Result->SetStringField(TEXT("objectClass"), Target->GetClass()->GetName());
 	if (World)
@@ -424,7 +785,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunction(const TSharedPtr<FJ
 	}
 	Result->SetStringField(TEXT("rollbackNote"), bPure
 		? TEXT("A pure or const function writes nothing, so there is nothing to undo.")
-		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
+		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
 
 	return CallFunctionWithJsonArgs(Target, FunctionName, Params, ArgsMap, Result);
 }
@@ -577,7 +938,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunctions(const TSharedPtr<F
 	// completedCalls says how far it got so a retry can resume.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("UFUNCTION calls have no known inverse, and the calls that completed before a failure stay applied. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional; otherwise resume from completedCalls rather than replaying from the start."));
+		TEXT("UFUNCTION calls have no known inverse, and the calls that completed before a failure stay applied. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional; otherwise resume from completedCalls rather than replaying from the start."));
 	return MCPResult(Result);
 }
 
@@ -587,14 +948,19 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunctions(const TSharedPtr<F
 TSharedPtr<FJsonValue> FEditorHandlers::GetObjectProperties(const TSharedPtr<FJsonObject>& Params)
 {
 	// Every parameter is read before the target is resolved (#1057).
+	// #1212: an entry with a dot or an index is a path into a struct or
+	// subobject, read on its own; plain names filter the top-level properties.
 	TArray<FString> Wanted;
+	TArray<FString> WantedPaths;
 	const TArray<TSharedPtr<FJsonValue>>* NameValues = nullptr;
 	if (TryGetArrayParam(Params, TEXT("propertyNames"), NameValues) && NameValues)
 	{
 		for (const TSharedPtr<FJsonValue>& V : *NameValues)
 		{
 			FString N;
-			if (V.IsValid() && V->TryGetString(N) && !N.IsEmpty()) Wanted.Add(N);
+			if (!V.IsValid() || !V->TryGetString(N) || N.IsEmpty()) continue;
+			if (N.Contains(TEXT(".")) || N.Contains(TEXT("["))) WantedPaths.Add(N);
+			else Wanted.Add(N);
 		}
 	}
 	// Bound the response. Exporting every reflected property of something like
@@ -627,7 +993,33 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetObjectProperties(const TSharedPtr<FJs
 	int32 Count = 0;
 	int32 Skipped = 0;
 	int32 TruncatedValues = 0;
-	for (TFieldIterator<FProperty> It(Target->GetClass(), EFieldIteratorFlags::IncludeSuper); It; ++It)
+	TSharedPtr<FJsonObject> PathErrors = MakeShared<FJsonObject>();
+	for (const FString& Path : WantedPaths)
+	{
+		FProperty* LeafProp = nullptr;
+		void* LeafAddr = nullptr;
+		UObject* LeafOwner = nullptr;
+		FString PathError;
+		if (!ResolveRuntimePropertyPath(Target, Path, LeafProp, LeafAddr, LeafOwner, PathError))
+		{
+			Missing.Add(MakeShared<FJsonValueString>(Path));
+			PathErrors->SetStringField(Path, PathError);
+			continue;
+		}
+		FString S;
+		LeafProp->ExportTextItem_Direct(S, LeafAddr, nullptr, LeafOwner ? LeafOwner : Target, PPF_None);
+		if (S.Len() > MaxValueChars)
+		{
+			S = S.Left(MaxValueChars) + FString::Printf(TEXT("... [truncated, %d chars]"), S.Len());
+			++TruncatedValues;
+		}
+		Props->SetStringField(Path, S);
+		StructuredValues->SetField(Path, FMCPJsonSerializer::SerializeValue(LeafAddr, LeafProp));
+		++Count;
+	}
+	// Only path entries were asked for: the top-level walk would match nothing.
+	const bool bWalkTopLevel = Wanted.Num() > 0 || WantedPaths.Num() == 0;
+	for (TFieldIterator<FProperty> It(Target->GetClass(), EFieldIteratorFlags::IncludeSuper); bWalkTopLevel && It; ++It)
 	{
 		FProperty* P = *It;
 		if (!P) continue;
@@ -701,6 +1093,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetObjectProperties(const TSharedPtr<FJs
 		Result->SetArrayField(TEXT("valuesOmitted"), OversizedValues);
 	}
 	Result->SetArrayField(TEXT("missingProperties"), Missing);
+	if (PathErrors->Values.Num() > 0)
+	{
+		Result->SetObjectField(TEXT("pathErrors"), PathErrors);
+	}
 	if (Skipped > 0)
 	{
 		Result->SetStringField(TEXT("note"), FString::Printf(
@@ -1451,47 +1847,6 @@ TSharedPtr<FJsonValue> FEditorHandlers::FindLiveObjects(const TSharedPtr<FJsonOb
 	return MCPResult(Result);
 }
 
-namespace
-{
-	/**
-	 * #802: rewrite the leading token of a dotted property path to the reflected
-	 * name when the caller used the Details-panel spelling. Only the leading
-	 * token needs it: that is the one an agent copies out of the editor UI, and
-	 * the rest of the path is typed against what this handler reports back.
-	 */
-	FString CanonicalizeLeadingToken(UStruct* Owner, const FString& PropertyPath)
-	{
-		if (!Owner) return PropertyPath;
-
-		FString Head = PropertyPath;
-		FString Tail;
-		int32 DotPos = INDEX_NONE;
-		if (PropertyPath.FindChar(TEXT('.'), DotPos))
-		{
-			Head = PropertyPath.Left(DotPos);
-			Tail = PropertyPath.RightChop(DotPos);
-		}
-
-		FString Bare = Head;
-		FString IndexSuffix;
-		int32 BracketPos = INDEX_NONE;
-		if (Bare.FindChar(TEXT('['), BracketPos))
-		{
-			IndexSuffix = Bare.RightChop(BracketPos);
-			Bare = Bare.Left(BracketPos);
-		}
-
-		if (Owner->FindPropertyByName(FName(*Bare))) return PropertyPath;
-		for (TFieldIterator<FProperty> It(Owner, EFieldIteratorFlags::IncludeSuper); It; ++It)
-		{
-			if (PropertyNameMatches(*It, Bare))
-			{
-				return It->GetName() + IndexSuffix + Tail;
-			}
-		}
-		return PropertyPath;
-	}
-}
 
 // #802: write a reflected property on a live UObject instance, with the same
 // targeting as invoke_object_function. editor(set_property) is the asset path:
@@ -1606,8 +1961,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetObjectProperty(const TSharedPtr<FJson
 	}
 
 	FString SetError;
-	if (!MCPJsonProperty::SetJsonOnProperty(Prop, ValueAddr, NewValue, SetError))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(Prop, ValueAddr, NewValue, ExportOwner, SetError))
 	{
+		// A refused write may have landed part of the value; put it back.
+		Prop->CopyCompleteValue(ValueAddr, PreviousRaw.GetObjAddress());
 		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *ResolvedName, *SetError));
 	}
 

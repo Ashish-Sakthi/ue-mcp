@@ -58,11 +58,11 @@ export const installActions: Record<string, ActionSpec> = {
     "list_available_plugins",
   ),
   enable_plugin: specBp("mutate", 
-    "Enable a plugin in the .uproject. Plugin enablement is neither a UPROPERTY nor an INI key, it is a JSON array in the .uproject read once at startup, so set_config cannot reach it and without this a plugin-gated capability stays permanently unreachable through the bridge. Idempotent: a plugin already enabled, or enabled by default with no entry, reports existed and writes nothing. The change is a file change, so modules, classes, content and settings appear only after editor(restart_editor), which the result says.",
+    "Enable a plugin in the .uproject. Plugin enablement is neither a UPROPERTY nor an INI key, it is a JSON array in the .uproject read once at startup, so set_config cannot reach it and without this a plugin-gated capability stays permanently unreachable through the bridge. Idempotent: a plugin already enabled, or enabled by default with no entry, reports existed and writes nothing. The change is a file change, so modules, classes, content and settings appear only after editor(restart_editor), which the result says. Only the plugin's entry in the on-disk .uproject Plugins array is patched; every other field, including a Modules edit made while the editor runs, is left as the file has it (#1248).",
     "enable_plugin",
   ),
   disable_plugin: specBp("mutate", 
-    "Disable a plugin in the .uproject. removeReference deletes the entry outright instead of writing an explicit disable, which is the difference between handing a default-on plugin back to its default and overriding it, and the two are not the same file. Idempotent against whichever of the two was asked for. Refuses to disable the bridge itself, since that would leave no way to undo it. Takes effect on the next editor start.",
+    "Disable a plugin in the .uproject. removeReference deletes the entry outright instead of writing an explicit disable, which is the difference between handing a default-on plugin back to its default and overriding it, and the two are not the same file. Idempotent against whichever of the two was asked for. Refuses to disable the bridge itself, since that would leave no way to undo it. Patches only that entry of the on-disk .uproject (#1248). Takes effect on the next editor start.",
     "disable_plugin",
   ),
   live_coding_compile: {

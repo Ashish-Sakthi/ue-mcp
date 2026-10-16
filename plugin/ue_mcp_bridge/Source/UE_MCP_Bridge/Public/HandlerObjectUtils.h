@@ -58,6 +58,86 @@ inline TSharedPtr<FJsonValue> MCPExportPropertyValue(const FProperty* Prop, cons
 	return MakeShared<FJsonValueArray>(Elements);
 }
 
+/** MCPExportPropertyValue that cuts a TArray, TSet or TMap over MaxElements to its first MaxElements
+ *  entries and any text over MaxChars, so one ISM's per-instance data cannot swell a read to hundreds
+ *  of megabytes (#1277). OutTotal is the container's entry count, -1 for anything else. */
+inline TSharedPtr<FJsonValue> MCPExportPropertyValueBounded(
+	const FProperty* Prop, const void* Container, int32 MaxElements, int32 MaxChars, int32& OutTotal, bool& bOutTruncated)
+{
+	OutTotal = -1;
+	bOutTruncated = false;
+	if (Prop && Container && Prop->ArrayDim <= 1)
+	{
+		const void* ValuePtr = Prop->ContainerPtrToValuePtr<void>(Container);
+		auto ExportElement = [](const FProperty* ElementProp, const void* ElementPtr)
+		{
+			FString Text;
+			ElementProp->ExportTextItem_Direct(Text, ElementPtr, nullptr, nullptr, PPF_None);
+			return Text;
+		};
+		TArray<TSharedPtr<FJsonValue>> Elements;
+		if (const FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop))
+		{
+			FScriptArrayHelper Helper(ArrayProp, ValuePtr);
+			OutTotal = Helper.Num();
+			if (OutTotal > MaxElements)
+			{
+				for (int32 Index = 0; Index < MaxElements; ++Index)
+				{
+					Elements.Add(MakeShared<FJsonValueString>(ExportElement(ArrayProp->Inner, Helper.GetRawPtr(Index))));
+				}
+			}
+		}
+		else if (const FSetProperty* SetProp = CastField<FSetProperty>(Prop))
+		{
+			FScriptSetHelper Helper(SetProp, ValuePtr);
+			OutTotal = Helper.Num();
+			for (int32 Index = 0; OutTotal > MaxElements && Index < Helper.GetMaxIndex() && Elements.Num() < MaxElements; ++Index)
+			{
+				if (!Helper.IsValidIndex(Index)) continue;
+				Elements.Add(MakeShared<FJsonValueString>(ExportElement(SetProp->ElementProp, Helper.GetElementPtr(Index))));
+			}
+		}
+		else if (const FMapProperty* MapProp = CastField<FMapProperty>(Prop))
+		{
+			FScriptMapHelper Helper(MapProp, ValuePtr);
+			OutTotal = Helper.Num();
+			for (int32 Index = 0; OutTotal > MaxElements && Index < Helper.GetMaxIndex() && Elements.Num() < MaxElements; ++Index)
+			{
+				if (!Helper.IsValidIndex(Index)) continue;
+				Elements.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("(%s, %s)"),
+					*ExportElement(MapProp->KeyProp, Helper.GetKeyPtr(Index)),
+					*ExportElement(MapProp->ValueProp, Helper.GetValuePtr(Index)))));
+			}
+		}
+		if (OutTotal > MaxElements)
+		{
+			bOutTruncated = true;
+			return MakeShared<FJsonValueArray>(Elements);
+		}
+	}
+
+	TSharedPtr<FJsonValue> Value = MCPExportPropertyValue(Prop, Container);
+	FString Text;
+	if (Value.IsValid() && Value->TryGetString(Text) && Text.Len() > MaxChars)
+	{
+		bOutTruncated = true;
+		return MakeShared<FJsonValueString>(Text.Left(MaxChars));
+	}
+	return Value;
+}
+
+/** Writes a property row's value with the bounds a level dump uses: 64 container entries, 16384 characters.
+ *  A cut value also carries truncated, and a container its full count. */
+inline void MCPSetBoundedPropertyValue(const TSharedPtr<FJsonObject>& Row, const FProperty* Prop, const void* Container)
+{
+	int32 Total = -1;
+	bool bTruncated = false;
+	Row->SetField(TEXT("value"), MCPExportPropertyValueBounded(Prop, Container, 64, 16384, Total, bTruncated));
+	if (Total >= 0) Row->SetNumberField(TEXT("count"), Total);
+	if (bTruncated) Row->SetBoolField(TEXT("truncated"), true);
+}
+
 /** True when a property is a C-style fixed array, so callers that must emit a
  *  scalar can say the value was truncated rather than silently truncating. */
 inline bool MCPPropertyIsFixedArray(const FProperty* Prop)

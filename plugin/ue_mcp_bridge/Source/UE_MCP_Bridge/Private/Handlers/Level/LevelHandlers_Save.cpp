@@ -309,6 +309,8 @@ TSharedPtr<FJsonValue> FLevelHandlers::SaveLevel(const TSharedPtr<FJsonObject>& 
 	TArray<TSharedPtr<FJsonValue>> Saved;
 	TArray<TSharedPtr<FJsonValue>> Failed;
 	TArray<TSharedPtr<FJsonValue>> Skipped;
+	TArray<TSharedPtr<FJsonValue>> Deleted;
+	MCPCommitEmptyExternalPackages(Packages, Deleted, Failed);
 	for (UPackage* Package : Packages)
 	{
 		bool bFailed = false;
@@ -330,15 +332,17 @@ TSharedPtr<FJsonValue> FLevelHandlers::SaveLevel(const TSharedPtr<FJsonObject>& 
 	Result->SetNumberField(TEXT("savedCount"), Saved.Num());
 	Result->SetNumberField(TEXT("failedCount"), Failed.Num());
 	Result->SetNumberField(TEXT("skippedCount"), Skipped.Num());
+	Result->SetNumberField(TEXT("deletedCount"), Deleted.Num());
 	Result->SetArrayField(TEXT("saved"), Saved);
+	if (Deleted.Num() > 0) Result->SetArrayField(TEXT("deleted"), Deleted);
 	if (Skipped.Num() > 0) Result->SetArrayField(TEXT("skipped"), Skipped);
 
 	// Stated before the failure branch, because a partial save has already
 	// overwritten the packages it did write.
-	if (Saved.Num() > 0)
+	if (Saved.Num() > 0 || Deleted.Num() > 0)
 	{
 		MCPSetNoRollback(Result,
-			TEXT("The level package, and every external actor package that was dirty, were overwritten on disk with the editor's in-memory state. ")
+			TEXT("The level package, and every external actor package that was dirty, were overwritten on disk with the editor's in-memory state, and the packages of deleted actors were removed from it. ")
 			TEXT("Undoing that needs the previous file contents back, and the bridge has no action that snapshots or restores a package file; source control is what holds the old revision."));
 	}
 
@@ -358,8 +362,8 @@ TSharedPtr<FJsonValue> FLevelHandlers::SaveLevel(const TSharedPtr<FJsonObject>& 
 	// Nothing failed. Say plainly whether anything needed writing, because
 	// "already saved" and "just saved" are both successes and only one of them
 	// means work was done.
-	Result->SetStringField(TEXT("message"), Saved.Num() > 0
-		? FString::Printf(TEXT("Saved %d package(s) for level '%s'"), Saved.Num(), *World->GetName())
+	Result->SetStringField(TEXT("message"), Saved.Num() + Deleted.Num() > 0
+		? FString::Printf(TEXT("Saved %d and deleted %d package(s) for level '%s'"), Saved.Num(), Deleted.Num(), *World->GetName())
 		: FString::Printf(TEXT("Level '%s' was already saved; nothing needed writing"), *World->GetName()));
 	return MCPResult(Result);
 }

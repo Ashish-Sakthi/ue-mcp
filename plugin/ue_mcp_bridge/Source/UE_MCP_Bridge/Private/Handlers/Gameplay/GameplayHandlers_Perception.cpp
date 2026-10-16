@@ -203,7 +203,7 @@ namespace
 		Obj->SetStringField(TEXT("error"), FString::Printf(
 			TEXT("%s '%s' has no AIPerceptionComponent. %s. In Unreal the component normally lives on ")
 			TEXT("the AAIController, not the Pawn, so name the controller directly if the pawn is not ")
-			TEXT("possessed yet. gameplay(add_perception_component) puts one on a Blueprint, and ")
+			TEXT("possessed yet. gameplay(add_perception) puts one on a Blueprint, and ")
 			TEXT("gameplay(read_perception) reports what a Blueprint or a live actor currently has."),
 			Role, Actor ? *Actor->GetActorLabel() : TEXT("(null)"), *Where));
 		if (Actor)

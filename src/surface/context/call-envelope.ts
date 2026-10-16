@@ -26,6 +26,7 @@ import { McpError as SdkMcpError, ErrorCode as SdkErrorCode } from "@modelcontex
 import { EDITOR_TARGET_PARAM, MIGRATE_TARGET_PARAM, ROUTING_PARAM_NAMES } from "../routing-params.js";
 import type { ToolDef } from "../../core/types.js";
 import { McpError, ErrorCode } from "../../core/errors.js";
+import { actionAccepts, undeclaredMessage } from "../action-schema.js";
 
 /** The key a category call nests its action's parameters under. */
 export const ARGS_KEY = "args";
@@ -115,9 +116,61 @@ export function flatValidationMessage(tool: ToolDef, flat: Record<string, unknow
   // nested fields it exists to refuse. The bag goes on untouched and prepareCall holds it to the contract.
   const named = typeof flat.action === "string" && Object.hasOwn(tool.actions, flat.action) ? tool.actions[flat.action] : undefined;
   if (named?.strictParams && named.paramSpec) return { data: flat };
+  // A key outside the shape would be stripped here before the per-action check
+  // could refuse it, so it is refused now (#1336).
+  const accepts = named ? actionAccepts(named) : undefined;
+  if (accepts) {
+    const stray = Object.keys(flat).filter((k) => flat[k] !== undefined && !(k in tool.schema) && !accepts.keys.has(k) && !ROUTING.has(k));
+    if (stray.length > 0) {
+      return { message: undeclaredMessage(flat.action as string, stray, accepts) };
+    }
+  }
   const parsed = sdkSafeParse(flatObject(tool.schema) as never, flat) as { success: boolean; data?: unknown; error?: unknown };
   if (parsed.success) return { data: parsed.data as Record<string, unknown> };
   return { message: `Input validation error: Invalid arguments for tool ${tool.name}: ${getParseErrorMessage(parsed.error)}` };
+}
+
+/** "object" or "array" when a schema only takes that structured shape, else null. A schema that also takes a string, or any value, is left alone. */
+function structuredShape(schema: z.ZodTypeAny | undefined, depth = 0): "object" | "array" | null {
+  if (!schema || depth > 8) return null;
+  if (schema instanceof z.ZodOptional || schema instanceof z.ZodNullable) return structuredShape(schema.unwrap(), depth + 1);
+  if (schema instanceof z.ZodDefault) return structuredShape(schema._def.innerType, depth + 1);
+  if (schema instanceof z.ZodEffects) return structuredShape(schema.innerType(), depth + 1);
+  if (schema instanceof z.ZodObject || schema instanceof z.ZodRecord) return "object";
+  if (schema instanceof z.ZodArray || schema instanceof z.ZodTuple) return "array";
+  if (schema instanceof z.ZodUnion) {
+    const shapes = (schema.options as z.ZodTypeAny[]).map((o) => structuredShape(o, depth + 1));
+    return shapes.every((x) => x === shapes[0]) ? shapes[0] : null;
+  }
+  return null;
+}
+
+/**
+ * Some clients send an object or array argument JSON-encoded as a string
+ * (#1370: place_actor's location arrived as "{\"x\":0,...}"). Where the
+ * declared shape only takes an object or array and the string parses to one,
+ * the parsed value is used. Anything else is left for validation to refuse.
+ */
+export function coerceJsonStringArgs(tool: ToolDef, flat: Record<string, unknown>): Record<string, unknown> {
+  let out: Record<string, unknown> | undefined;
+  for (const [key, value] of Object.entries(flat)) {
+    if (typeof value !== "string") continue;
+    const shape = structuredShape(tool.schema[key] as z.ZodTypeAny | undefined);
+    if (!shape) continue;
+    const trimmed = value.trim();
+    if (!(shape === "object" ? trimmed.startsWith("{") : trimmed.startsWith("["))) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      continue;
+    }
+    const matches = shape === "array" ? Array.isArray(parsed) : isPlainObject(parsed);
+    if (!matches) continue;
+    out ??= { ...flat };
+    out[key] = parsed;
+  }
+  return out ?? flat;
 }
 
 /**
@@ -127,7 +180,7 @@ export function flatValidationMessage(tool: ToolDef, flat: Record<string, unknow
  * its InvalidParams code. Returns the parsed bag.
  */
 export function validateCategoryParams(tool: ToolDef, flat: Record<string, unknown>): Record<string, unknown> {
-  const result = flatValidationMessage(tool, flat);
+  const result = flatValidationMessage(tool, coerceJsonStringArgs(tool, flat));
   if (result.message !== undefined) throw new SdkMcpError(SdkErrorCode.InvalidParams, result.message);
   return result.data!;
 }

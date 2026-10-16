@@ -140,6 +140,67 @@ namespace UEMCPEpic
 		return FJsonSerializer::Deserialize(Reader, Out) && Out.Num() >= 0;
 	}
 
+	// Tools whose whole effect lands on one object the input names, so a success that changed nothing is observable.
+	static const TCHAR* VerifiedTargetField(const FString& ToolName)
+	{
+		return ToolName == TEXT("UpdateNode") ? TEXT("node") : nullptr;
+	}
+
+	/** The object Input[Field] names, as a path string or a {refPath} object; null when it does not resolve. */
+	static UObject* ResolveInputTarget(const FString& Input, const TCHAR* Field)
+	{
+		TSharedPtr<FJsonObject> Obj;
+		TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Input);
+		if (!Field || !FJsonSerializer::Deserialize(Reader, Obj) || !Obj.IsValid()) return nullptr;
+		FString Path;
+		const TSharedPtr<FJsonObject>* Ref = nullptr;
+		if (!Obj->TryGetStringField(Field, Path) && Obj->TryGetObjectField(Field, Ref) && Ref) (*Ref)->TryGetStringField(TEXT("refPath"), Path);
+		if (Path.IsEmpty()) return nullptr;
+		if (UObject* Found = StaticFindObject(UObject::StaticClass(), nullptr, *Path)) return Found;
+		// "/Game/Dir/Graph:Node" names the asset by package only.
+		int32 Colon = INDEX_NONE;
+		if (Path.FindChar(TEXT(':'), Colon) && !Path.Left(Colon).Contains(TEXT(".")))
+		{
+			const FString Package = Path.Left(Colon);
+			const FString Expanded = Package + TEXT(".") + FPackageName::GetShortName(Package) + Path.Mid(Colon);
+			return StaticFindObject(UObject::StaticClass(), nullptr, *Expanded);
+		}
+		return nullptr;
+	}
+
+	/** Every property of Target, the objects it owns, and same-package objects it points at, as export text. */
+	static FString Fingerprint(UObject* Target)
+	{
+		TArray<UObject*> Objects;
+		Objects.Add(Target);
+		for (TFieldIterator<FObjectPropertyBase> It(Target->GetClass()); It; ++It)
+		{
+			UObject* Ref = It->GetObjectPropertyValue_InContainer(Target);
+			if (Ref && Ref->GetOutermost() == Target->GetOutermost() && !Ref->IsIn(Target)) Objects.AddUnique(Ref);
+		}
+		const int32 Roots = Objects.Num();
+		for (int32 i = 0; i < Roots; ++i)
+		{
+			TArray<UObject*> Inner;
+			MCPGetNestedSubobjects(Objects[i], Inner);
+			for (UObject* Obj : Inner) Objects.AddUnique(Obj);
+		}
+		Objects.Sort([](const UObject& A, const UObject& B) { return A.GetPathName() < B.GetPathName(); });
+		FString Out;
+		for (UObject* Obj : Objects)
+		{
+			Out += Obj->GetPathName() + TEXT("|") + Obj->GetClass()->GetName() + TEXT("\n");
+			for (TFieldIterator<FProperty> It(Obj->GetClass()); It; ++It)
+			{
+				if (It->HasAnyPropertyFlags(CPF_Transient)) continue;
+				FString Text;
+				It->ExportTextItem_InContainer(Text, Obj, nullptr, Obj, PPF_None);
+				Out += It->GetName() + TEXT("=") + Text + TEXT("\n");
+			}
+		}
+		return Out;
+	}
+
 	static const FString UnavailableMsg =
 		TEXT("Epic ToolsetRegistry not available. Requires UE 5.8+ with the ToolsetRegistry plugin enabled in the project.");
 }
@@ -316,6 +377,10 @@ TSharedPtr<FJsonValue> FEpicHandlers::CallTool(const TSharedPtr<FJsonObject>& Pa
 		ToolName = ToolName.RightChop(Prefix.Len());
 	}
 
+	// A tool that reports success while its target is unchanged applied nothing (#1318).
+	UObject* VerifiedTarget = UEMCPEpic::ResolveInputTarget(Input, UEMCPEpic::VerifiedTargetField(ToolName));
+	const FString Before = VerifiedTarget ? UEMCPEpic::Fingerprint(VerifiedTarget) : FString();
+
 	UObject* Result = UEMCPEpic::ExecuteTool(Toolset, ToolName, Input);
 	if (!Result)
 	{
@@ -352,9 +417,21 @@ TSharedPtr<FJsonValue> FEpicHandlers::CallTool(const TSharedPtr<FJsonObject>& Pa
 		Value = P->GetPropertyValue_InContainer(Result);
 	}
 
+	const bool bTargetUnchanged = IsValid(VerifiedTarget) && UEMCPEpic::Fingerprint(VerifiedTarget) == Before;
 	TSharedPtr<FJsonObject> Res = MCPSuccess();
+	if (bTargetUnchanged)
+	{
+		const bool bPCGNode = VerifiedTarget->GetClass()->GetName() == TEXT("PCGNode");
+		Res = MCPErrorObject(FString::Printf(
+			TEXT("Tool '%s' reported success, but '%s' is unchanged: nothing was applied, or every value already matched.%s"),
+			*Tool, *VerifiedTarget->GetPathName(),
+			bPCGNode ? TEXT(" For PCG node settings use pcg(set_node_settings); for a graph's input or output pins use pcg(set_graph_pins).") : TEXT("")));
+		Res->SetStringField(TEXT("reason"), TEXT("no_change"));
+		Res->SetStringField(TEXT("target"), VerifiedTarget->GetPathName());
+	}
 	Res->SetStringField(TEXT("toolset"), Toolset);
 	Res->SetStringField(TEXT("tool"), Tool);
+	if (VerifiedTarget) Res->SetBoolField(TEXT("targetChanged"), !bTargetUnchanged);
 
 	if (!Value.IsEmpty())
 	{
@@ -390,6 +467,12 @@ TSharedPtr<FJsonValue> FEpicHandlers::CallTool(const TSharedPtr<FJsonObject>& Pa
 	// work to do, or found its target already in the requested state, is
 	// decided inside the tool and is not part of what it returns. A flag
 	// invented here would be a claim about somebody else's code.
+	if (VerifiedTarget)
+	{
+		Res->SetBoolField(TEXT("idempotencyObservable"), true);
+		Res->SetStringField(TEXT("idempotencyNote"), TEXT("The target the input names was compared before and after the call; targetChanged reports the outcome."));
+		return MCPResult(Res);
+	}
 	Res->SetBoolField(TEXT("idempotencyObservable"), false);
 	Res->SetStringField(TEXT("idempotencyNote"), FString::Printf(
 		TEXT("'%s.%s' decides whether it changed anything, and the toolset API returns its result value without "

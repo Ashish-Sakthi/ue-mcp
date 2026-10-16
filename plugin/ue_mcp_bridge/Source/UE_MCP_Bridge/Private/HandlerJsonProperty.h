@@ -17,6 +17,7 @@
 #include "GameplayTagsManager.h"
 #include "Engine/Blueprint.h"
 #include "HandlerPropertyText.h"
+#include "HandlerClassResolve.h"
 
 // Shared recursive JSON→FProperty setter. Originally written for PCG
 // set_pcg_node_settings (#149); also used by set_component_property on
@@ -27,6 +28,111 @@
 namespace MCPJsonProperty
 {
 	inline bool SetJsonOnProperty(FProperty* Prop, void* ValueAddr, const TSharedPtr<FJsonValue>& InValue, FString& OutError);
+
+	// The object that owns the value being written, for the one write that
+	// needs it: creating an instanced subobject, which must be outered to it.
+	// Set by SetJsonOnPropertyWithOwner; null for every other caller.
+	inline UObject*& CurrentWriteOwner()
+	{
+		static thread_local UObject* Owner = nullptr;
+		return Owner;
+	}
+
+	struct FWriteOwnerScope
+	{
+		UObject* Previous;
+		explicit FWriteOwnerScope(UObject* Owner) : Previous(CurrentWriteOwner()) { CurrentWriteOwner() = Owner; }
+		~FWriteOwnerScope() { CurrentWriteOwner() = Previous; }
+	};
+
+	/** SetJsonOnProperty for a value Owner holds, so an Instanced or
+	 *  EditInlineNew property can take {instanceClass, properties}. */
+	inline bool SetJsonOnPropertyWithOwner(FProperty* Prop, void* ValueAddr, const TSharedPtr<FJsonValue>& InValue, UObject* Owner, FString& OutError)
+	{
+		FWriteOwnerScope Scope(Owner);
+		return SetJsonOnProperty(Prop, ValueAddr, InValue, OutError);
+	}
+
+	/** A struct or class member by its name, its display name (UserDefinedStruct
+	 *  members), or the Python spelling: snake_case, and a bool without its b
+	 *  prefix (display_name, in_cycle). Exact matches win. */
+	inline FProperty* FindMemberProperty(const UStruct* Struct, const FString& Name)
+	{
+		if (!Struct) return nullptr;
+		if (FProperty* Exact = Struct->FindPropertyByName(FName(*Name))) return Exact;
+		auto Fold = [](const FString& In) { return In.Replace(TEXT("_"), TEXT("")).ToLower(); };
+		const FString Wanted = Fold(Name);
+		FProperty* Loose = nullptr;
+		for (TFieldIterator<FProperty> It(Struct); It; ++It)
+		{
+			if (It->GetAuthoredName().Equals(Name, ESearchCase::IgnoreCase)) return *It;
+			if (Loose) continue;
+			const FString Authored = Fold(It->GetAuthoredName());
+			const bool bBool = It->IsA<FBoolProperty>();
+			if (Authored == Wanted || (bBool && Authored == TEXT("b") + Wanted)) Loose = *It;
+		}
+		return Loose;
+	}
+
+	// {instanceClass, properties} on an Instanced / EditInlineNew object
+	// property: a new object of that class outered to the owning object, its
+	// fields set from properties, then assigned.
+	inline bool SetInstancedSubobject(FObjectProperty* ObjProp, void* ValueAddr, const TSharedPtr<FJsonObject>& Spec, FString& OutError)
+	{
+		UClass* Base = ObjProp->PropertyClass;
+		const bool bInstanced = ObjProp->HasAnyPropertyFlags(CPF_InstancedReference | CPF_PersistentInstance)
+			|| (Base && Base->HasAnyClassFlags(CLASS_EditInlineNew));
+		if (!bInstanced)
+		{
+			OutError = FString::Printf(TEXT("'%s' is not an Instanced or EditInlineNew property; pass an object path instead of instanceClass"), *ObjProp->GetName());
+			return false;
+		}
+		UObject* Outer = CurrentWriteOwner();
+		if (!Outer)
+		{
+			OutError = FString::Printf(TEXT("'%s': this action does not know the owning object, so it cannot create an instanced subobject here"), *ObjProp->GetName());
+			return false;
+		}
+
+		const FString ClassName = Spec->GetStringField(TEXT("instanceClass"));
+		UClass* Cls = MCPResolveClassOfType(ClassName, Base ? Base : UObject::StaticClass());
+		if (!Cls)
+		{
+			OutError = FString::Printf(TEXT("instanceClass '%s' does not resolve to a subclass of %s"), *ClassName, Base ? *Base->GetName() : TEXT("Object"));
+			return false;
+		}
+		if (Cls->HasAnyClassFlags(CLASS_Abstract | CLASS_Deprecated | CLASS_NewerVersionExists))
+		{
+			OutError = FString::Printf(TEXT("instanceClass '%s' is abstract or deprecated"), *Cls->GetName());
+			return false;
+		}
+
+		UObject* NewObj = NewObject<UObject>(Outer, Cls, NAME_None, Outer->GetMaskedFlags(RF_PropagateToSubObjects) | RF_Transactional);
+		const TSharedPtr<FJsonObject>* Fields = nullptr;
+		if (Spec->TryGetObjectField(TEXT("properties"), Fields) && Fields)
+		{
+			FWriteOwnerScope Scope(NewObj);
+			for (const auto& Pair : (*Fields)->Values)
+			{
+				FProperty* Field = FindMemberProperty(Cls, FString(*Pair.Key));
+				FString E;
+				if (!Field)
+				{
+					E = FString::Printf(TEXT("%s has no property '%s'"), *Cls->GetName(), *Pair.Key);
+				}
+				else if (SetJsonOnProperty(Field, Field->ContainerPtrToValuePtr<void>(NewObj), Pair.Value, E))
+				{
+					continue;
+				}
+				NewObj->MarkAsGarbage();
+				OutError = FString::Printf(TEXT("%s.%s: %s"), *ObjProp->GetName(), *Pair.Key, *E);
+				return false;
+			}
+		}
+
+		ObjProp->SetObjectPropertyValue(ValueAddr, NewObj);
+		return true;
+	}
 
 	// The reference-property kinds, as one closed answer per property.
 	//
@@ -405,8 +511,15 @@ namespace MCPJsonProperty
 			{
 				for (const auto& Pair : (*SubObj)->Values)
 				{
-					FProperty* SubProp = StructProp->Struct->FindPropertyByName(FName(*Pair.Key));
-					if (!SubProp) { OutError = FString::Printf(TEXT("struct field '%s' not found"), *Pair.Key); return false; }
+					FProperty* SubProp = FindMemberProperty(StructProp->Struct, FString(*Pair.Key));
+					if (!SubProp)
+					{
+						TArray<FString> Fields;
+						for (TFieldIterator<FProperty> It(StructProp->Struct); It; ++It) Fields.Add(It->GetAuthoredName());
+						OutError = FString::Printf(TEXT("struct %s has no field '%s'. Fields: [%s]"),
+							*StructProp->Struct->GetName(), *Pair.Key, *FString::Join(Fields, TEXT(", ")));
+						return false;
+					}
 					void* SubAddr = SubProp->ContainerPtrToValuePtr<void>(ValueAddr);
 					FString E;
 					if (!SetJsonOnProperty(SubProp, SubAddr, Pair.Value, E))
@@ -415,6 +528,23 @@ namespace MCPJsonProperty
 					}
 				}
 				return true;
+			}
+		}
+
+		// {instanceClass, properties} creates an instanced subobject (#1292).
+		if (ClassifyReference(Prop) == ERefKind::Object)
+		{
+			TSharedPtr<FJsonValue> InstValue = Value;
+			if (InstValue->Type == EJson::String && InstValue->AsString().TrimStart().StartsWith(TEXT("{")))
+			{
+				TSharedPtr<FJsonValue> Reparsed;
+				const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(InstValue->AsString());
+				if (FJsonSerializer::Deserialize(Reader, Reparsed) && Reparsed.IsValid()) InstValue = Reparsed;
+			}
+			const TSharedPtr<FJsonObject>* InstSpec = nullptr;
+			if (InstValue->TryGetObject(InstSpec) && InstSpec && (*InstSpec)->HasField(TEXT("instanceClass")))
+			{
+				return SetInstancedSubobject(CastFieldChecked<FObjectProperty>(Prop), ValueAddr, *InstSpec, OutError);
 			}
 		}
 
@@ -737,7 +867,14 @@ namespace MCPJsonProperty
 		if (Value->TryGetString(Str)) {}
 		else if (Value->Type == EJson::Number) Str = FString::SanitizeFloat(Value->AsNumber());
 		else if (Value->Type == EJson::Boolean) Str = Value->AsBool() ? TEXT("true") : TEXT("false");
-		else Str = Value->AsString();
+		else if (Value->Type == EJson::Null) Str.Reset();
+		else
+		{
+			// An array or object has no text form here; AsString would log a JSON type error and import "".
+			OutError = FString::Printf(TEXT("%s takes a %s value, not a JSON %s"), *Prop->GetName(), *Prop->GetCPPType(),
+				Value->Type == EJson::Array ? TEXT("array") : TEXT("object"));
+			return false;
+		}
 
 		return MCPPropertyText::ImportTextIntoProperty(Prop, ValueAddr, Str, nullptr, OutError);
 	}
@@ -1406,7 +1543,7 @@ namespace MCPJsonProperty
 			const FString& Token = Seg.Name;
 			const FString& PathToken = Parts[i];
 
-			FProperty* Prop = ContainerStruct->FindPropertyByName(FName(*Token));
+			FProperty* Prop = FindMemberProperty(ContainerStruct, Token);
 			if (!Prop) { OutError = FString::Printf(TEXT("property '%s' not found at '%s'"), *Token, *DottedName); return false; }
 			void* ValueAddr = Prop->ContainerPtrToValuePtr<void>(Container);
 
@@ -1514,6 +1651,6 @@ namespace MCPJsonProperty
 		void* ValueAddr = nullptr;
 		UObject* LeafOwner = nullptr;
 		if (!ResolveDottedPath(Owner, DottedName, Prop, ValueAddr, LeafOwner, OutError)) return false;
-		return SetJsonOnProperty(Prop, ValueAddr, Value, OutError);
+		return SetJsonOnPropertyWithOwner(Prop, ValueAddr, Value, LeafOwner ? LeafOwner : Owner, OutError);
 	}
 }
