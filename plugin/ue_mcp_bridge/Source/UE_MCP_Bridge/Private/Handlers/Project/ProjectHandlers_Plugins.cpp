@@ -37,6 +37,11 @@
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
 #include "Misc/Paths.h"
+#include "Misc/FileHelper.h"
+#include "HAL/FileManager.h"
+#include "Serialization/JsonReader.h"
+#include "Serialization/JsonSerializer.h"
+#include "Policies/PrettyJsonPrintPolicy.h"
 #include "Internationalization/Text.h"
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -120,19 +125,76 @@ static const FProjectDescriptor* PPlug_Project()
 }
 
 /**
+ * The `.uproject` as it is on disk, parsed. The file is the authority: the
+ * editor's loaded descriptor is a startup copy, and writing it back reverted
+ * edits made to the file since (#1248).
+ */
+static TSharedPtr<FJsonObject> PPlug_ReadProjectFile(FString& OutError)
+{
+	const FString Path = FPaths::GetProjectFilePath();
+	FString Text;
+	if (Path.IsEmpty() || !FFileHelper::LoadFileToString(Text, *Path))
+	{
+		OutError = FString::Printf(TEXT("could not read '%s'"), *Path);
+		return nullptr;
+	}
+	TSharedPtr<FJsonObject> Root;
+	const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(Text);
+	if (!FJsonSerializer::Deserialize(Reader, Root) || !Root.IsValid())
+	{
+		OutError = FString::Printf(TEXT("'%s' is not valid JSON"), *Path);
+		return nullptr;
+	}
+	return Root;
+}
+
+/** Index of a plugin's entry in the file's Plugins array, or INDEX_NONE. */
+static int32 PPlug_FindFileReference(const TSharedPtr<FJsonObject>& Root, const FString& Name, bool* bOutEnabled = nullptr)
+{
+	const TArray<TSharedPtr<FJsonValue>>* Plugins = nullptr;
+	if (!Root.IsValid() || !Root->TryGetArrayField(TEXT("Plugins"), Plugins) || !Plugins)
+	{
+		return INDEX_NONE;
+	}
+	for (int32 Index = 0; Index < Plugins->Num(); ++Index)
+	{
+		const TSharedPtr<FJsonObject>* Entry = nullptr;
+		FString EntryName;
+		if ((*Plugins)[Index].IsValid() && (*Plugins)[Index]->TryGetObject(Entry) && Entry
+			&& (*Entry)->TryGetStringField(TEXT("Name"), EntryName)
+			&& EntryName.Equals(Name, ESearchCase::IgnoreCase))
+		{
+			if (bOutEnabled)
+			{
+				bool bEnabled = false;
+				(*Entry)->TryGetBoolField(TEXT("Enabled"), bEnabled);
+				*bOutEnabled = bEnabled;
+			}
+			return Index;
+		}
+	}
+	return INDEX_NONE;
+}
+
+/**
  * The `.uproject` entry for a plugin, as it stands right now.
  *
  * bOutPresent separates "there is an explicit entry" from "the entry says
- * enabled", because those are two different states and the inverse of a write
- * depends on which one it started in. A plugin that is on by DEFAULT has no
- * entry at all, and adding an explicit enabled entry for it is a file change
- * with no behavioural change, which is exactly the case idempotency has to
- * report rather than perform.
+ * enabled", because the inverse of a write depends on which one it started
+ * in. Read from the file, falling back to the loaded descriptor only when the
+ * file cannot be read.
  */
-static void PPlug_ReadReference(const FString& Name, bool& bOutPresent, bool& bOutEnabled)
+static void PPlug_ReadReference(const FString& Name, bool& bOutPresent, bool& bOutEnabled, const TSharedPtr<FJsonObject>& FileRoot = nullptr)
 {
 	bOutPresent = false;
 	bOutEnabled = false;
+	FString ReadError;
+	const TSharedPtr<FJsonObject> Root = FileRoot.IsValid() ? FileRoot : PPlug_ReadProjectFile(ReadError);
+	if (Root.IsValid())
+	{
+		bOutPresent = PPlug_FindFileReference(Root, Name, &bOutEnabled) != INDEX_NONE;
+		return;
+	}
 	const FProjectDescriptor* Descriptor = PPlug_Project();
 	if (!Descriptor) return;
 	const int32 Index = Descriptor->FindPluginReferenceIndex(Name);
@@ -142,13 +204,13 @@ static void PPlug_ReadReference(const FString& Name, bool& bOutPresent, bool& bO
 }
 
 /** Everything a caller needs about one plugin, in one object. */
-static TSharedPtr<FJsonObject> PPlug_Describe(const TSharedRef<IPlugin>& Plugin)
+static TSharedPtr<FJsonObject> PPlug_Describe(const TSharedRef<IPlugin>& Plugin, const TSharedPtr<FJsonObject>& FileRoot)
 {
 	const FPluginDescriptor& Descriptor = Plugin->GetDescriptor();
 
 	bool bPresent = false;
 	bool bRefEnabled = false;
-	PPlug_ReadReference(Plugin->GetName(), bPresent, bRefEnabled);
+	PPlug_ReadReference(Plugin->GetName(), bPresent, bRefEnabled, FileRoot);
 
 	TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
 	Obj->SetStringField(TEXT("name"), Plugin->GetName());
@@ -184,25 +246,85 @@ static TSharedPtr<FJsonObject> PPlug_Describe(const TSharedRef<IPlugin>& Plugin)
 	return Obj;
 }
 
-/**
- * Write the descriptor back to the `.uproject`.
- *
- * Returns an error value when the write fails, and that error says the
- * in-memory descriptor is now ahead of the file, because a caller who reads
- * "failed" and assumes nothing happened would be wrong.
- */
-static TSharedPtr<FJsonValue> PPlug_Save(const FString& What)
+/** What a plugin write does to the file's Plugins array. */
+enum class EPPlugEdit : uint8
 {
-	FText FailReason;
-	if (IProjectManager::Get().SaveCurrentProjectToDisk(FailReason))
+	Enable,
+	Disable,
+	Remove,
+};
+
+/**
+ * Patch the plugin's entry in the `.uproject` on disk, read-modify-write, and
+ * nothing else in the file (#1248). The loaded descriptor is then brought in
+ * line without being saved, so this session agrees with the file.
+ *
+ * Returns an error value when the write fails, naming the file and why.
+ */
+static TSharedPtr<FJsonValue> PPlug_Save(const FString& PluginName, EPPlugEdit Edit, const FString& What)
+{
+	const FString Path = FPaths::GetProjectFilePath();
+	FString ReadError;
+	const TSharedPtr<FJsonObject> Root = PPlug_ReadProjectFile(ReadError);
+	if (!Root.IsValid())
 	{
-		return nullptr;
+		return MCPError(FString::Printf(
+			TEXT("%s was not applied: %s, and the .uproject is only ever patched from what is on disk."),
+			*What, *ReadError));
 	}
-	return MCPError(FString::Printf(
-		TEXT("%s was applied to the loaded project descriptor but the .uproject could not be written: %s. ")
-		TEXT("The file is unchanged and the in-memory change is lost when the editor exits. Check the file ")
-		TEXT("is not read-only or checked out elsewhere, then call the action again."),
-		*What, *FailReason.ToString()));
+
+	TArray<TSharedPtr<FJsonValue>> Plugins;
+	const TArray<TSharedPtr<FJsonValue>>* Existing = nullptr;
+	if (Root->TryGetArrayField(TEXT("Plugins"), Existing) && Existing)
+	{
+		Plugins = *Existing;
+	}
+	const int32 Index = PPlug_FindFileReference(Root, PluginName);
+	if (Edit == EPPlugEdit::Remove)
+	{
+		if (Index != INDEX_NONE)
+		{
+			Plugins.RemoveAt(Index);
+		}
+	}
+	else if (Index != INDEX_NONE)
+	{
+		// Only Enabled changes; Optional, allow lists and the rest stay as written.
+		Plugins[Index]->AsObject()->SetBoolField(TEXT("Enabled"), Edit == EPPlugEdit::Enable);
+	}
+	else
+	{
+		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+		Entry->SetStringField(TEXT("Name"), PluginName);
+		Entry->SetBoolField(TEXT("Enabled"), Edit == EPPlugEdit::Enable);
+		Plugins.Add(MakeShared<FJsonValueObject>(Entry));
+	}
+	Root->SetArrayField(TEXT("Plugins"), Plugins);
+
+	FString Text;
+	const TSharedRef<TJsonWriter<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>> Writer =
+		TJsonWriterFactory<TCHAR, TPrettyJsonPrintPolicy<TCHAR>>::Create(&Text);
+	if (!FJsonSerializer::Serialize(Root.ToSharedRef(), Writer) || !FFileHelper::SaveStringToFile(Text, *Path))
+	{
+		const bool bReadOnly = IFileManager::Get().IsReadOnly(*Path);
+		return MCPError(FString::Printf(
+			TEXT("%s was not applied: '%s' could not be written%s. The file is unchanged. Check it is not read-only ")
+			TEXT("or checked out elsewhere, then call the action again."),
+			*What, *Path, bReadOnly ? TEXT(" (it is read-only)") : TEXT("")));
+	}
+
+	// Keep this session's descriptor in step without saving it, so nothing the
+	// editor writes later reverts the file to its startup copy of the entry.
+	FText Ignored;
+	if (Edit == EPPlugEdit::Remove)
+	{
+		IProjectManager::Get().RemovePluginReference(PluginName, Ignored);
+	}
+	else
+	{
+		IProjectManager::Get().SetPluginEnabled(PluginName, Edit == EPPlugEdit::Enable, Ignored);
+	}
+	return nullptr;
 }
 
 } // namespace MCPProjectPlugins
@@ -243,6 +365,10 @@ TSharedPtr<FJsonValue> FProjectHandlers::ListAvailablePlugins(const TSharedPtr<F
 		return A->GetName() < B->GetName();
 	});
 
+	// Parsed once for the whole listing rather than once per plugin.
+	FString ReadError;
+	const TSharedPtr<FJsonObject> FileRoot = PPlug_ReadProjectFile(ReadError);
+
 	TArray<MCPPagination::FPageRow> Rows;
 	for (const TSharedRef<IPlugin>& Plugin : All)
 	{
@@ -260,7 +386,7 @@ TSharedPtr<FJsonValue> FProjectHandlers::ListAvailablePlugins(const TSharedPtr<F
 		}
 		// The plugin NAME is the page anchor: it is what enable_plugin and
 		// disable_plugin address, and it is unique across discovered plugins.
-		Rows.Add({ Plugin->GetName(), MakeShared<FJsonValueObject>(PPlug_Describe(Plugin)) });
+		Rows.Add({ Plugin->GetName(), MakeShared<FJsonValueObject>(PPlug_Describe(Plugin, FileRoot)) });
 	}
 
 	auto Result = MCPSuccess();
@@ -341,15 +467,8 @@ TSharedPtr<FJsonValue> FProjectHandlers::EnablePlugin(const TSharedPtr<FJsonObje
 		return MCPResult(Result);
 	}
 
-	// ── Mutate.
-	FText FailReason;
-	if (!IProjectManager::Get().SetPluginEnabled(PluginName, true, FailReason))
-	{
-		return MCPError(FString::Printf(
-			TEXT("Could not enable plugin '%s' in the project descriptor: %s"),
-			*PluginName, *FailReason.ToString()));
-	}
-	if (auto SaveErr = PPlug_Save(FString::Printf(TEXT("Enabling '%s'"), *PluginName)))
+	// ── Mutate the file's Plugins array, and nothing else in it (#1248).
+	if (auto SaveErr = PPlug_Save(PluginName, EPPlugEdit::Enable, FString::Printf(TEXT("Enabling '%s'"), *PluginName)))
 	{
 		return SaveErr;
 	}
@@ -450,19 +569,8 @@ TSharedPtr<FJsonValue> FProjectHandlers::DisablePlugin(const TSharedPtr<FJsonObj
 		return MCPResult(Result);
 	}
 
-	// ── Mutate.
-	FText FailReason;
-	const bool bApplied = bRemoveReference
-		? IProjectManager::Get().RemovePluginReference(PluginName, FailReason)
-		: IProjectManager::Get().SetPluginEnabled(PluginName, false, FailReason);
-	if (!bApplied)
-	{
-		return MCPError(FString::Printf(
-			TEXT("Could not %s plugin '%s' in the project descriptor: %s"),
-			bRemoveReference ? TEXT("remove the reference to") : TEXT("disable"),
-			*PluginName, *FailReason.ToString()));
-	}
-	if (auto SaveErr = PPlug_Save(FString::Printf(
+	// ── Mutate the file's Plugins array, and nothing else in it (#1248).
+	if (auto SaveErr = PPlug_Save(PluginName, bRemoveReference ? EPPlugEdit::Remove : EPPlugEdit::Disable, FString::Printf(
 		TEXT("%s '%s'"), bRemoveReference ? TEXT("Removing the reference to") : TEXT("Disabling"), *PluginName)))
 	{
 		return SaveErr;
