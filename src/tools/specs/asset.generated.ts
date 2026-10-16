@@ -3790,13 +3790,19 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "limit",
         "type": "integer",
         "required": false,
-        "description": "Bones per page (default every bone); 0 returns only the scale summary"
+        "description": "Bones per page (default every bone)"
       },
       {
         "name": "offset",
         "type": "number",
         "required": false,
         "description": "First bone index of the page (default 0)"
+      },
+      {
+        "name": "includeBones",
+        "type": "boolean",
+        "required": false,
+        "description": "false returns only scaleSummary and boneCount, with no bones (default true)"
       }
     ]
   },
@@ -5852,7 +5858,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   list_curvetable_rows: "Params: assetPath (or path), rowFilter?",
   list_enum_values: "Params: assetPath (or path)",
   list_locks: "Params: none",
-  list_skeleton_bones: "Params: assetPath (or path), includeTransforms?, limit?, offset?",
+  list_skeleton_bones: "Params: assetPath (or path), includeTransforms?, limit?, offset?, includeBones?",
   list_sockets: "Params: assetPath",
   list_stringtable_keys: "Params: assetPath (or path), keyFilter?",
   list_struct_fields: "Params: assetPath (or path)",
@@ -6034,6 +6040,7 @@ export const schema: Record<string, z.ZodType> = {
   importTextures: z.boolean().optional().describe("Import textures (default true)"),
   importUniformScale: z.number().optional().describe("Uniform import scale (default 1.0); 100 fixes metre-authored FBX (import_skeletal_mesh). Uniform import scale; 100 fixes metre-authored FBX (import_static_mesh)"),
   include: z.array(z.string()).optional().describe("positions | uvs | normals | triangles (omit for all four)"),
+  includeBones: z.boolean().optional().describe("false returns only scaleSummary and boneCount, with no bones (default true)"),
   includeIslands: z.boolean().optional().describe("Include the per-island breakdown (default true)"),
   includeOverlap: z.boolean().optional().describe("Compute the overlapping-area fraction (default true)"),
   includePins: z.boolean().optional().describe("Include each node's pins and links (default true)"),
@@ -6056,7 +6063,7 @@ export const schema: Record<string, z.ZodType> = {
   keys: z.array(z.record(z.unknown())).optional().describe("Replacement keys: [{time, value, interpMode?, arriveTangent?, leaveTangent?}]"),
   keyTimeTolerance: z.number().optional().describe("How close an existing key must be to be updated rather than added"),
   lightmapResolution: z.number().optional().describe("The mesh's lightmap resolution"),
-  limit: z.number().int().optional().describe("Rows to return (default 200, max 2000) (bulk_read_asset_properties). Rows per page, 1 to 5000 (default 500) (list_assets). Bones per page (default every bone); 0 returns only the scale summary (list_skeleton_bones). Rows per page, 1 to 2000 (default 50) (list_textures, search_assets_fts)"),
+  limit: z.number().int().optional().describe("Rows to return (default 200, max 2000) (bulk_read_asset_properties). Rows per page, 1 to 5000 (default 500) (list_assets). Bones per page (default every bone) (list_skeleton_bones). Rows per page, 1 to 2000 (default 50) (list_textures, search_assets_fts)"),
   lodCount: z.number().int().optional().describe("Total LODs including LOD 0, 1 to 8"),
   lodGroup: z.string().optional().describe("Texture LOD group, applied to the imported texture (import_texture). Texture LOD group: World, WorldNormalMap, Character, UI, Lightmap, Effects and the rest (set_texture_settings)"),
   lodIndex: z.number().int().optional().describe("LOD to read when lodType names one (default 0) (apply_mesh_fracture, apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify, generate_mesh_collision). Mesh LOD (bind_cloth_to_section, unbind_cloth_from_section). Source LOD to act on (default 0) (check_uvs, export_uv_layout, generate_lightmap_uvs, read_uv_channels, set_uv_channel_count, transform_uvs, unwrap_uvs). LOD to read (default 0) (get_mesh_geometry). Source model (LOD) to read (default 0) (get_static_mesh_build_settings). LOD to measure (default 0) (measure_mesh_geometry). LOD of each input to read when lodType names one (default 0) (mesh_boolean). Source LOD (default 0); generated LODs without source geometry are refused (read_skeletal_mesh_bone_vertex_bounds, read_skeletal_mesh_skin_weights, set_skeletal_mesh_skin_weights). LOD to target (default 0); not with allLods (read_skeletal_mesh_build_settings, set_skeletal_mesh_optimize_for_instancing). Source model (LOD) to write (default 0) (set_static_mesh_build_settings)"),

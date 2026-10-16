@@ -16,7 +16,7 @@ describe("skeleton scale normalisation and bone listing (#1201)", () => {
   });
 
   it("list_skeleton_bones honours limit and offset and summarises scale", () => {
-    expect(assetSpecs.list_skeleton_bones.params.map((p) => p.name)).toEqual(["assetPath", "includeTransforms", "limit", "offset"]);
+    expect(assetSpecs.list_skeleton_bones.params.map((p) => p.name)).toEqual(["assetPath", "includeTransforms", "limit", "offset", "includeBones"]);
     expect(assetTool.actions.list_skeleton_bones.description).toContain("scaleSummary");
     const source = readHandlerFile("AssetHandlers_Mesh.cpp");
     expect(source).toContain('Result->SetObjectField(TEXT("scaleSummary"), Summary)');

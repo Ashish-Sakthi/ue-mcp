@@ -20079,13 +20079,19 @@
           "name": "limit",
           "type": "integer",
           "required": false,
-          "description": "Bones per page (default every bone); 0 returns only the scale summary"
+          "description": "Bones per page (default every bone)"
         },
         {
           "name": "offset",
           "type": "number",
           "required": false,
           "description": "First bone index of the page (default 0)"
+        },
+        {
+          "name": "includeBones",
+          "type": "boolean",
+          "required": false,
+          "description": "false returns only scaleSummary and boneCount, with no bones (default true)"
         }
       ]
     },

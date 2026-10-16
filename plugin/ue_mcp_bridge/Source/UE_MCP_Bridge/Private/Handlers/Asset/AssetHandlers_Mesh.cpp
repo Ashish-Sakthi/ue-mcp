@@ -1019,9 +1019,16 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListSkeletonBones(const TSharedPtr<FJsonO
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 	const bool bIncludeTransforms = OptionalBool(Params, TEXT("includeTransforms"), true);
 	int32 Limit = -1;
-	const bool bHasLimit = TryGetNumberParam(Params, TEXT("limit"), Limit);
+	bool bHasLimit = TryGetNumberParam(Params, TEXT("limit"), Limit);
 	const int32 Offset = FMath::Max(0, OptionalInt(Params, TEXT("offset"), 0));
+	// The category's shared limit is a page size of at least one, so the summary-only read is its own flag.
+	const bool bIncludeBones = OptionalBool(Params, TEXT("includeBones"), true);
 	if (bHasLimit && Limit < 0) return MCPError(TEXT("limit must be 0 or more"));
+	if (!bIncludeBones)
+	{
+		bHasLimit = true;
+		Limit = 0;
+	}
 
 	FString SourceKind;
 	const FReferenceSkeleton* RefPtr = nullptr;
@@ -1127,7 +1134,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListSkeletonBones(const TSharedPtr<FJsonO
 	Result->SetObjectField(TEXT("scaleSummary"), Summary);
 	Result->SetNumberField(TEXT("offset"), First);
 	Result->SetNumberField(TEXT("returned"), Bones.Num());
-	if (Last < NumBones) Result->SetNumberField(TEXT("nextOffset"), Last);
+	// A summary-only read pages nothing, so it has no next page to point at.
+	if (Last < NumBones && Limit != 0) Result->SetNumberField(TEXT("nextOffset"), Last);
 	Result->SetArrayField(TEXT("bones"), Bones);
 	return MCPResult(Result);
 }
