@@ -1,5 +1,5 @@
 import * as path from "node:path";
-import { spawn } from "child_process";
+import { spawnOutsideTree } from "../core/spawn-outside-tree.js";
 import * as net from "net";
 import { bridgeReplyAccepted, callBridgeOnce, type BridgeReply } from "../bridge/bridge.js";
 import { readUeMcpConfig, type ProjectContext } from "../config/project.js";
@@ -596,14 +596,11 @@ export async function startEditor(
     // Recorded before the spawn so the wait can tell the lockfile this editor
     // publishes from one an earlier session left behind.
     const launchedAtMs = Date.now();
-    const editorProcess = spawn(editorExe, [project.projectPath], {
-      windowsHide: true,
-      stdio: "ignore",
-      detached: true,
+    // Outside this server's process tree, so a client that ends the tree on
+    // reconnect does not take the editor with it (#1274).
+    spawnOutsideTree(editorExe, [project.projectPath], {
       env: buildEditorLaunchEnv(opts.dialogPolicy, opts.paramEcho),
     });
-
-    editorProcess.unref();
 
     // Hold here until the editor is actually usable, drawing the startup as a
     // progress bar. Returning as soon as the socket answered is what left
