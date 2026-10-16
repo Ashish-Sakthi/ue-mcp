@@ -22763,7 +22763,7 @@
           "name": "fields",
           "type": "array",
           "required": false,
-          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment",
+          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData",
           "items": "string"
         },
         {
@@ -22771,6 +22771,13 @@
           "type": "array",
           "required": false,
           "description": "Component UPROPERTY names projected under props.*, at most 32",
+          "items": "string"
+        },
+        {
+          "name": "actorPropertyNames",
+          "type": "array",
+          "required": false,
+          "description": "Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32",
           "items": "string"
         },
         {

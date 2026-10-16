@@ -2302,7 +2302,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "fields",
         "type": "array",
         "required": false,
-        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment",
+        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData",
         "items": "string"
       },
       {
@@ -2310,6 +2310,13 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "array",
         "required": false,
         "description": "Component UPROPERTY names projected under props.*, at most 32",
+        "items": "string"
+      },
+      {
+        "name": "actorPropertyNames",
+        "type": "array",
+        "required": false,
+        "description": "Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32",
         "items": "string"
       },
       {
@@ -5019,7 +5026,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   nudge_component: "Params: actorLabel OR actorPath, componentName, frame?, translationDelta?, axisRotation?, viewRotation?, scaleMultiplier?, dryRun?, world?, pieInstance?",
   place_actor: "Params: actorClass, label?, onConflict?, location?, rotation?, scale?, staticMesh?, material?, world?, pieInstance?",
   place_actors_batch: "Params: actors",
-  query_components: "Params: componentClass?, actorClass?, matchSubclasses?, componentNameContains?, actorLabelPrefix?, actorLabelContains?, actorTag?, folderPath?, folderPathPrefix?, fields?, propertyNames?, where?, whereMode?, suspectOnly?, groupBy?, countBy?, sampleLimit?, countOnly?, limit?, startIndex?, duplicateTransformTolerance?, levelPath?, world?, pieInstance?",
+  query_components: "Params: componentClass?, actorClass?, matchSubclasses?, componentNameContains?, actorLabelPrefix?, actorLabelContains?, actorTag?, folderPath?, folderPathPrefix?, fields?, propertyNames?, actorPropertyNames?, where?, whereMode?, suspectOnly?, groupBy?, countBy?, sampleLimit?, countOnly?, limit?, startIndex?, duplicateTransformTolerance?, levelPath?, world?, pieInstance?",
   read_actor_motion: "Params: actorLabel?, actorLabels?, actorPath?, actorPaths?, world?, pieInstance?",
   rebuild_water_zone: "Params: actorLabel?, actorPath?, zoneExtent?, tileSize?, maxPasses?",
   recreate_physics_state: "Params: at least one of actorLabels/labelPrefix/tag/classFilter/componentClass/componentNameContains, dryRun?, maxComponents?, world?, pieInstance?",
@@ -5082,6 +5089,7 @@ export const schema: Record<string, z.ZodType> = {
   actorPathA: z.string().optional().describe("First actor object path"),
   actorPathB: z.string().optional().describe("Second actor object path"),
   actorPaths: z.array(z.string()).optional().describe("Full actor object paths"),
+  actorPropertyNames: z.array(z.string()).optional().describe("Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32"),
   actors: z.array(z.object({ staticMesh: z.string().describe("Static mesh asset path"), location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World scale"), label: z.string().optional().describe("Actor label") })).optional().describe("StaticMeshActors to spawn; meshes load once per path"),
   actorTag: z.string().optional().describe("Actor must carry this tag"),
   all: z.boolean().optional().describe("Destroy every transient verification actor in the world (destroy_transient_actor). Target every actor (set_editor_visibility)"),
@@ -5136,7 +5144,7 @@ export const schema: Record<string, z.ZodType> = {
   exactClass: z.boolean().optional().describe("Require classFilter to be the exact class (default true) (convert_brushes_to_static_mesh). Require classFilter to be the exact class name (get_world_outliner)"),
   exposure: z.number().optional().describe("Fixed adaptation brightness, written to both min and max"),
   extent: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Query extent (default 100, 100, 100) (nav_project_point). Half extent of the cube brush (default 100, 100, 100) (spawn_volume)"),
-  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment"),
+  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData"),
   filePath: z.string().optional().describe("Alias for outputPath"),
   filter: z.string().optional().describe("Case-insensitive substring over label, name, class and path"),
   floorOffset: z.number().optional().describe("Vertical offset added to the impact Z"),

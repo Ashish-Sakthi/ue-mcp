@@ -166,3 +166,21 @@ describe("PIE debug camera, console route and socket calibration (#1250)", () =>
     expect(bag.socketName).toBe("hand_r");
   });
 });
+
+describe("query_components per-actor state (#1303)", () => {
+  it("forwards actorPropertyNames and the customPrimitiveData group", async () => {
+    const { levelTool } = await import("../../src/tools/level.js");
+    const { call, ctx } = mockContext();
+    await levelTool.handler(ctx, {
+      action: "query_components",
+      actorClass: "BP_Crowd_C",
+      componentClass: "SkeletalMeshComponent",
+      fields: ["mesh", "materials", "customPrimitiveData"],
+      actorPropertyNames: ["bIsSeated"],
+      countBy: ["actorProps.bIsSeated", "materials.0.materialClass"],
+    });
+    const bag = forwarded(call, "query_components");
+    expect(bag.actorPropertyNames).toEqual(["bIsSeated"]);
+    expect(bag.fields).toEqual(["mesh", "materials", "customPrimitiveData"]);
+  });
+});
