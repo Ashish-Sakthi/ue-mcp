@@ -8,6 +8,8 @@ import { liftRollback } from "./rollback.js";
 import { applyHandlerOutcome } from "./handler-outcome.js";
 import { ensureGuard } from "../editor/dialog-guard.js";
 import { paramMapperOf } from "../surface/epic-input.js";
+import { actionAccepts } from "../surface/action-schema.js";
+import type { IBridge } from "../bridge/bridge.js";
 
 /**
  * Refuse a handler-backed call while a modal is up, through the one guard.
@@ -57,6 +59,7 @@ export function actionPreparation(
     paramContract: spec.paramSpec
       ? { params: spec.paramSpec, choices: spec.paramChoices, strict: spec.strictParams }
       : undefined,
+    accepts: actionAccepts(spec),
   };
 }
 
@@ -122,6 +125,23 @@ export async function runBridge(
   return applyHandlerOutcome(ctx, answered, result);
 }
 
+/**
+ * The bridge as an in-process handler sees it: a call that names no budget of
+ * its own gets the caller's, so every handler honours timeoutMs (#1339).
+ */
+export function withCallTimeout<B extends { call: IBridge["call"] }>(bridge: B, timeoutMs: number): B {
+  if (!bridge) return bridge;
+  return new Proxy(bridge, {
+    get(target, key) {
+      if (key === "call") {
+        return (method: string, params?: Record<string, unknown>, ms?: number) => target.call(method, params, ms ?? timeoutMs);
+      }
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export async function runHandler(
   ctx: FlowContext,
   name: string,
@@ -132,7 +152,9 @@ export async function runHandler(
   const pipeline = prepareCall(options, prep);
   // The budget travels on the context, not in the parameters: a handler that
   // forwards its params to the bridge must not turn it into a bridge argument.
-  const callCtx = pipeline.timeoutMs === undefined ? ctx : { ...ctx, callTimeoutMs: pipeline.timeoutMs };
+  const callCtx = pipeline.timeoutMs === undefined
+    ? ctx
+    : { ...ctx, callTimeoutMs: pipeline.timeoutMs, bridge: withCallTimeout(ctx.bridge, pipeline.timeoutMs) };
   // A flow is a minutes-long run and a modal can appear at any point in it, so
   // the gate is checked per call, not once before the run.
   const refusal = await refuseIfBlocked(ctx, name);

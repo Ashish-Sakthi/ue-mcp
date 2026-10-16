@@ -184,12 +184,29 @@ function kindOf(prop) {
 function minifySchema(input) {
   const props = input?.properties ?? {};
   const out = { properties: {} };
-  for (const [name, prop] of Object.entries(props)) {
-    out.properties[name] = isAssetRef(prop)
-      ? { type: "object", properties: { refPath: {} } }
-      : (prop?.type ? { type: prop.type } : {});
-  }
+  for (const [name, prop] of Object.entries(props)) out.properties[name] = minifyProp(prop, 0);
   if (Array.isArray(input?.required) && input.required.length > 0) out.required = input.required;
+  return out;
+}
+
+/**
+ * One property, keeping what a caller needs to build a valid value: its type,
+ * its enum, and the item and field shapes of an array or struct (#1281).
+ */
+function minifyProp(prop, depth) {
+  if (isAssetRef(prop)) return { type: "object", properties: { refPath: {} } };
+  if (!prop || typeof prop !== "object" || !prop.type) return {};
+  const out = { type: prop.type };
+  if (Array.isArray(prop.enum) && prop.enum.length > 0) out.enum = prop.enum;
+  if (depth >= 4) return out;
+  if (prop.type === "array" && prop.items && typeof prop.items === "object") {
+    const items = minifyProp(prop.items, depth + 1);
+    if (Object.keys(items).length > 0) out.items = items;
+  }
+  if (prop.type === "object" && prop.properties && typeof prop.properties === "object") {
+    const fields = Object.entries(prop.properties).map(([k, v]) => [k, minifyProp(v, depth + 1)]);
+    if (fields.length > 0) out.properties = Object.fromEntries(fields);
+  }
   return out;
 }
 

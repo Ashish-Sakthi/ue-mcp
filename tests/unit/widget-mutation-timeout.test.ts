@@ -36,7 +36,8 @@ describe("widget tree mutations", () => {
         action,
         assetPath: "/Game/UI/WBP_Test",
         widgetName: "StartButton",
-        widgetClass: "Button",
+        // Only add_widget takes a class; remove_widget refuses an undeclared key (#1336).
+        ...(action === "add_widget" ? { widgetClass: "Button" } : {}),
       });
 
       expect(bridge.calls).toEqual([{ method: action, timeoutMs: 120_000 }]);
