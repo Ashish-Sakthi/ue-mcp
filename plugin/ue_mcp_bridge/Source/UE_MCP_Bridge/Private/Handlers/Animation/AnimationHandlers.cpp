@@ -127,7 +127,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("edit_skeleton_bones"), &EditSkeletonBones, {
 		SessionTag(),
 		SessionMesh(),
-		MCPParam::Required(TEXT("edits"), EType::Array, TEXT("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}")).Items(EType::Object),
+		MCPParam::Required(TEXT("edits"), EType::Array, TEXT("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation")).Items(EType::Object),
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Remove a bone despite dependents, which are listed in the refusal")),
 	});
 	Registry.RegisterHandler(TEXT("commit_skeleton_edit"), &CommitSkeletonEdit, {

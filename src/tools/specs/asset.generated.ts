@@ -3702,6 +3702,18 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "boolean",
         "required": false,
         "description": "Include rest-pose transforms (default true)"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "Bones per page (default every bone); 0 returns only the scale summary"
+      },
+      {
+        "name": "offset",
+        "type": "number",
+        "required": false,
+        "description": "First bone index of the page (default 0)"
       }
     ]
   },
@@ -5756,7 +5768,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   list_curvetable_rows: "Params: assetPath (or path), rowFilter?",
   list_enum_values: "Params: assetPath (or path)",
   list_locks: "Params: none",
-  list_skeleton_bones: "Params: assetPath (or path), includeTransforms?",
+  list_skeleton_bones: "Params: assetPath (or path), includeTransforms?, limit?, offset?",
   list_sockets: "Params: assetPath",
   list_stringtable_keys: "Params: assetPath (or path), keyFilter?",
   list_struct_fields: "Params: assetPath (or path)",
@@ -5960,7 +5972,7 @@ export const schema: Record<string, z.ZodType> = {
   keys: z.array(z.record(z.unknown())).optional().describe("Replacement keys: [{time, value, interpMode?, arriveTangent?, leaveTangent?}]"),
   keyTimeTolerance: z.number().optional().describe("How close an existing key must be to be updated rather than added"),
   lightmapResolution: z.number().optional().describe("The mesh's lightmap resolution"),
-  limit: z.number().int().optional().describe("Rows to return (default 200, max 2000) (bulk_read_asset_properties). Rows per page, 1 to 5000 (default 500) (list_assets). Rows per page, 1 to 2000 (default 50) (list_textures, search_assets_fts)"),
+  limit: z.number().int().optional().describe("Rows to return (default 200, max 2000) (bulk_read_asset_properties). Rows per page, 1 to 5000 (default 500) (list_assets). Bones per page (default every bone); 0 returns only the scale summary (list_skeleton_bones). Rows per page, 1 to 2000 (default 50) (list_textures, search_assets_fts)"),
   lodGroup: z.string().optional().describe("Texture LOD group, applied to the imported texture (import_texture). Texture LOD group: World, WorldNormalMap, Character, UI, Lightmap, Effects and the rest (set_texture_settings)"),
   lodIndex: z.number().int().optional().describe("LOD to read when lodType names one (default 0) (apply_mesh_fracture, apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify, generate_mesh_collision). Mesh LOD (bind_cloth_to_section, unbind_cloth_from_section). Source LOD to act on (default 0) (check_uvs, export_uv_layout, generate_lightmap_uvs, read_uv_channels, set_uv_channel_count, transform_uvs, unwrap_uvs). LOD to read (default 0) (get_mesh_geometry). Source model (LOD) to read (default 0) (get_static_mesh_build_settings). LOD to measure (default 0) (measure_mesh_geometry). LOD of each input to read when lodType names one (default 0) (mesh_boolean). Source LOD (default 0); generated LODs without source geometry are refused (read_skeletal_mesh_bone_vertex_bounds, read_skeletal_mesh_skin_weights, set_skeletal_mesh_skin_weights). LOD to target (default 0); not with allLods (read_skeletal_mesh_build_settings, set_skeletal_mesh_optimize_for_instancing). Source model (LOD) to write (default 0) (set_static_mesh_build_settings)"),
   lodType: z.string().optional().describe("MaxAvailable (default, ignores lodIndex) | HiResSourceModel | SourceModel | RenderData"),
@@ -5996,7 +6008,7 @@ export const schema: Record<string, z.ZodType> = {
   noCompression: z.boolean().optional().describe("Factory option: import uncompressed"),
   node: z.string().optional().describe("Node to remove: nodeGuid, path, name or unique title"),
   nodeClass: z.string().optional().describe("Class the node action spawns"),
-  offset: z.number().optional().describe("Refused: the row offset was replaced by cursor paging, because a row number cannot report that the folder changed. Use cursor and limit"),
+  offset: z.number().optional().describe("Refused: the row offset was replaced by cursor paging, because a row number cannot report that the folder changed. Use cursor and limit (list_assets). First bone index of the page (default 0) (list_skeleton_bones)"),
   oldName: z.string().optional().describe("Row to rename"),
   onConflict: z.string().optional().describe("skip (default) | update | error (add_socket). When a piece asset exists: error (default) | replace (apply_mesh_fracture). When the output asset exists: error (default) | replace (apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify). update (default) | skip | error (bulk_upsert_data_assets). skip (default) returns an existing asset; error refuses (create_asset_by_class, create_data_asset, create_datatable, create_render_target_2d). skip (default) returns an existing table; error refuses (create_curvetable, create_stringtable). skip (default) | error (create_customizable_object). skip (default) returns an existing pipeline; error refuses (create_interchange_pipeline). reuse (default) | error (create_subobject). skip (default) returns an existing enum; error refuses (create_user_defined_enum). skip (default) returns an existing struct; error refuses (create_user_defined_struct). skip (default) returns an existing destination; error refuses (duplicate_asset). When outputPath exists: error (default) | replace (mesh_boolean)"),
   op: z.string().optional().describe("add_value | rename_value | remove_value (edit_user_defined_enum). add_field | rename_field | set_field_type | remove_field (edit_user_defined_struct). generate (default) | clear (generate_mesh_collision). set (default) | add | remove | copy (set_uv_channel_count)"),

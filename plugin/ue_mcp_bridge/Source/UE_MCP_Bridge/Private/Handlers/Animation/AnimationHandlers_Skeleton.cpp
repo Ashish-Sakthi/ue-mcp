@@ -881,7 +881,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::EditSkeletonBones(const TSharedPtr<FJ
 		return SkeletonError(
 			TEXT("invalid_params"),
 			TEXT("'edits' must be a non-empty array. Each entry is "
-				 "{ op: \"add\"|\"remove\"|\"rename\"|\"reparent\"|\"set_transform\", bone: \"...\", ... }."));
+				 "{ op: \"add\"|\"remove\"|\"rename\"|\"reparent\"|\"set_transform\"|\"normalize_scale\", bone: \"...\", ... }."));
 	}
 
 	// ── Working model of the hierarchy, so the WHOLE batch is validated before
@@ -1215,12 +1215,20 @@ TSharedPtr<FJsonValue> FAnimationHandlers::EditSkeletonBones(const TSharedPtr<FJ
 			Planned.PriorTransform = SkeletonModifierTransformOf(Modifier, Planned.Bone, false);
 			Planned.PriorParent = ParentOf[Planned.Bone];
 		}
+		else if (Planned.Op == TEXT("normalize_scale"))
+		{
+			if (!ParentOf.Contains(Planned.Bone))
+			{
+				return SkeletonBoneNotFound(BoneText, KnownNames, TEXT("this skeleton edit"));
+			}
+			Planned.PriorParent = ParentOf[Planned.Bone];
+		}
 		else
 		{
 			return SkeletonError(
 				TEXT("invalid_params"),
 				FString::Printf(
-					TEXT("edits[%d] has op '%s'. Valid ops: add, remove, rename, reparent, set_transform."),
+					TEXT("edits[%d] has op '%s'. Valid ops: add, remove, rename, reparent, set_transform, normalize_scale."),
 					EditIndex, *Planned.Op));
 		}
 
@@ -1325,6 +1333,74 @@ TSharedPtr<FJsonValue> FAnimationHandlers::EditSkeletonBones(const TSharedPtr<FJ
 			Inverse->SetStringField(TEXT("bone"), Planned.Bone.ToString());
 			Inverse->SetStringField(TEXT("parent"), Planned.PriorParent.ToString());
 			InverseEdits.Insert(MakeShared<FJsonValueObject>(Inverse), 0);
+		}
+		else if (Planned.Op == TEXT("normalize_scale"))
+		{
+			// Every bone of the subtree gets scale 1 and keeps its component-space
+			// location and rotation; each local is solved parent-first (#1201).
+			// The subtree, ordered by depth so every parent is solved before its children.
+			TArray<TPair<int32, FName>> ByDepth;
+			for (const FName& Candidate : SkeletonModifierAllBones(Modifier))
+			{
+				int32 Depth = 0;
+				FName Walk = Candidate;
+				while (!Walk.IsNone() && Walk != Planned.Bone && Depth <= 4096)
+				{
+					Walk = SkeletonModifierParentOf(Modifier, Walk);
+					++Depth;
+				}
+				if (Walk == Planned.Bone) ByDepth.Add(TPair<int32, FName>(Depth, Candidate));
+			}
+			ByDepth.StableSort([](const TPair<int32, FName>& A, const TPair<int32, FName>& B) { return A.Key < B.Key; });
+			TArray<FName> Subtree;
+			for (const TPair<int32, FName>& Entry : ByDepth) Subtree.Add(Entry.Value);
+			const FName OuterParent = SkeletonModifierParentOf(Modifier, Planned.Bone);
+			const FTransform OuterGlobal = OuterParent.IsNone() ? FTransform::Identity : SkeletonModifierTransformOf(Modifier, OuterParent, true);
+			TMap<FName, FTransform> Before, NewGlobal;
+			TArray<FTransform> PriorLocals;
+			double MaxScaleBefore = 0.0;
+			for (const FName& Bone : Subtree)
+			{
+				const FTransform Global = SkeletonModifierTransformOf(Modifier, Bone, true);
+				Before.Add(Bone, Global);
+				NewGlobal.Add(Bone, FTransform(Global.GetRotation(), Global.GetTranslation(), FVector::OneVector));
+				const FTransform Local = SkeletonModifierTransformOf(Modifier, Bone, false);
+				PriorLocals.Add(Local);
+				MaxScaleBefore = FMath::Max(MaxScaleBefore, Local.GetScale3D().GetAbsMax());
+			}
+			bOk = true;
+			for (const FName& Bone : Subtree)
+			{
+				const FName Parent = SkeletonModifierParentOf(Modifier, Bone);
+				const FTransform* ParentGlobal = NewGlobal.Find(Parent);
+				const FTransform NewLocal = NewGlobal[Bone].GetRelativeTransform(ParentGlobal ? *ParentGlobal : OuterGlobal);
+				FMCPReflectedCall SetCall;
+				if (!SetCall.BindInstance(Modifier, TEXT("SetBoneTransform"), BindError, TEXT("skeleton modifier"), TEXT("USkeletonModifier"))) return SkeletonModifierUnavailable(BindError);
+				SetCall.SetName(TEXT("InBoneName"), Bone);
+				SetCall.SetTransform(TEXT("InNewTransform"), NewLocal);
+				SetCall.SetBool(TEXT("bMoveChildren"), true);
+				SetCall.Invoke();
+				bOk = bOk && SetCall.BoolReturn();
+			}
+			double MaxDrift = 0.0;
+			for (const FName& Bone : Subtree)
+			{
+				MaxDrift = FMath::Max(MaxDrift, FVector::Dist(Before[Bone].GetTranslation(), SkeletonModifierTransformOf(Modifier, Bone, true).GetTranslation()));
+			}
+			Row->SetNumberField(TEXT("bonesNormalized"), Subtree.Num());
+			Row->SetNumberField(TEXT("maxLocalScaleBefore"), MaxScaleBefore);
+			Row->SetNumberField(TEXT("maxComponentDrift"), MaxDrift);
+
+			// Restoring each prior local parent-first puts the subtree back exactly.
+			for (int32 Bone = Subtree.Num() - 1; Bone >= 0; --Bone)
+			{
+				TSharedPtr<FJsonObject> Inverse = MakeShared<FJsonObject>();
+				Inverse->SetStringField(TEXT("op"), TEXT("set_transform"));
+				Inverse->SetStringField(TEXT("bone"), Subtree[Bone].ToString());
+				Inverse->SetObjectField(TEXT("transform"), MCPTransformToJsonObject(PriorLocals[Bone]));
+				Inverse->SetBoolField(TEXT("moveChildren"), true);
+				InverseEdits.Insert(MakeShared<FJsonValueObject>(Inverse), 0);
+			}
 		}
 		else // set_transform
 		{

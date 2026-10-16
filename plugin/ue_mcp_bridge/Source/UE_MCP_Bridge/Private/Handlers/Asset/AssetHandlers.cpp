@@ -963,6 +963,8 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("list_skeleton_bones"), &ListSkeletonBones, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("SkeletalMesh or Skeleton asset path")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("includeTransforms"), EType::Boolean, TEXT("Include rest-pose transforms (default true)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Bones per page (default every bone); 0 returns only the scale summary")),
+		MCPParam::Optional(TEXT("offset"), EType::Number, TEXT("First bone index of the page (default 0)")),
 	});
 	// #595: Chaos cloth read/write.
 	Registry.RegisterHandler(TEXT("read_cloth_data"), &ReadClothData, {

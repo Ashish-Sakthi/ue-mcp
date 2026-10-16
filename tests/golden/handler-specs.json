@@ -12829,7 +12829,7 @@
           "name": "edits",
           "type": "array",
           "required": true,
-          "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}",
+          "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation",
           "items": "object"
         },
         {
@@ -19991,6 +19991,18 @@
           "type": "boolean",
           "required": false,
           "description": "Include rest-pose transforms (default true)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Bones per page (default every bone); 0 returns only the scale summary"
+        },
+        {
+          "name": "offset",
+          "type": "number",
+          "required": false,
+          "description": "First bone index of the page (default 0)"
         }
       ]
     },

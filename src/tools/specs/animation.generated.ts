@@ -2861,7 +2861,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "edits",
         "type": "array",
         "required": true,
-        "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}",
+        "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation",
         "items": "object"
       },
       {
@@ -5477,7 +5477,7 @@ export const schema: Record<string, z.ZodType> = {
   duration: z.number().optional().describe("Window length in seconds, greater than 0"),
   easeCurve: z.string().optional().describe("linear (default) | smooth"),
   easeToSource: z.number().int().optional().describe("Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame"),
-  edits: z.array(z.record(z.unknown())).optional().describe("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}"),
+  edits: z.array(z.record(z.unknown())).optional().describe("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation"),
   enabled: z.boolean().optional().describe("Include the clip in the database (add_pose_search_sequence). Tick animation in the editor (default true) (preview_animation)"),
   enableRootMotion: z.boolean().optional().describe("Extract root motion from the root bone"),
   endFrame: z.number().int().optional().describe("Exclusive edit range end frame (default the source length)"),
