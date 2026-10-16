@@ -126,6 +126,24 @@ public:
 	/** The wire name of a prompt kind, as list_dialogs reports it. */
 	static const TCHAR* PromptKindName(EMCPPromptKind Kind);
 
+	/** One dialog the editor raised and the answer it got, for a handler that
+	 *  failed because of it and has to say so (#1334). */
+	struct FAnsweredDialog
+	{
+		int32 Serial = 0;
+		FString Title;
+		FString Message;
+		FString Answer;
+		/** "policy" when an armed policy answered, "person" otherwise. */
+		FString AnsweredBy;
+	};
+
+	/** Serial of the most recent answered dialog; pass it to AnsweredDialogsSince. */
+	static int32 GetAnsweredDialogSerial();
+
+	/** Dialogs answered after Serial, oldest first. Game thread only. */
+	static TArray<FAnsweredDialog> AnsweredDialogsSince(int32 Serial);
+
 private:
 	// Dialog policy: pattern -> response mapping
 	struct FDialogPolicy
@@ -139,6 +157,10 @@ private:
 		 * instead. Empty means "resolve the button from Response".
 		 */
 		FString ButtonLabel;
+		/** Response was given by the caller, not derived from ButtonLabel. */
+		bool bResponseExplicit = true;
+		/** Response holds a value: given, or derived from a label that names one. */
+		bool bHasResponse = true;
 	};
 
 	// Handler implementations
@@ -158,6 +180,19 @@ private:
 	static EAppReturnType::Type ParseResponseType(const FString& ResponseStr, bool& bOutValid);
 	static FString ValidResponseList();
 	static FString ResponseTypeToString(EAppReturnType::Type Response);
+	/** The policy's response keyword, or empty when it has none. */
+	static FString PolicyResponseString(const FDialogPolicy& Policy);
+
+	/**
+	 * The answer a policy gives an FMessageDialog of this type. A buttonLabel
+	 * is matched against the buttons that type offers; without one, or when it
+	 * names none of them, an explicit response answers. False means the policy
+	 * names nothing this dialog offers and the dialog is left for a person.
+	 */
+	static bool ResolveMessageDialogAnswer(const FDialogPolicy& Policy, EAppMsgType::Type MsgType, EAppReturnType::Type& OutAnswer, FString& OutReason);
+
+	/** Record an answered dialog for AnsweredDialogsSince. */
+	static void NoteAnsweredDialog(const FString& Title, const FString& Message, const FString& Answer, const TCHAR* AnsweredBy);
 
 	// Shared modal walk. One traversal answers DescribeActiveModal,
 	// list_dialogs, respond_to_dialog and the policy applier, so the four

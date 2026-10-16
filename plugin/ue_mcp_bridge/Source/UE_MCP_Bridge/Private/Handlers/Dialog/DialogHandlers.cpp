@@ -163,6 +163,99 @@ namespace MCPDialogPolicy
 	// A modal we deliberately left alone, so the reason is logged once rather
 	// than every frame of the modal loop.
 	static const SWindow* LastDeclinedWindow = nullptr;
+
+	/** One button an FMessageDialog of some type shows, with the labels it goes by. */
+	struct FMessageDialogButton
+	{
+		EAppReturnType::Type Answer;
+		TArray<FString> Labels;
+	};
+
+	static FMessageDialogButton MessageButton(EAppReturnType::Type Answer)
+	{
+		switch (Answer)
+		{
+		case EAppReturnType::Yes:      return { Answer, { TEXT("Yes") } };
+		case EAppReturnType::No:       return { Answer, { TEXT("No") } };
+		case EAppReturnType::Ok:       return { Answer, { TEXT("OK") } };
+		case EAppReturnType::Cancel:   return { Answer, { TEXT("Cancel") } };
+		case EAppReturnType::Retry:    return { Answer, { TEXT("Retry"), TEXT("Try Again") } };
+		case EAppReturnType::Continue: return { Answer, { TEXT("Continue") } };
+		case EAppReturnType::YesAll:   return { Answer, { TEXT("Yes to All"), TEXT("Yes All"), TEXT("YesAll") } };
+		case EAppReturnType::NoAll:    return { Answer, { TEXT("No to All"), TEXT("No All"), TEXT("NoAll") } };
+		default:                       return { Answer, {} };
+		}
+	}
+
+	/** The buttons an FMessageDialog of this type offers, in layout order. */
+	static TArray<FMessageDialogButton> MessageDialogButtons(EAppMsgType::Type MsgType)
+	{
+		TArray<EAppReturnType::Type> Answers;
+		switch (MsgType)
+		{
+		case EAppMsgType::Ok:                     Answers = { EAppReturnType::Ok }; break;
+		case EAppMsgType::YesNo:                  Answers = { EAppReturnType::Yes, EAppReturnType::No }; break;
+		case EAppMsgType::OkCancel:               Answers = { EAppReturnType::Ok, EAppReturnType::Cancel }; break;
+		case EAppMsgType::YesNoCancel:            Answers = { EAppReturnType::Yes, EAppReturnType::No, EAppReturnType::Cancel }; break;
+		case EAppMsgType::CancelRetryContinue:    Answers = { EAppReturnType::Cancel, EAppReturnType::Retry, EAppReturnType::Continue }; break;
+		case EAppMsgType::YesNoYesAllNoAll:       Answers = { EAppReturnType::Yes, EAppReturnType::No, EAppReturnType::YesAll, EAppReturnType::NoAll }; break;
+		case EAppMsgType::YesNoYesAllNoAllCancel: Answers = { EAppReturnType::Yes, EAppReturnType::No, EAppReturnType::YesAll, EAppReturnType::NoAll, EAppReturnType::Cancel }; break;
+		case EAppMsgType::YesNoYesAll:            Answers = { EAppReturnType::Yes, EAppReturnType::No, EAppReturnType::YesAll }; break;
+		default: break;
+		}
+		TArray<FMessageDialogButton> Out;
+		for (const EAppReturnType::Type Answer : Answers)
+		{
+			Out.Add(MessageButton(Answer));
+		}
+		return Out;
+	}
+
+	/** The answer a label names among Buttons: exact first, then substring. */
+	static bool FindMessageAnswer(const TArray<FMessageDialogButton>& Buttons, const FString& Label, EAppReturnType::Type& OutAnswer)
+	{
+		const FString Want = Normalise(Label);
+		if (Want.IsEmpty())
+		{
+			return false;
+		}
+		for (const FMessageDialogButton& Button : Buttons)
+		{
+			for (const FString& Offered : Button.Labels)
+			{
+				if (Normalise(Offered) == Want)
+				{
+					OutAnswer = Button.Answer;
+					return true;
+				}
+			}
+		}
+		for (const FMessageDialogButton& Button : Buttons)
+		{
+			for (const FString& Offered : Button.Labels)
+			{
+				if (Normalise(Offered).Contains(Want))
+				{
+					OutAnswer = Button.Answer;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/** The response keyword a label names on some message dialog, for reporting. */
+	static bool ResponseNamedByLabel(const FString& Label, EAppReturnType::Type& OutAnswer)
+	{
+		return FindMessageAnswer(MessageDialogButtons(EAppMsgType::YesNoYesAllNoAllCancel), Label, OutAnswer)
+			|| FindMessageAnswer(MessageDialogButtons(EAppMsgType::CancelRetryContinue), Label, OutAnswer)
+			|| FindMessageAnswer(MessageDialogButtons(EAppMsgType::Ok), Label, OutAnswer);
+	}
+
+	// Recent answered dialogs, newest last, bounded. Game thread only.
+	static TArray<FDialogHandlers::FAnsweredDialog> AnsweredDialogs;
+	static int32 AnsweredDialogSerial = 0;
+	static const int32 MaxAnsweredDialogs = 16;
 }
 
 void FDialogHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
@@ -374,6 +467,7 @@ bool FDialogHandlers::ApplyPolicyToActiveModal()
 	UE_LOG(LogMCPBridge, Log,
 		TEXT("[UE-MCP] Modal '%s' answered by policy '%s': pressed '%s' of [%s]"),
 		*Title, *Policy->Pattern, *Buttons[Index].Label, *JoinLabels(Buttons));
+	NoteAnsweredDialog(Title, Message, Buttons[Index].Label, TEXT("policy"));
 
 	// SimulateClick, for the same reason respond_to_dialog uses it: synthetic
 	// mouse events bypass the capture bookkeeping SButton uses to decide a
@@ -384,24 +478,91 @@ bool FDialogHandlers::ApplyPolicyToActiveModal()
 	return true;
 }
 
+bool FDialogHandlers::ResolveMessageDialogAnswer(const FDialogPolicy& Policy, EAppMsgType::Type MsgType, EAppReturnType::Type& OutAnswer, FString& OutReason)
+{
+	using namespace MCPDialogPolicy;
+
+	OutReason.Empty();
+	if (Policy.ButtonLabel.IsEmpty())
+	{
+		OutAnswer = Policy.Response;
+		return true;
+	}
+	const TArray<FMessageDialogButton> Offered = MessageDialogButtons(MsgType);
+	if (FindMessageAnswer(Offered, Policy.ButtonLabel, OutAnswer))
+	{
+		return true;
+	}
+	if (Policy.bResponseExplicit)
+	{
+		OutAnswer = Policy.Response;
+		return true;
+	}
+	TArray<FString> Labels;
+	for (const FMessageDialogButton& Button : Offered)
+	{
+		Labels.Add(Button.Labels.Num() > 0 ? Button.Labels[0] : FString());
+	}
+	OutReason = FString::Printf(TEXT("buttonLabel '%s' matches none of [%s] and the policy has no response keyword"),
+		*Policy.ButtonLabel, *FString::Join(Labels, TEXT(", ")));
+	return false;
+}
+
+void FDialogHandlers::NoteAnsweredDialog(const FString& Title, const FString& Message, const FString& Answer, const TCHAR* AnsweredBy)
+{
+	using namespace MCPDialogPolicy;
+
+	FAnsweredDialog Entry;
+	Entry.Serial = ++AnsweredDialogSerial;
+	Entry.Title = Title;
+	Entry.Message = Message;
+	Entry.Answer = Answer;
+	Entry.AnsweredBy = AnsweredBy;
+	AnsweredDialogs.Add(MoveTemp(Entry));
+	if (AnsweredDialogs.Num() > MaxAnsweredDialogs)
+	{
+		AnsweredDialogs.RemoveAt(0, AnsweredDialogs.Num() - MaxAnsweredDialogs);
+	}
+}
+
+int32 FDialogHandlers::GetAnsweredDialogSerial()
+{
+	return MCPDialogPolicy::AnsweredDialogSerial;
+}
+
+TArray<FDialogHandlers::FAnsweredDialog> FDialogHandlers::AnsweredDialogsSince(int32 Serial)
+{
+	TArray<FAnsweredDialog> Out;
+	for (const FAnsweredDialog& Entry : MCPDialogPolicy::AnsweredDialogs)
+	{
+		if (Entry.Serial > Serial)
+		{
+			Out.Add(Entry);
+		}
+	}
+	return Out;
+}
+
 EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type MsgType, const FText& Text, const FText& Title)
 {
 	FString MessageStr = Text.ToString();
 	FString TitleStr = Title.ToString();
 
-	// A policy a caller armed is a standing instruction, so it answers.
-	for (const FDialogPolicy& Policy : Policies)
+	// A policy a caller armed is a standing instruction, so it answers. Its
+	// buttonLabel names one of the buttons this dialog type offers (#1334).
+	if (const FDialogPolicy* Policy = FindMatchingPolicy(TitleStr, MessageStr))
 	{
-		if (Policy.Pattern.IsEmpty())
+		EAppReturnType::Type Answer = EAppReturnType::Cancel;
+		FString Reason;
+		if (ResolveMessageDialogAnswer(*Policy, MsgType, Answer, Reason))
 		{
-			continue;
+			UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog answered by the policy a caller armed: pattern='%s' title='%s' answer=%s"),
+				*Policy->Pattern, *TitleStr, *ResponseTypeToString(Answer));
+			NoteAnsweredDialog(TitleStr, MessageStr, ResponseTypeToString(Answer), TEXT("policy"));
+			return Answer;
 		}
-		if (MessageStr.Contains(Policy.Pattern) || TitleStr.Contains(Policy.Pattern))
-		{
-			UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] Dialog answered by the policy a caller armed: pattern='%s' title='%s' response=%s"),
-				*Policy.Pattern, *TitleStr, *ResponseTypeToString(Policy.Response));
-			return Policy.Response;
-		}
+		UE_LOG(LogMCPBridge, Warning, TEXT("[UE-MCP] Dialog '%s' matched policy '%s' but was not answered: %s"),
+			*TitleStr, *Policy->Pattern, *Reason);
 	}
 
 	// Nothing a caller armed matches, so nobody has said how to answer this and
@@ -425,6 +586,7 @@ EAppReturnType::Type FDialogHandlers::HandleModalDialog(EAppMsgType::Type MsgTyp
 	const EAppReturnType::Type UserAnswer = FMessageDialog::Open(MsgType, Text, Title);
 	// Reattach for subsequent dialogs.
 	FCoreDelegates::ModalMessageDialog.BindStatic(&FDialogHandlers::HandleModalDialogV2);
+	NoteAnsweredDialog(TitleStr, MessageStr, ResponseTypeToString(UserAnswer), TEXT("person"));
 	return UserAnswer;
 }
 
@@ -446,11 +608,13 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 			*ValidResponseList()));
 	}
 
-	// A response keyword is still required for the FMessageDialog path, which
-	// has to RETURN an EAppReturnType and cannot press a label. A policy given
-	// only a buttonLabel gets Cancel there, which is the non-destructive answer.
+	// On the FMessageDialog path a buttonLabel answers with the button it names
+	// there (#1334). A label-only policy naming no such button leaves the
+	// dialog for a person rather than inventing an answer.
 	EAppReturnType::Type Response = EAppReturnType::Cancel;
-	if (!ResponseStr.IsEmpty())
+	const bool bResponseExplicit = !ResponseStr.IsEmpty();
+	bool bHasResponse = bResponseExplicit;
+	if (bResponseExplicit)
 	{
 		bool bValidResponse = false;
 		Response = ParseResponseType(ResponseStr, bValidResponse);
@@ -461,16 +625,29 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 				*ResponseStr, *ValidResponseList()));
 		}
 	}
+	else
+	{
+		bHasResponse = MCPDialogPolicy::ResponseNamedByLabel(ButtonLabel, Response);
+	}
+
+	FDialogPolicy NewPolicy;
+	NewPolicy.Pattern = Pattern;
+	NewPolicy.Response = Response;
+	NewPolicy.ButtonLabel = ButtonLabel;
+	NewPolicy.bResponseExplicit = bResponseExplicit;
+	NewPolicy.bHasResponse = bHasResponse;
+	const FString ResponseOut = PolicyResponseString(NewPolicy);
 
 	// Idempotency: an identical policy is already armed.
 	for (const FDialogPolicy& P : Policies)
 	{
-		if (P.Pattern == Pattern && P.Response == Response && P.ButtonLabel == ButtonLabel)
+		if (P.Pattern == Pattern && P.Response == Response && P.ButtonLabel == ButtonLabel
+			&& P.bResponseExplicit == bResponseExplicit)
 		{
 			auto Existed = MCPSuccess();
 			MCPSetExisted(Existed);
 			Existed->SetStringField(TEXT("pattern"), Pattern);
-			Existed->SetStringField(TEXT("response"), ResponseTypeToString(Response));
+			Existed->SetStringField(TEXT("response"), ResponseOut);
 			Existed->SetStringField(TEXT("buttonLabel"), ButtonLabel);
 			Existed->SetNumberField(TEXT("policyCount"), Policies.Num());
 			// Still worth trying: the policy may have been armed before the
@@ -483,11 +660,6 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 	// Remove existing policy with same pattern
 	Policies.RemoveAll([&Pattern](const FDialogPolicy& P) { return P.Pattern == Pattern; });
 
-	// Add new policy
-	FDialogPolicy NewPolicy;
-	NewPolicy.Pattern = Pattern;
-	NewPolicy.Response = Response;
-	NewPolicy.ButtonLabel = ButtonLabel;
 	// Appended, because matching is first-wins and every policy in the list was
 	// armed by a caller: two calls in a row must keep the order they were made
 	// in rather than reversing it.
@@ -502,7 +674,7 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 		: FString::Printf(TEXT(" (button '%s')"), *ButtonLabel);
 	UE_LOG(LogMCPBridge, Warning,
 		TEXT("[UE-MCP] A caller armed a dialog policy: any dialog matching '%s' will be answered with '%s'%s and dismissed WITHOUT being shown. Clear it with editor(clear_dialog_policy)."),
-		*Pattern, *ResponseTypeToString(Response), *ButtonNote);
+		*Pattern, ResponseOut.IsEmpty() ? *ButtonLabel : *ResponseOut, *ButtonNote);
 
 	// Ensure hook is installed
 	if (!bHookInstalled)
@@ -513,9 +685,15 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("pattern"), Pattern);
-	Result->SetStringField(TEXT("response"), ResponseTypeToString(Response));
+	Result->SetStringField(TEXT("response"), ResponseOut);
 	Result->SetStringField(TEXT("buttonLabel"), ButtonLabel);
 	Result->SetNumberField(TEXT("policyCount"), Policies.Num());
+	if (!bResponseExplicit)
+	{
+		Result->SetStringField(TEXT("messageDialogNote"), bHasResponse
+			? FString::Printf(TEXT("On a message dialog that offers it, this label answers '%s'."), *ResponseOut)
+			: FString(TEXT("No message dialog button carries this label, so a message dialog this pattern matches is left for a person.")));
+	}
 
 	// A policy armed while a modal is ALREADY up has to answer it now. This
 	// handler is modal-safe, so it runs from inside the modal loop, which is
@@ -571,7 +749,7 @@ TSharedPtr<FJsonValue> FDialogHandlers::ClearDialogPolicy(const TSharedPtr<FJson
 	{
 		TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
 		Entry->SetStringField(TEXT("pattern"), P.Pattern);
-		Entry->SetStringField(TEXT("response"), ResponseTypeToString(P.Response));
+		Entry->SetStringField(TEXT("response"), PolicyResponseString(P));
 		Entry->SetStringField(TEXT("buttonLabel"), P.ButtonLabel);
 		ClearedJson.Add(MakeShared<FJsonValueObject>(Entry));
 	}
@@ -582,7 +760,7 @@ TSharedPtr<FJsonValue> FDialogHandlers::ClearDialogPolicy(const TSharedPtr<FJson
 		// A cleared policy has a real inverse: arm it again exactly as it was.
 		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetStringField(TEXT("pattern"), Cleared[0].Pattern);
-		Payload->SetStringField(TEXT("response"), ResponseTypeToString(Cleared[0].Response));
+		Payload->SetStringField(TEXT("response"), Cleared[0].bResponseExplicit ? ResponseTypeToString(Cleared[0].Response) : FString());
 		Payload->SetStringField(TEXT("buttonLabel"), Cleared[0].ButtonLabel);
 		MCPSetRollback(Result, TEXT("set_dialog_policy"), Payload);
 	}
@@ -613,7 +791,7 @@ TSharedPtr<FJsonValue> FDialogHandlers::GetDialogPolicy(const TSharedPtr<FJsonOb
 	{
 		TSharedPtr<FJsonObject> P = MakeShared<FJsonObject>();
 		P->SetStringField(TEXT("pattern"), Policy.Pattern);
-		P->SetStringField(TEXT("response"), ResponseTypeToString(Policy.Response));
+		P->SetStringField(TEXT("response"), PolicyResponseString(Policy));
 		P->SetStringField(TEXT("buttonLabel"), Policy.ButtonLabel);
 		// Which policies answer a Slate modal that no bridge request raised.
 		// Constant on purpose. A policy can only get into this list through
@@ -1061,7 +1239,7 @@ TSharedPtr<FJsonValue> FDialogHandlers::ListDialogs(const TSharedPtr<FJsonObject
 			const int32 Index = ResolveButtonForPolicy(*Policy, Buttons, Reason);
 			DialogObj->SetBoolField(TEXT("policyMatched"), true);
 			DialogObj->SetStringField(TEXT("policyPattern"), Policy->Pattern);
-			DialogObj->SetStringField(TEXT("policyResponse"), ResponseTypeToString(Policy->Response));
+			DialogObj->SetStringField(TEXT("policyResponse"), PolicyResponseString(*Policy));
 			DialogObj->SetStringField(TEXT("policySource"), TEXT("caller"));
 			if (Index != INDEX_NONE)
 			{
@@ -1289,4 +1467,9 @@ FString FDialogHandlers::ResponseTypeToString(EAppReturnType::Type Response)
 	case EAppReturnType::NoAll:    return TEXT("noall");
 	default:                       return TEXT("unknown");
 	}
+}
+
+FString FDialogHandlers::PolicyResponseString(const FDialogPolicy& Policy)
+{
+	return Policy.bHasResponse ? ResponseTypeToString(Policy.Response) : FString();
 }

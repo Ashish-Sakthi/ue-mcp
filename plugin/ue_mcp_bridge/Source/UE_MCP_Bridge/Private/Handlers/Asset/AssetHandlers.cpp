@@ -7,6 +7,7 @@
 #include "HandlerJsonProperty.h"
 #include "HandlerPropertyText.h"
 #include "HandlerAssetCreate.h"
+#include "Handlers/Dialog/DialogHandlers.h"
 #include "JsonSerializer.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -2496,14 +2497,51 @@ TSharedPtr<FJsonValue> FAssetHandlers::RenameAsset(const TSharedPtr<FJsonObject>
 		return RenameWorldWithExternals(SourcePath, DestPath, bForce);
 	}
 
+	const int32 DialogSerialBefore = FDialogHandlers::GetAnsweredDialogSerial();
 	bool bOk = UEditorAssetLibrary::RenameAsset(SourcePath, DestPath);
 
 	auto Result = MCPSuccess();
-	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("sourcePath"), SourcePath);
 	Result->SetStringField(TEXT("destinationPath"), DestPath);
 	Result->SetBoolField(TEXT("success"), bOk);
 
+	if (!bOk)
+	{
+		// A cancelled confirmation is the usual cause, so the failure names the
+		// dialog and the answer it got (#1334).
+		const TArray<FDialogHandlers::FAnsweredDialog> Dialogs = FDialogHandlers::AnsweredDialogsSince(DialogSerialBefore);
+		TArray<TSharedPtr<FJsonValue>> DialogsJson;
+		for (const FDialogHandlers::FAnsweredDialog& Dialog : Dialogs)
+		{
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("title"), Dialog.Title);
+			Entry->SetStringField(TEXT("message"), Dialog.Message);
+			Entry->SetStringField(TEXT("answer"), Dialog.Answer);
+			Entry->SetStringField(TEXT("answeredBy"), Dialog.AnsweredBy);
+			DialogsJson.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		Result->SetArrayField(TEXT("dialogs"), DialogsJson);
+		if (Dialogs.Num() > 0)
+		{
+			const FDialogHandlers::FAnsweredDialog& Last = Dialogs.Last();
+			Result->SetStringField(TEXT("reason"), TEXT("dialog_declined"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor asked '%s' and it was answered '%s' by %s. ")
+				TEXT("To answer it differently, arm editor(set_dialog_policy) with that button before retrying."),
+				*SourcePath, *DestPath, *Last.Message.Left(400), *Last.Answer,
+				Last.AnsweredBy == TEXT("policy") ? TEXT("an armed dialog policy") : TEXT("a person or respond_to_dialog")));
+		}
+		else
+		{
+			Result->SetStringField(TEXT("reason"), TEXT("rename_failed"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor raised no dialog; the output log carries the reason."),
+				*SourcePath, *DestPath));
+		}
+		return MCPResult(Result);
+	}
+
+	MCPSetUpdated(Result);
 	if (bOk)
 	{
 		// Self-inverse: rename back.
