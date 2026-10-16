@@ -65,6 +65,24 @@ function runSelfCommand(command: string, projectArg: string | undefined): boolea
   }
 }
 
+/** `--name value` or `--name=value`; undefined when absent. */
+function flagValue(argv: string[], name: string): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === name) return argv[i + 1];
+    if (argv[i].startsWith(`${name}=`)) return argv[i].slice(name.length + 1);
+  }
+  return undefined;
+}
+
+/** The first argument that is neither a flag nor the value of --binaries. */
+function firstPositional(argv: string[]): string | undefined {
+  for (let i = 0; i < argv.length; i++) {
+    if (argv[i] === "--binaries") i++;
+    else if (!argv[i].startsWith("-")) return argv[i];
+  }
+  return undefined;
+}
+
 async function update(argv: string[]) {
   let target: { projectPath?: string; rest: string[] };
   try {
@@ -77,7 +95,7 @@ async function update(argv: string[]) {
   // The package and the editor plugin are one product, so a bare update carries
   // both. Stopping at npm left editors on an old plugin that answered
   // "Unknown method" for actions the new server advertised.
-  const uproject = targetUProject(target.projectPath ?? args.find((a) => !a.startsWith("-")));
+  const uproject = targetUProject(target.projectPath ?? firstPositional(args));
   const projectArg = uproject ?? undefined;
   const shouldDeploy = !!uproject && !args.includes("--no-deploy");
   // --build and --deploy are the old opt-ins, now the default; still accepted.
@@ -89,10 +107,9 @@ async function update(argv: string[]) {
       fail("No .uproject here.");
       process.exit(1);
     }
-    const binIdx = args.indexOf("--binaries");
     const result = await applyUpdate(uproject, {
       editorRunning: await editorRunningFor(uproject),
-      binaries: binIdx >= 0 ? args[binIdx + 1] : null,
+      binaries: flagValue(args, "--binaries") ?? null,
     });
     if (!result.ok) {
       fail(result.error ?? "update failed");
