@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1080,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -33102,6 +33102,71 @@
           "type": "boolean",
           "required": false,
           "description": "bOnlyRelevantToOwner (default false)"
+        }
+      ]
+    },
+    "set_pcg_graph_pins": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": true,
+          "description": "input | output: the graph node whose pins change"
+        },
+        {
+          "name": "pins",
+          "type": "array",
+          "required": true,
+          "description": "Pins matched by label",
+          "items": "object",
+          "fields": [
+            {
+              "name": "label",
+              "type": "string",
+              "required": true,
+              "description": "Pin label; edges are wired by it"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"
+            },
+            {
+              "name": "tooltip",
+              "type": "string",
+              "required": false,
+              "description": "Pin tooltip"
+            },
+            {
+              "name": "allowMultipleData",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one data (default true)"
+            },
+            {
+              "name": "allowMultipleConnections",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one edge (default true)"
+            }
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"
         }
       ]
     },

@@ -46,6 +46,9 @@ private:
 	// issue #1253 - assign a Subgraph node's graph through SetSubgraph, and override its user parameters.
 	static TSharedPtr<FJsonValue> SetSubgraph(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetSubgraphParameters(const TSharedPtr<FJsonObject>& Params);
+	// issue #1318 - a graph's own input or output pins.
+	static TSharedPtr<FJsonValue> SetGraphPins(const TSharedPtr<FJsonObject>& Params);
+
 	static void ExportSubgraphSettings(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
 	static bool ImportSubgraphSettings(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
 };

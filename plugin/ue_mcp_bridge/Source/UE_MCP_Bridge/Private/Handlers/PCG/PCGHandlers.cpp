@@ -66,25 +66,9 @@ namespace
 		return MCPResolveClassOfType(ClassName, UPCGSettings::StaticClass());
 	}
 
-	// Settings that rebuild their pins from a property (Load PCG Data Asset's Asset, for one) react only to a
-	// change event naming that property; a bare PostEditChange leaves the node's pins stale (#1256).
 	static void MCPNotifyPCGSettingsChanged(UPCGSettings* Settings, const TArray<FString>& WrittenKeys)
 	{
-		TSet<FName> Notified;
-		for (const FString& Key : WrittenKeys)
-		{
-			int32 Cut = INDEX_NONE;
-			FString Top = Key;
-			if (Top.FindChar(TEXT('.'), Cut)) Top.LeftInline(Cut);
-			if (Top.FindChar(TEXT('['), Cut)) Top.LeftInline(Cut);
-			FProperty* Prop = Settings->GetClass()->FindPropertyByName(FName(*Top));
-			if (!Prop || Notified.Contains(Prop->GetFName())) continue;
-			Notified.Add(Prop->GetFName());
-			FPropertyChangedEvent Event(Prop, EPropertyChangeType::ValueSet);
-			// Public on UObject, protected on UPCGSettings; the call still dispatches to the settings override.
-			static_cast<UObject*>(Settings)->PostEditChangeProperty(Event);
-		}
-		if (Notified.Num() == 0) Settings->PostEditChange();
+		MCPPCG::NotifySettingsChanged(Settings, WrittenKeys);
 	}
 
 	// An instanced subobject (a spawner's mesh selector) belongs to the settings
@@ -566,6 +550,19 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		GraphPath(),
 		MCPParam::Required(TEXT("nodeName"), EType::String, TEXT("Engine name of the Subgraph node")),
 		MCPParam::Required(TEXT("parameters"), EType::Object, TEXT("{parameterName: value}; null clears that override")),
+	});
+	// #1318: the graph's own pins, on its input or output node.
+	Registry.RegisterHandler(TEXT("set_pcg_graph_pins"), &SetGraphPins, {
+		GraphPath(),
+		MCPParam::Required(TEXT("side"), EType::String, TEXT("input | output: the graph node whose pins change")),
+		MCPParam::Required(TEXT("pins"), EType::Array, TEXT("Pins matched by label")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("label"), EType::String, TEXT("Pin label; edges are wired by it")),
+			MCPParam::OptionalField(TEXT("type"), EType::String, TEXT("EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type")),
+			MCPParam::OptionalField(TEXT("tooltip"), EType::String, TEXT("Pin tooltip")),
+			MCPParam::OptionalField(TEXT("allowMultipleData"), EType::Boolean, TEXT("Accept more than one data (default true)")),
+			MCPParam::OptionalField(TEXT("allowMultipleConnections"), EType::Boolean, TEXT("Accept more than one edge (default true)")),
+		}),
+		MCPParam::Optional(TEXT("mode"), EType::String, TEXT("append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)")),
 	});
 }
 

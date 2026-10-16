@@ -526,6 +526,71 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "set_pcg_graph_pins": {
+    "category": "pcg",
+    "params": [
+      {
+        "name": "assetPath",
+        "type": "string",
+        "required": true,
+        "description": "PCGGraph asset path",
+        "aliases": [
+          "path"
+        ]
+      },
+      {
+        "name": "side",
+        "type": "string",
+        "required": true,
+        "description": "input | output: the graph node whose pins change"
+      },
+      {
+        "name": "pins",
+        "type": "array",
+        "required": true,
+        "description": "Pins matched by label",
+        "items": "object",
+        "fields": [
+          {
+            "name": "label",
+            "type": "string",
+            "required": true,
+            "description": "Pin label; edges are wired by it"
+          },
+          {
+            "name": "type",
+            "type": "string",
+            "required": false,
+            "description": "EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"
+          },
+          {
+            "name": "tooltip",
+            "type": "string",
+            "required": false,
+            "description": "Pin tooltip"
+          },
+          {
+            "name": "allowMultipleData",
+            "type": "boolean",
+            "required": false,
+            "description": "Accept more than one data (default true)"
+          },
+          {
+            "name": "allowMultipleConnections",
+            "type": "boolean",
+            "required": false,
+            "description": "Accept more than one edge (default true)"
+          }
+        ]
+      },
+      {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "description": "append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"
+      }
+    ]
+  },
   "set_pcg_node_settings": {
     "category": "pcg",
     "params": [
@@ -772,6 +837,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   read_pcg_graph: "Params: assetPath (or path)",
   read_pcg_node_settings: "Params: assetPath (or path), nodeName",
   remove_pcg_node: "Params: assetPath (or path), nodeName",
+  set_pcg_graph_pins: "Params: assetPath (or path), side, pins, mode?",
   set_pcg_node_settings: "Params: assetPath (or path), nodeName, settings OR propertyName + propertyValue",
   set_pcg_subgraph: "Params: assetPath (or path), nodeName, subgraphPath",
   set_pcg_subgraph_parameters: "Params: assetPath (or path), nodeName, parameters",
@@ -786,7 +852,7 @@ export const schema: Record<string, z.ZodType> = {
   actorLabel: z.string().optional().describe("Editor label of the actor holding the PCG component; a label naming several actors is refused"),
   actorPath: z.string().optional().describe("Full actor object path; the unambiguous selector"),
   assetName: z.string().optional().describe("Asset name (default: <LevelName>_PCG)"),
-  assetPath: z.string().optional().describe("PCGGraph asset path (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). Content folder for the PCG data asset (default: the level's folder) (export_level_to_pcg_asset)"),
+  assetPath: z.string().optional().describe("PCGGraph asset path (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_graph_pins, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). Content folder for the PCG data asset (default: the level's folder) (export_level_to_pcg_asset)"),
   assetPaths: z.array(z.string()).optional().describe("PCG data assets to re-export from their source levels"),
   connections: z.array(z.record(z.unknown())).optional().describe("[{from, fromPin?, to, toPin?}]"),
   cursor: z.string().optional().describe("Resume a paged read: pass back the 'nextCursor' from the previous page, unmodified"),
@@ -798,6 +864,7 @@ export const schema: Record<string, z.ZodType> = {
   levelPath: z.string().optional().describe("Saved level (.umap) to export, package or object path"),
   limit: z.number().int().optional().describe("Rows to return on this page (default 200, max 2000)"),
   location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location {x,y,z} (default origin); wins over transform.location"),
+  mode: z.string().optional().describe("append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"),
   name: z.string().optional().describe("Graph asset name"),
   nodeName: z.string().optional().describe("Engine name of the node, as read_graph reports it (read_pcg_node_settings, remove_pcg_node, set_pcg_node_settings, set_static_mesh_spawner_meshes). Engine name of the Subgraph node, as read_graph reports it (set_pcg_subgraph). Engine name of the Subgraph node (set_pcg_subgraph_parameters). Only this node (default: every node in the graph) (unwrap_pcg_instance_nodes)"),
   nodes: z.array(z.record(z.unknown())).optional().describe("[{name, class, posX?, posY?, settings?}]"),
@@ -805,7 +872,8 @@ export const schema: Record<string, z.ZodType> = {
   onConflict: z.string().optional().describe("When the label exists: skip (default, report it) | error (add_pcg_volume). When the graph exists: skip (default, report it) | error (create_pcg_graph)"),
   packagePath: z.string().optional().describe("Folder for the new graph (default /Game/PCG)"),
   parameters: z.record(z.unknown()).optional().describe("{parameterName: value}; null clears that override"),
-  path: z.string().optional().describe("Alias for assetPath (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). Alias for packagePath (create_pcg_graph)"),
+  path: z.string().optional().describe("Alias for assetPath (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_graph_pins, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). Alias for packagePath (create_pcg_graph)"),
+  pins: z.array(z.object({ label: z.string().describe("Pin label; edges are wired by it"), type: z.string().optional().describe("EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"), tooltip: z.string().optional().describe("Pin tooltip"), allowMultipleData: z.boolean().optional().describe("Accept more than one data (default true)"), allowMultipleConnections: z.boolean().optional().describe("Accept more than one edge (default true)") })).optional().describe("Pins matched by label"),
   posX: z.number().optional().describe("Graph editor X position for the new node"),
   posY: z.number().optional().describe("Graph editor Y position for the new node"),
   propertyName: z.string().optional().describe("One property to write instead of a settings object"),
@@ -815,6 +883,7 @@ export const schema: Record<string, z.ZodType> = {
   save: z.boolean().optional().describe("Save the asset after export (default true) (export_level_to_pcg_asset). Save the assets after export (default true) (update_pcg_level_assets)"),
   seed: z.number().int().optional().describe("Write the component's Seed before generating; the old one is reported as previousSeed"),
   settings: z.record(z.unknown()).optional().describe("{propertyPath: value}; dotted paths and nested structs supported"),
+  side: z.string().optional().describe("input | output: the graph node whose pins change"),
   sourceNode: z.string().optional().describe("Node the edge leaves"),
   sourceNodeName: z.string().optional().describe("Alias for sourceNode"),
   sourcePin: z.string().optional().describe("Output pin label. connect_nodes defaults to the first output pin, disconnect_nodes to any"),
