@@ -2387,7 +2387,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::PoseDebugCamera(const TSharedPtr<FJsonOb
 	}
 
 	APawn* CameraPawn = Debug->GetPawnOrSpectator();
-	const FVector Location = bHasLocation ? RequestedLocation : (CameraPawn ? CameraPawn->GetActorLocation() : Debug->GetActorLocation());
+	const FVector Location = bHasLocation ? RequestedLocation : (CameraPawn ? CameraPawn->GetActorLocation() : static_cast<AActor*>(Debug)->GetActorLocation());
 	FRotator Rotation = bHasRotation ? RequestedRotation : Debug->GetControlRotation();
 	if (bHasLookAt)
 	{
@@ -2415,7 +2415,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::PoseDebugCamera(const TSharedPtr<FJsonOb
 	}
 	else
 	{
-		Debug->SetActorLocation(Location);
+		static_cast<AActor*>(Debug)->SetActorLocation(Location);
 	}
 	Debug->SetControlRotation(Rotation);
 	if (Debug->PlayerCameraManager)
@@ -2424,7 +2424,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::PoseDebugCamera(const TSharedPtr<FJsonOb
 		Result->SetObjectField(TEXT("cameraLocation"), MCPVec3ToJsonObject(Debug->PlayerCameraManager->GetCameraLocation()));
 		Result->SetObjectField(TEXT("cameraRotation"), MCPRotatorToJsonObject(Debug->PlayerCameraManager->GetCameraRotation()));
 	}
-	Result->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(CameraPawn ? CameraPawn->GetActorLocation() : Debug->GetActorLocation()));
+	Result->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(CameraPawn ? CameraPawn->GetActorLocation() : static_cast<AActor*>(Debug)->GetActorLocation()));
 	Result->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(Debug->GetControlRotation()));
 	Result->SetBoolField(TEXT("changed"), true);
 	MCPSetUpdated(Result);
