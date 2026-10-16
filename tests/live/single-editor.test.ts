@@ -61,7 +61,6 @@ describe("the single-editor shape is the shape it always was", () => {
     const result = await server.call("asset", {
       action: "list_textures",
       directory: "/Game",
-      recursive: false,
     });
     expect(result.isError).toBe(false);
     expect(result.blocks.some((b) => b.startsWith("MACHINE_EDITOR="))).toBe(false);

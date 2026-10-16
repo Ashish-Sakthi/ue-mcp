@@ -163,7 +163,6 @@ describe("the union surface", () => {
 
     const refused = await server.call("niagara", {
       action: "list",
-      directory: "/Game",
       editor: SECOND,
     });
     expect(refused.isError).toBe(true);
@@ -174,7 +173,6 @@ describe("the union surface", () => {
   it("keeps the same category working for the editor that did not disable it", async () => {
     const allowed = await server.call("niagara", {
       action: "list",
-      directory: "/Game",
       editor: LIVE,
     });
     // The editor answers it: what matters is that this is not the config
