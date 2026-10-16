@@ -29,26 +29,7 @@ Verify with the introspection tool:
 plugins(action="list")
 ```
 
-```json
-{
-  "pluginCount": 1,
-  "active": 1,
-  "plugins": [
-    {
-      "name": "pie-studio",
-      "version": "0.0.2",
-      "actionPrefix": "",
-      "status": "active",
-      "categories": ["gameplay"],
-      "injectedActions": 33,
-      "flows": 0,
-      "nativeModule": "PIE_Studio"
-    }
-  ]
-}
-```
-
-Once `status: "active"`, the injected actions (e.g. `gameplay(action="pie_record_arm", ...)`) are callable end-to-end. Full consumer details are in [Using plugins](plugins-using.md).
+The `pie-studio` entry reports `status: "active"` and lists `pie` under `providedCategories`. Its native handlers are then callable as actions of that category, e.g. `pie(action="record_arm", ...)`. Full consumer details are in [Using plugins](plugins-using.md).
 
 ## How plugins work
 
@@ -88,7 +69,7 @@ Shape C is for capability that can't be expressed through orchestration of exist
 
 | Plugin | What it does |
 |--------|-------------|
-| [`pie-studio`](https://github.com/db-lyon/pie-studio) | PIE recording, replay, observation, and input injection. 33 native C++ handlers injected into `gameplay`. |
+| [`pie-studio`](https://github.com/db-lyon/pie-studio) | PIE recording, replay, observation, and input injection. Native C++ handlers surfaced as its own `pie` category. |
 
 ## Where to next
 
