@@ -82,6 +82,27 @@ namespace PCGGraphAuthoringTests
 		return Prop->ContainerPtrToValuePtr<FPCGAttributePropertySelector>(const_cast<UPCGSettings*>(Settings))->GetDisplayText().ToString();
 	}
 
+	/** One import_graph node entry. */
+	TSharedPtr<FJsonValue> ImportNode(const TCHAR* Name, const TCHAR* Class, const TSharedPtr<FJsonObject>& Settings = nullptr)
+	{
+		auto Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), Name);
+		Obj->SetStringField(TEXT("class"), Class);
+		if (Settings) Obj->SetObjectField(TEXT("settings"), Settings);
+		return MakeShared<FJsonValueObject>(Obj);
+	}
+
+	TSharedPtr<FJsonObject> ImportGraph(FMCPHandlerRegistry& Registry, const FString& GraphPath, const TArray<TSharedPtr<FJsonValue>>& Nodes,
+		const TArray<TSharedPtr<FJsonValue>>& Connections = {}, bool bReplace = false)
+	{
+		auto Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("assetPath"), GraphPath);
+		Params->SetArrayField(TEXT("nodes"), Nodes);
+		if (Connections.Num() > 0) Params->SetArrayField(TEXT("connections"), Connections);
+		Params->SetBoolField(TEXT("replace"), bReplace);
+		return Invoke(Registry, TEXT("import_pcg_graph"), Params);
+	}
+
 	TSharedPtr<FJsonValue> Pin(const TCHAR* Label, const TCHAR* Type = nullptr)
 	{
 		auto Obj = MakeShared<FJsonObject>();
@@ -319,6 +340,53 @@ bool FMCPPCGSelectorRoundTripTest::RunTest(const FString& Parameters)
 		}
 	}
 	TestEqual(TEXT("the selector survives export and import"), RoundTripped, FString(TEXT("$Position.Z")));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGImportUpsertTest,
+	"UE.MCP.PCG.Authoring.ImportUpsertByName",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGImportUpsertTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	UPCGGraph* Graph = GraphPath.IsEmpty() ? nullptr : LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	if (!TestNotNull(TEXT("the graph loads"), Graph)) return false;
+	TestTrue(TEXT("the named node is created"), Ok(ImportGraph(Registry, GraphPath, { ImportNode(TEXT("FT_BankDist"), TEXT("PCGDistanceSettings")) })));
+	UPCGNode* Original = FindNode(Graph, TEXT("FT_BankDist"));
+	if (!TestNotNull(TEXT("it keeps its name"), Original)) return false;
+	const int32 NodeCount = Graph->GetNodes().Num();
+
+	// Same name and class: updated in place, and the edge naming it lands on it.
+	auto Settings = MakeShared<FJsonObject>();
+	Settings->SetNumberField(TEXT("MaximumDistance"), 1234.0);
+	auto Edge = MakeShared<FJsonObject>();
+	Edge->SetStringField(TEXT("from"), Graph->GetInputNode()->GetName());
+	Edge->SetStringField(TEXT("to"), TEXT("FT_BankDist"));
+	const TSharedPtr<FJsonObject> Upserted = ImportGraph(Registry, GraphPath,
+		{ ImportNode(TEXT("FT_BankDist"), TEXT("PCGDistanceSettings"), Settings) }, { MakeShared<FJsonValueObject>(Edge) });
+	TestTrue(TEXT("the upsert succeeds"), Ok(Upserted));
+	TestEqual(TEXT("no duplicate node is made"), Graph->GetNodes().Num(), NodeCount);
+	TestEqual(TEXT("nodesUpdated counts it"), Upserted->GetIntegerField(TEXT("nodesUpdated")), 1);
+	TestEqual(TEXT("nodesCreated is zero"), Upserted->GetIntegerField(TEXT("nodesCreated")), 0);
+	TestTrue(TEXT("the edge lands on the existing node"), Original->GetInputPins().Num() > 0 && Original->GetInputPins()[0]->Edges.Num() == 1);
+	const FDoubleProperty* MaxProp = CastField<FDoubleProperty>(Original->GetSettings()->GetClass()->FindPropertyByName(TEXT("MaximumDistance")));
+	TestTrue(TEXT("the settings land on the existing node"), MaxProp && MaxProp->GetPropertyValue_InContainer(Original->GetSettings()) == 1234.0);
+
+	// Same name, another class: refused before anything changes.
+	const TSharedPtr<FJsonObject> Conflict = ImportGraph(Registry, GraphPath,
+		{ ImportNode(TEXT("Fresh"), TEXT("PCGDistanceSettings")), ImportNode(TEXT("FT_BankDist"), TEXT("PCGAddTagSettings")) });
+	TestFalse(TEXT("a class conflict is refused"), Ok(Conflict));
+	TestEqual(TEXT("the refusal says why"), Conflict->GetStringField(TEXT("reason")), FString(TEXT("node_name_conflict")));
+	TestNull(TEXT("nothing from the refused call was created"), FindNode(Graph, TEXT("Fresh")));
+	TestFalse(TEXT("a name given twice is refused"), Ok(ImportGraph(Registry, GraphPath,
+		{ ImportNode(TEXT("Twice"), TEXT("PCGDistanceSettings")), ImportNode(TEXT("Twice"), TEXT("PCGDistanceSettings")) })));
+	TestEqual(TEXT("refusals leave the node count alone"), Graph->GetNodes().Num(), NodeCount);
 	return true;
 }
 

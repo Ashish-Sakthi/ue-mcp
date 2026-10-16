@@ -2602,6 +2602,44 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	}
 	if (Refusals.Num() > 0) return InstancedPathRefusalError(AssetPath, Refusals);
 
+	// Without replace, a name the graph already has is that node: same class updates it in place, any other
+	// class refuses the call before anything changes, so no edge can land on an engine-named duplicate (#1262).
+	{
+		TArray<FString> Conflicts;
+		TSet<FString> Named;
+		for (const TSharedPtr<FJsonValue>& V : *NodesArr)
+		{
+			const TSharedPtr<FJsonObject>* NodeObj = nullptr;
+			FString LocalName, ClassName;
+			if (!V.IsValid() || !V->TryGetObject(NodeObj) || !NodeObj || !(*NodeObj).IsValid()) continue;
+			if (!(*NodeObj)->TryGetStringField(TEXT("name"), LocalName) || LocalName.IsEmpty()) continue;
+			(*NodeObj)->TryGetStringField(TEXT("class"), ClassName);
+			if (Named.Contains(LocalName))
+			{
+				Conflicts.Add(FString::Printf(TEXT("'%s' is named twice"), *LocalName));
+				continue;
+			}
+			Named.Add(LocalName);
+			const UPCGNode* Existing = bReplace ? nullptr : MCPPCG::FindNode(Graph, LocalName);
+			if (!Existing) continue;
+			const UClass* Wanted = FindPCGSettingsClass(ClassName);
+			const UClass* Has = Existing->GetSettings() ? Existing->GetSettings()->GetClass() : nullptr;
+			if (MCPPCG::IsGraphIONode(Graph, Existing) || !Wanted || Wanted != Has)
+			{
+				Conflicts.Add(FString::Printf(TEXT("'%s' already exists as a %s, not a %s"), *LocalName,
+					Has ? *Has->GetName() : TEXT("node without settings"), Wanted ? *Wanted->GetName() : *ClassName));
+			}
+		}
+		if (Conflicts.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Err = MCPErrorObject(FString::Printf(
+				TEXT("Nothing was changed: %s. Give new nodes unused names, use the existing node's class to update it in place, or pass replace=true."),
+				*FString::Join(Conflicts, TEXT("; "))));
+			Err->SetStringField(TEXT("reason"), TEXT("node_name_conflict"));
+			return MakeShared<FJsonValueObject>(Err);
+		}
+	}
+
 	if (auto Blocked = MCPAssetWriteBlockedError(Graph, AssetPath, TEXT("import into this PCG graph"))) return Blocked;
 
 	// Snapshot the graph before touching it. export_pcg_graph and this action
@@ -2642,6 +2680,9 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 		}
 		for (UPCGNode* Node : Existing)
 		{
+			// A removed node keeps its name until garbage collection; move it aside so the import can reuse the name.
+			const FName Aside = MakeUniqueObjectName(Node->GetOuter(), Node->GetClass(), FName(*(Node->GetName() + TEXT("_Removed"))));
+			Node->Rename(*Aside.ToString(), nullptr, REN_DontCreateRedirectors | REN_DoNotDirty);
 			Graph->RemoveNode(Node);
 			++Removed;
 		}
@@ -2651,6 +2692,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	// the actual UPCGNode name on creation. Edges reference these local names.
 	TMap<FString, UPCGNode*> ByLocalName;
 	TArray<TSharedPtr<FJsonValue>> Warnings;
+	TArray<TSharedPtr<FJsonValue>> Upserted;
 	int32 ImportFailures = 0;
 	int32 NodesCreated = 0;
 	int32 SettingsApplied = 0;
@@ -2684,59 +2726,67 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			continue;
 		}
 
-		UPCGSettings* DefaultSettings = NewObject<UPCGSettings>(Graph, SettingsClass, NAME_None, RF_Transactional);
-		if (!DefaultSettings)
+		// The pre-pass refused a same-name node of another class, so a match here is an in-place update.
+		UPCGNode* Node = (!bReplace && !LocalName.IsEmpty()) ? MCPPCG::FindNode(Graph, LocalName) : nullptr;
+		UPCGSettings* NodeSettings = Node ? const_cast<UPCGSettings*>(Node->GetSettings()) : nullptr;
+		const bool bUpsert = NodeSettings != nullptr;
+		if (bUpsert)
 		{
-			++ImportFailures;
-			Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': failed to instantiate settings"), *LocalName)));
-			continue;
+			Node->Modify();
 		}
-
-		// Node-owned settings stay editable in the PCG editor (#1087).
-		UPCGNode* NewNode = Graph->AddNode(DefaultSettings);
-		if (!NewNode)
+		else
 		{
-			++ImportFailures;
-			Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': AddNode failed"), *LocalName)));
-			continue;
-		}
-
-		if (DefaultSettings->GetOuter() != NewNode && !DefaultSettings->GetOuter()->IsA<UPackage>())
-		{
-			DefaultSettings->Rename(nullptr, NewNode, REN_DontCreateRedirectors | REN_DoNotDirty);
-		}
-
-		// #236: preserve the user-supplied node name when there's no collision.
-		// AddNode assigns engine-derived names (e.g. SurfaceSampler_0),
-		// which makes export -> import not name-stable. Rename the new node
-		// to the local id when nothing else in the graph already uses it.
-		if (!LocalName.IsEmpty() && NewNode->GetName() != LocalName)
-		{
-#if UE_MCP_HAS_STATIC_FIND_OBJECT_FLAGS
-			const bool bClashes = (StaticFindObject(nullptr, NewNode->GetOuter(), *LocalName, EFindObjectFlags::ExactClass) != nullptr);
-#else
-			const bool bClashes = (StaticFindObject(nullptr, NewNode->GetOuter(), *LocalName, true) != nullptr);
-#endif
-			if (!bClashes)
+			NodeSettings = NewObject<UPCGSettings>(Graph, SettingsClass, NAME_None, RF_Transactional);
+			if (!NodeSettings)
 			{
-				NewNode->Rename(*LocalName, NewNode->GetOuter(), REN_DontCreateRedirectors | REN_DoNotDirty);
+				++ImportFailures;
+				Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': failed to instantiate settings"), *LocalName)));
+				continue;
 			}
-			else
+
+			// Node-owned settings stay editable in the PCG editor (#1087).
+			Node = Graph->AddNode(NodeSettings);
+			if (!Node)
 			{
-				Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': name collision, kept engine-assigned '%s'"), *LocalName, *NewNode->GetName())));
+				++ImportFailures;
+				Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': AddNode failed"), *LocalName)));
+				continue;
+			}
+
+			if (NodeSettings->GetOuter() != Node && !NodeSettings->GetOuter()->IsA<UPackage>())
+			{
+				NodeSettings->Rename(nullptr, Node, REN_DontCreateRedirectors | REN_DoNotDirty);
+			}
+
+			// #236: the new node takes the local name unless another object under the graph holds it.
+			if (!LocalName.IsEmpty() && Node->GetName() != LocalName)
+			{
+#if UE_MCP_HAS_STATIC_FIND_OBJECT_FLAGS
+				const bool bClashes = (StaticFindObject(nullptr, Node->GetOuter(), *LocalName, EFindObjectFlags::ExactClass) != nullptr);
+#else
+				const bool bClashes = (StaticFindObject(nullptr, Node->GetOuter(), *LocalName, true) != nullptr);
+#endif
+				if (!bClashes)
+				{
+					Node->Rename(*LocalName, Node->GetOuter(), REN_DontCreateRedirectors | REN_DoNotDirty);
+				}
+				else
+				{
+					Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': name collision, kept engine-assigned '%s'"), *LocalName, *Node->GetName())));
+				}
 			}
 		}
 
 		double PosX = 0, PosY = 0;
-		if ((*NodeObj)->TryGetNumberField(TEXT("posX"), PosX)) NewNode->PositionX = (int32)PosX;
-		if ((*NodeObj)->TryGetNumberField(TEXT("posY"), PosY)) NewNode->PositionY = (int32)PosY;
+		if ((*NodeObj)->TryGetNumberField(TEXT("posX"), PosX)) Node->PositionX = (int32)PosX;
+		if ((*NodeObj)->TryGetNumberField(TEXT("posY"), PosY)) Node->PositionY = (int32)PosY;
 
 		// Apply settings via the same dotted-path JSON setter used by
 		// set_pcg_node_settings (#149).
 		const TSharedPtr<FJsonObject>* SettingsObj = nullptr;
 		if ((*NodeObj)->TryGetObjectField(TEXT("settings"), SettingsObj) && SettingsObj && (*SettingsObj).IsValid())
 		{
-			DefaultSettings->Modify();
+			NodeSettings->Modify();
 			TArray<FString> AppliedKeys;
 			TArray<FString> Recreated;
 			TArray<TPair<FString, TSharedPtr<FJsonValue>>> PropertiesToSet;
@@ -2752,10 +2802,10 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			{
 				const FString& SettingName = Pair.Key;
 				FString SubErr;
-				if (SetPCGSettingFromJson(DefaultSettings, SettingName, Pair.Value, SubErr))
+				if (SetPCGSettingFromJson(NodeSettings, SettingName, Pair.Value, SubErr))
 				{
 					++SettingsApplied;
-					FinishPCGSettingWrite(DefaultSettings, SettingName, Recreated, AppliedKeys);
+					FinishPCGSettingWrite(NodeSettings, SettingName, Recreated, AppliedKeys);
 				}
 				else
 				{
@@ -2763,23 +2813,24 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 					Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s' setting '%s': %s"), *LocalName, *SettingName, *SubErr)));
 				}
 			}
-			MCPNotifyPCGSettingsChanged(DefaultSettings, AppliedKeys);
+			MCPNotifyPCGSettingsChanged(NodeSettings, AppliedKeys);
 		}
 
 		FString SubgraphError;
-		if (!ImportSubgraphSettings(DefaultSettings, *NodeObj, SubgraphError))
+		if (!ImportSubgraphSettings(NodeSettings, *NodeObj, SubgraphError))
 		{
 			++ImportFailures;
 			Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': %s"), *LocalName, *SubgraphError)));
 		}
 
-		NewNode->PostEditChange();
+		Node->PostEditChange();
 
 		if (!LocalName.IsEmpty())
 		{
-			ByLocalName.Add(LocalName, NewNode);
+			ByLocalName.Add(LocalName, Node);
 		}
-		++NodesCreated;
+		if (bUpsert) Upserted.Add(MakeShared<FJsonValueString>(Node->GetName()));
+		else ++NodesCreated;
 	}
 
 	// Connections. Resolve names via the local-name map first, then fall back
@@ -2908,6 +2959,8 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 	Result->SetBoolField(TEXT("replace"), bReplace);
 	Result->SetNumberField(TEXT("nodesRemoved"), Removed);
 	Result->SetNumberField(TEXT("nodesCreated"), NodesCreated);
+	Result->SetNumberField(TEXT("nodesUpdated"), Upserted.Num());
+	if (Upserted.Num() > 0) Result->SetArrayField(TEXT("updatedNodes"), Upserted);
 	Result->SetNumberField(TEXT("connectionsMade"), ConnectionsMade);
 	Result->SetNumberField(TEXT("settingsApplied"), SettingsApplied);
 	if (Warnings.Num() > 0) Result->SetArrayField(TEXT("warnings"), Warnings);
@@ -2937,7 +2990,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 		MCPSetRollback(Result, TEXT("import_pcg_graph"), Payload);
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"),
-			TEXT("The rollback rebuilds the graph from a snapshot taken before this call: each node's class, position, every edge, and the settings the export captured. Node names are attempted but NOT guaranteed. The import renames each rebuilt node to the name in the snapshot only when nothing else is found under the graph's outer holding it, and the check is a StaticFindObject on the outer rather than a look at the node list - a node the same replace pass has just removed still occupies its name until garbage collection, so a rollback can land on the engine-assigned name instead. Every such case is listed in that call's warnings, so read them rather than assuming the names came back. What does NOT come back at all is any settings property the export could not see: only properties flagged editable are captured, so anything outside that set returns to its class default. Subgraph assignments and parameter overrides are restored from the subgraph snapshot. Other instanced subobjects such as a spawner's mesh selector are not exported, so they come back as the class default and their contents (mesh entries) have to be rewritten, e.g. with set_static_mesh_spawner_meshes."));
+			TEXT("The rollback rebuilds the graph from a snapshot taken before this call: each node's class, name, position, every edge, and the settings the export captured. A name another object under the graph still holds falls back to an engine-assigned one, listed in that call's warnings. Settings the export cannot see (properties not flagged editable) return to their class default. Subgraph assignments and parameter overrides are restored from the subgraph snapshot. Other instanced subobjects such as a spawner's mesh selector are not exported, so they come back as the class default and their contents (mesh entries) have to be rewritten, e.g. with set_static_mesh_spawner_meshes."));
 	}
 	else
 	{
