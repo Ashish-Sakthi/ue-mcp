@@ -16,6 +16,7 @@
 #include "UniversalObjectLocatorResolveParams.h"
 #include "Components/SceneComponent.h"
 #include "GameFramework/Actor.h"
+#include "Engine/Level.h"
 #include "EngineUtils.h"
 #include "Editor.h"
 
@@ -71,7 +72,15 @@ namespace UEMCP::SequencerBindings
 		LocateBound(Sequence, Guid, Context, Found);
 		for (UObject* O : Found)
 		{
-			if (O) Result.Add(O);
+			// A deleted actor stays resolvable while the undo buffer holds it, so it
+			// counts only while its level still lists it (#1356).
+			if (!IsValid(O)) continue;
+			if (const AActor* Actor = Cast<AActor>(O))
+			{
+				const ULevel* Level = Actor->GetLevel();
+				if (Actor->IsActorBeingDestroyed() || !Level || !Level->Actors.Contains(Actor)) continue;
+			}
+			Result.Add(O);
 		}
 		return Result;
 	}
