@@ -3807,9 +3807,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 
 	// A map opens as the editor world through load_level. Loading it here first would leave its package resident,
 	// and the map load then fatals on "Old level package ... not cleaned up by garbage collection" (#1241).
-	FString PackageFilename;
-	if (FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(AssetPath), &PackageFilename)
-		&& FPaths::GetExtension(PackageFilename, /*bIncludeDot*/ true) == FPackageName::GetMapPackageExtension())
+	// Loading a map through the asset editor also destroys the world the handler holds, which read freed memory
+	// for the class name and crashed on it (#1422).
+	auto OpenMapViaLoadLevel = [&Params, &AssetPath]() -> TSharedPtr<FJsonValue>
 	{
 		TSharedPtr<FJsonObject> LevelParams = MakeShared<FJsonObject>();
 		LevelParams->SetStringField(TEXT("levelPath"), AssetPath);
@@ -3832,6 +3832,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 			}
 		}
 		return LevelResult;
+	};
+
+	FString PackageFilename;
+	if (FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(AssetPath), &PackageFilename)
+		&& FPaths::GetExtension(PackageFilename, /*bIncludeDot*/ true) == FPackageName::GetMapPackageExtension())
+	{
+		return OpenMapViaLoadLevel();
 	}
 
 	// The shared resolver checks the path's shape before loading: StaticLoadObject on a malformed
@@ -3865,6 +3872,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 		return MCPResult(Result);
 	}
 
+	// A world the package check above missed, such as one not yet saved to disk, still opens as a map.
+	if (Asset->IsA<UWorld>())
+	{
+		return OpenMapViaLoadLevel();
+	}
+
 	// StaticLoadObject returns an unrooted pointer and OpenEditorForAsset can run
 	// the GC, so the asset is held for the rest of the call.
 	FGCObjectScopeGuard AssetScopeGuard(Asset);
@@ -3879,17 +3892,19 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 	// up and returns true either way, so this is the only point at which
 	// "was it already open" is answerable.
 	const bool bAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, /*bFocusIfOpen=*/false) != nullptr;
+	// Read before opening: an editor that loads a level can destroy objects on the way.
+	const FString AssetClassName = Asset->GetClass()->GetName();
 	bool bOpened = AssetEditorSubsystem->OpenEditorForAsset(Asset);
 
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
-	Result->SetStringField(TEXT("assetClass"), Asset->GetClass()->GetName());
+	Result->SetStringField(TEXT("assetClass"), AssetClassName);
 	Result->SetBoolField(TEXT("success"), bOpened);
 	Result->SetBoolField(TEXT("alreadyOpen"), bAlreadyOpen);
 	Result->SetBoolField(TEXT("changed"), bOpened && !bAlreadyOpen);
 	if (!bOpened)
 	{
-		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to open editor for '%s' (%s)"), *AssetPath, *Asset->GetClass()->GetName()));
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to open editor for '%s' (%s)"), *AssetPath, *AssetClassName));
 	}
 	// No rollback: nothing in the bridge closes an asset editor. close_sequence
 	// is the one exception and it only handles Level Sequences, so naming it
