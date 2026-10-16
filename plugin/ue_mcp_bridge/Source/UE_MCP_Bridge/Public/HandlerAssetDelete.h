@@ -25,7 +25,18 @@ inline bool MCPDeleteAssetFromDisk(const FString& AssetPath, bool& bOutRemovedOr
 
 	if (!UEditorAssetLibrary::DeleteAsset(AssetPath))
 	{
-		return false;
+		// Deleting the open map first swaps the editor to a blank world, and the old world is only
+		// released by the next garbage collection, so that first attempt fails with the swap already
+		// done. One retry after the collection finishes the delete (#1223).
+		if (!bHadFile || FPaths::GetExtension(Filename, /*bIncludeDot*/ true) != FPackageName::GetMapPackageExtension())
+		{
+			return false;
+		}
+		CollectGarbage(GARBAGE_COLLECTION_KEEPFLAGS);
+		if (UEditorAssetLibrary::DoesAssetExist(AssetPath) && !UEditorAssetLibrary::DeleteAsset(AssetPath))
+		{
+			return false;
+		}
 	}
 	if (!bHadFile || !IFileManager::Get().FileExists(*Filename))
 	{

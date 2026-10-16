@@ -3834,10 +3834,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 		return LevelResult;
 	}
 
-	UObject* Asset = StaticLoadObject(UObject::StaticClass(), nullptr, *AssetPath);
+	// The shared resolver checks the path's shape before loading: StaticLoadObject on a malformed
+	// path such as "not/a/real//path" is a fatal error in CreatePackage, not a null (#1223).
+	TSharedPtr<FJsonValue> LoadError;
+	UObject* Asset = MCPRequireAssetObject(AssetPath, LoadError);
 	if (!Asset)
 	{
-		return MCPError(FString::Printf(TEXT("Failed to load asset at '%s'"), *AssetPath));
+		return LoadError;
 	}
 
 	if (!GEditor)

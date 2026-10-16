@@ -2803,6 +2803,21 @@ namespace
 	}
 }
 
+namespace
+{
+	/** The editor asset library answers "does not exist" and refuses every delete while PIE runs, so a delete
+	 *  then would report alreadyDeleted for an asset that is still there. Refused up front instead. */
+	TSharedPtr<FJsonValue> DeleteDuringPlayError()
+	{
+		TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+		Out->SetBoolField(TEXT("success"), false);
+		Out->SetStringField(TEXT("reason"), TEXT("play_in_editor"));
+		Out->SetStringField(TEXT("error"), TEXT("Assets cannot be deleted while a play-in-editor session is running; nothing was deleted. ")
+			TEXT("Stop it with editor(play_in_editor, pieAction=stop) and delete again."));
+		return MCPResult(Out);
+	}
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -2810,6 +2825,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 	const bool bForce = OptionalBool(Params, TEXT("force"), false);
 
 	if (MCPIsProtectedAssetPath(AssetPath)) return MCPProtectedPathError(AssetPath);
+	if (MCPIsPlayInEditorActive()) return DeleteDuringPlayError();
 
 	// Idempotent: if the asset doesn't exist, treat as already-deleted.
 	if (!UEditorAssetLibrary::DoesAssetExist(AssetPath))
@@ -2856,6 +2872,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAsset(const TSharedPtr<FJsonObject>
 
 	if (!bSuccess)
 	{
+		// A delete that did not happen is a failed call, not a success carrying deleted=false (#1223).
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), FString::Printf(
+			TEXT("'%s' was not deleted; the asset is still at this path. reason and the fields beside it say why."), *AssetPath));
 		ApplyDiagnosticsToJson(Result, DiagnoseDeleteFailure(AssetPath));
 	}
 
@@ -2896,6 +2916,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::DeleteAssetBatch(const TSharedPtr<FJsonOb
 	int32 Refused = 0;
 	int32 ClosedEditors = 0;
 
+	if (MCPIsPlayInEditorActive()) return DeleteDuringPlayError();
 	int32 Protected = 0;
 	for (const TSharedPtr<FJsonValue>& V : *PathsArr)
 	{
