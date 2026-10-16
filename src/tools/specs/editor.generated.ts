@@ -1453,13 +1453,13 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "className",
         "type": "string",
         "required": true,
-        "description": "UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path"
+        "description": "Reflected class declaring the static function, including project component classes: short name or /Script/Module.Class path"
       },
       {
         "name": "functionName",
         "type": "string",
         "required": true,
-        "description": "Static UFUNCTION on the library"
+        "description": "Static UFUNCTION on the class"
       },
       {
         "name": "args",
@@ -3676,7 +3676,7 @@ export const schema: Record<string, z.ZodType> = {
   channel: z.string().optional().describe("Channel name (Location.X, a parameter name such as Intensity or Tint.R); omit for every channel on the section (get_sequence_channel_keys). Channel name: Location.X, a parameter name such as Intensity, or Tint.R for a vector or color parameter (set_sequence_channel_keys). Location.X/Y/Z or Rotation.X/Y/Z (also x/y/z, yaw/pitch/roll) on a Transform track; the float channel on Fade or Float (set_sequence_keyframes)"),
   channels: z.union([z.array(z.string()), z.string()]).optional().describe("Trace channels or a preset, as an array or a comma-separated string. Passing it (or traceFile) adds -trace and -tracefile (launch_standalone_game). Trace channels or a preset, as an array or a comma-separated string (default 'default'). list_trace_channels lists what this build registers (start_insights_trace)"),
   classFilter: z.string().optional().describe("Actor or component class name substring; omit to match every actor"),
-  className: z.string().optional().describe("Class to search for: a short name, a /Script path, a generated class name (WBP_Hud_C) or a Blueprint asset path (find_object). UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path (invoke_static_function)"),
+  className: z.string().optional().describe("Class to search for: a short name, a /Script path, a generated class name (WBP_Hud_C) or a Blueprint asset path (find_object). Reflected class declaring the static function, including project component classes: short name or /Script/Module.Class path (invoke_static_function)"),
   clearDefault: z.boolean().optional().describe("Remove the channel's default value"),
   clearExisting: z.boolean().optional().describe("Delete the channel's keys before writing (default false)"),
   clientWindowHeight: z.number().optional().describe("Height of each additional multiplayer client window"),
@@ -3730,7 +3730,7 @@ export const schema: Record<string, z.ZodType> = {
   frame: z.number().optional().describe("Playhead position as a frame number, read in timeUnit"),
   frameStep: z.number().optional().describe("Render every Nth frame (default 1)"),
   fullyLoadTextures: z.boolean().optional().describe("Stream textures in and flush the render thread before the capture (default true) (capture_scene_png). Stream textures in before each capture (default true) (render_sequence_frames)"),
-  functionName: z.string().optional().describe("BlueprintCallable or Exec UFUNCTION on the actor, or on component (invoke_function). UFUNCTION to call; an unknown name lists the available ones (invoke_object_function). Static UFUNCTION on the library (invoke_static_function)"),
+  functionName: z.string().optional().describe("BlueprintCallable or Exec UFUNCTION on the actor, or on component (invoke_function). UFUNCTION to call; an unknown name lists the available ones (invoke_object_function). Static UFUNCTION on the class (invoke_static_function)"),
   height: z.number().optional().describe("Capture height in pixels (default 720) (capture_scene_png). Viewport height to read y against, when picking from a screenshot of another resolution (hit_test_viewport_pixel). Frame height in pixels (default 720) (render_sequence_frames)"),
   hidden: z.boolean().optional().describe("true hides the target, false shows it"),
   hitchMilliseconds: z.number().optional().describe("How long to stall the game thread (default 250, max 5000)"),

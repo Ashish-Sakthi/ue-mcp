@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1133,
+  "handlerCount": 1135,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -8138,6 +8138,59 @@
         }
       ]
     },
+    "clone_datatable_rows": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "DataTable asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "clones",
+          "type": "array",
+          "required": true,
+          "description": "1-500 row clone requests; destinations must be unused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourceRow",
+              "type": "string",
+              "required": true,
+              "description": "Existing row to copy"
+            },
+            {
+              "name": "rowName",
+              "type": "string",
+              "required": true,
+              "description": "Unused destination row name"
+            },
+            {
+              "name": "overrides",
+              "type": "object",
+              "required": false,
+              "description": "Nested or dotted struct field patches; omitted fields are preserved"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the table after editing (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate the entire batch and return proposedRows without changes (default false)"
+        }
+      ]
+    },
     "close_sequence": {
       "category": "editor",
       "params": [],
@@ -13402,6 +13455,62 @@
         }
       ],
       "contractExempt": "Makes the destination folder under the contract values before the copy can fail"
+    },
+    "edit_collection_entry": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Data asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "propertyName",
+          "type": "string",
+          "required": true,
+          "description": "Path to a TArray of structs or TMap with struct values"
+        },
+        {
+          "name": "entryKey",
+          "type": "any",
+          "required": true,
+          "description": "Existing map key or array key-field value; must match exactly one entry"
+        },
+        {
+          "name": "keyField",
+          "type": "string",
+          "required": false,
+          "description": "Array element field to match, required for arrays (for example WeaponId)"
+        },
+        {
+          "name": "newKey",
+          "type": "any",
+          "required": false,
+          "description": "Clone the selected entry to this unused key; omit to update in place"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "Struct fields to patch; nested objects or dotted struct paths, preserving omitted fields"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the package after editing (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and return proposedValue without changing the asset (default false)"
+        }
+      ]
     },
     "edit_curve_metadata": {
       "category": "animation",
@@ -19810,13 +19919,13 @@
           "name": "className",
           "type": "string",
           "required": true,
-          "description": "UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path"
+          "description": "Reflected class declaring the static function, including project component classes: short name or /Script/Module.Class path"
         },
         {
           "name": "functionName",
           "type": "string",
           "required": true,
-          "description": "Static UFUNCTION on the library"
+          "description": "Static UFUNCTION on the class"
         },
         {
           "name": "args",
@@ -27509,8 +27618,34 @@
         {
           "name": "rowName",
           "type": "string",
-          "required": true,
-          "description": "Row to remove"
+          "required": false,
+          "description": "Single row to remove"
+        },
+        {
+          "name": "rowNames",
+          "type": "array",
+          "required": false,
+          "description": "Rows to remove in one transaction, including clone rollback",
+          "items": "string"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save after removing rows (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "rowName"
+            ],
+            [
+              "rowNames"
+            ]
+          ]
         }
       ]
     },
@@ -35956,14 +36091,26 @@
         {
           "name": "inputActionPath",
           "type": "string",
-          "required": true,
-          "description": "InputAction asset path"
+          "required": false,
+          "description": "InputAction asset path; use this or imcPath plus mappingIndex"
+        },
+        {
+          "name": "imcPath",
+          "type": "string",
+          "required": false,
+          "description": "InputMappingContext for per-mapping overrides"
+        },
+        {
+          "name": "mappingIndex",
+          "type": "number",
+          "required": false,
+          "description": "Mapping row index, required with imcPath; must be a non-negative integer"
         },
         {
           "name": "mappingName",
           "type": "string",
-          "required": true,
-          "description": "Stable FName saved with the player mapping; must be non-empty"
+          "required": false,
+          "description": "Stable non-empty FName; required for InputAction edits, optional for existing mapping overrides"
         },
         {
           "name": "displayName",
@@ -35978,10 +36125,48 @@
           "description": "Display category (Movement, Combat, ...) written onto UPlayerMappableKeySettings"
         },
         {
+          "name": "settingBehavior",
+          "type": "string",
+          "required": false,
+          "description": "Per-mapping behavior: InheritSettingsFromAction, OverrideSettings or IgnoreSettings",
+          "enum": [
+            "InheritSettingsFromAction",
+            "OverrideSettings",
+            "IgnoreSettings"
+          ]
+        },
+        {
+          "name": "playerMappableKeySettings",
+          "type": "object",
+          "required": false,
+          "description": "Per-mapping reflected settings fields; null clears the override subobject",
+          "nullable": true
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report proposed settings without changing the asset (default false)"
+        },
+        {
           "name": "save",
           "type": "boolean",
           "required": false,
           "description": "Persist the asset (default true); false defers the write"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "inputActionPath"
+            ],
+            [
+              "imcPath",
+              "mappingIndex"
+            ]
+          ]
         }
       ]
     },

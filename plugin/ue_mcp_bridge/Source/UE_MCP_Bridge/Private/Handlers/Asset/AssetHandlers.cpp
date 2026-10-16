@@ -753,6 +753,26 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("value"), EType::Any, TEXT("Value to write: scalar, object, array or asset path")),
 		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the package after the write (default true)")),
 	});
+	Registry.RegisterHandler(TEXT("edit_collection_entry"), &EditCollectionEntry, {
+		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Data asset path")).Alias(TEXT("path")),
+		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Path to a TArray of structs or TMap with struct values")),
+		MCPParam::Required(TEXT("entryKey"), EType::Any, TEXT("Existing map key or array key-field value; must match exactly one entry")),
+		MCPParam::Optional(TEXT("keyField"), EType::String, TEXT("Array element field to match, required for arrays (for example WeaponId)")),
+		MCPParam::Optional(TEXT("newKey"), EType::Any, TEXT("Clone the selected entry to this unused key; omit to update in place")),
+		MCPParam::Optional(TEXT("overrides"), EType::Object, TEXT("Struct fields to patch; nested objects or dotted struct paths, preserving omitted fields")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the package after editing (default true)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and return proposedValue without changing the asset (default false)")),
+	});
+	Registry.RegisterHandler(TEXT("clone_datatable_rows"), &CloneDataTableRows, {
+		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),
+		MCPParam::Required(TEXT("clones"), EType::Array, TEXT("1-500 row clone requests; destinations must be unused")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("sourceRow"), EType::String, TEXT("Existing row to copy")),
+			MCPParam::RequiredField(TEXT("rowName"), EType::String, TEXT("Unused destination row name")),
+			MCPParam::OptionalField(TEXT("overrides"), EType::Object, TEXT("Nested or dotted struct field patches; omitted fields are preserved")),
+		}),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the table after editing (default true)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate the entire batch and return proposedRows without changes (default false)")),
+	});
 	Registry.RegisterHandler(TEXT("append_asset_array_elements"), &AppendAssetArrayElements, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset path; a Blueprint path writes its generated-class CDO")).Alias(TEXT("path")),
 		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Path of the TArray property")),
@@ -835,8 +855,10 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("remove_datatable_row"), &RemoveDataTableRow, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),
-		MCPParam::Required(TEXT("rowName"), EType::String, TEXT("Row to remove")),
-	});
+		MCPParam::Optional(TEXT("rowName"), EType::String, TEXT("Single row to remove")),
+		MCPParam::Optional(TEXT("rowNames"), EType::Array, TEXT("Rows to remove in one transaction, including clone rollback")).Items(EType::String),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save after removing rows (default true)")),
+	}, MCPSpec::ExactlyOne({ { TEXT("rowName") }, { TEXT("rowNames") } }));
 	// #535: single-row read, single-cell write, row rename, and bulk JSON fill.
 	Registry.RegisterHandler(TEXT("get_datatable_row"), &GetDataTableRow, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),

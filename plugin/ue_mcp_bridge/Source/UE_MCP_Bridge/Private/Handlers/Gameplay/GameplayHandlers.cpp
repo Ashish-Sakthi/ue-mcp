@@ -334,12 +334,17 @@ void FGameplayHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("clear"), EType::Boolean, TEXT("Empty both arrays; an omitted array then means empty rather than left alone")),
 	});
 	Registry.RegisterHandler(TEXT("set_player_mappable_settings"), &SetPlayerMappableSettings, {
-		MCPParam::Required(TEXT("inputActionPath"), EType::String, TEXT("InputAction asset path")),
-		MCPParam::Required(TEXT("mappingName"), EType::String, TEXT("Stable FName saved with the player mapping; must be non-empty")),
+		MCPParam::Optional(TEXT("inputActionPath"), EType::String, TEXT("InputAction asset path; use this or imcPath plus mappingIndex")),
+		MCPParam::Optional(TEXT("imcPath"), EType::String, TEXT("InputMappingContext for per-mapping overrides")),
+		MCPParam::Optional(TEXT("mappingIndex"), EType::Number, TEXT("Mapping row index, required with imcPath; must be a non-negative integer")),
+		MCPParam::Optional(TEXT("mappingName"), EType::String, TEXT("Stable non-empty FName; required for InputAction edits, optional for existing mapping overrides")),
 		MCPParam::Optional(TEXT("displayName"), EType::String, TEXT("Display name written onto UPlayerMappableKeySettings")),
 		MCPParam::Optional(TEXT("displayCategory"), EType::String, TEXT("Display category (Movement, Combat, ...) written onto UPlayerMappableKeySettings")),
+		MCPParam::Optional(TEXT("settingBehavior"), EType::String, TEXT("Per-mapping behavior: InheritSettingsFromAction, OverrideSettings or IgnoreSettings")).Enum({ TEXT("InheritSettingsFromAction"), TEXT("OverrideSettings"), TEXT("IgnoreSettings") }),
+		MCPParam::Optional(TEXT("playerMappableKeySettings"), EType::Object, TEXT("Per-mapping reflected settings fields; null clears the override subobject")).Nullable(),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and report proposed settings without changing the asset (default false)")),
 		SaveFlag(),
-	});
+	}, MCPSpec::ExactlyOne({ { TEXT("inputActionPath") }, { TEXT("imcPath"), TEXT("mappingIndex") } }));
 	Registry.RegisterHandler(TEXT("apply_mapping_context"), &ApplyMappingContext, {
 		MCPParam::Required(TEXT("mappingContext"), EType::String, TEXT("InputMappingContext asset path to apply to the live player")),
 		MCPParam::Optional(TEXT("priority"), EType::Number, TEXT("Enhanced Input context priority; higher wins for the same key (default 0)")),

@@ -2344,14 +2344,26 @@ export const handlerSpecs: HandlerSpecs = {
       {
         "name": "inputActionPath",
         "type": "string",
-        "required": true,
-        "description": "InputAction asset path"
+        "required": false,
+        "description": "InputAction asset path; use this or imcPath plus mappingIndex"
+      },
+      {
+        "name": "imcPath",
+        "type": "string",
+        "required": false,
+        "description": "InputMappingContext for per-mapping overrides"
+      },
+      {
+        "name": "mappingIndex",
+        "type": "number",
+        "required": false,
+        "description": "Mapping row index, required with imcPath; must be a non-negative integer"
       },
       {
         "name": "mappingName",
         "type": "string",
-        "required": true,
-        "description": "Stable FName saved with the player mapping; must be non-empty"
+        "required": false,
+        "description": "Stable non-empty FName; required for InputAction edits, optional for existing mapping overrides"
       },
       {
         "name": "displayName",
@@ -2366,10 +2378,48 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Display category (Movement, Combat, ...) written onto UPlayerMappableKeySettings"
       },
       {
+        "name": "settingBehavior",
+        "type": "string",
+        "required": false,
+        "description": "Per-mapping behavior: InheritSettingsFromAction, OverrideSettings or IgnoreSettings",
+        "enum": [
+          "InheritSettingsFromAction",
+          "OverrideSettings",
+          "IgnoreSettings"
+        ]
+      },
+      {
+        "name": "playerMappableKeySettings",
+        "type": "object",
+        "required": false,
+        "description": "Per-mapping reflected settings fields; null clears the override subobject",
+        "nullable": true
+      },
+      {
+        "name": "dryRun",
+        "type": "boolean",
+        "required": false,
+        "description": "Validate and report proposed settings without changing the asset (default false)"
+      },
+      {
         "name": "save",
         "type": "boolean",
         "required": false,
         "description": "Persist the asset (default true); false defers the write"
+      }
+    ],
+    "choices": [
+      {
+        "mode": "exactlyOne",
+        "branches": [
+          [
+            "inputActionPath"
+          ],
+          [
+            "imcPath",
+            "mappingIndex"
+          ]
+        ]
       }
     ]
   },
@@ -2645,7 +2695,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_imc_mapping_key: "Params: imcPath, newKey, mappingIndex?, key?, inputActionPath?, save?",
   set_live_blackboard: "Params: actorLabel?, actorPath?, world?, pieInstance?, key, value?, clear?",
   set_mapping_modifiers: "Params: imcPath, mappingIndex?, modifiers?, triggers?, save?",
-  set_player_mappable_settings: "Params: inputActionPath, mappingName, displayName?, displayCategory?, save?",
+  set_player_mappable_settings: "Params: inputActionPath OR imcPath + mappingIndex, mappingName?, displayName?, displayCategory?, settingBehavior?, playerMappableKeySettings?, dryRun?, save?",
   set_smart_object_slot: "Params: assetPath, slotIndex, name?, offset?, rotation?, tags?",
   set_world_game_mode: "Params: gameModeClass (or gameModePath)",
   spawn_nav_modifier_volume: "Params: location?, extent?, areaClass?, label?, scale?, onConflict?",
@@ -2678,6 +2728,7 @@ export const schema: Record<string, z.ZodType> = {
   directory: z.string().optional().describe("Content folder to sweep when assetPath is omitted (default: every BehaviorTree) (list_bt_tasks). Content root the InputMappingContext sweep covers (default /Game) (validate_input)"),
   displayCategory: z.string().optional().describe("Display category (Movement, Combat, ...) written onto UPlayerMappableKeySettings"),
   displayName: z.string().optional().describe("Display name written onto UPlayerMappableKeySettings"),
+  dryRun: z.boolean().optional().describe("Validate and report proposed settings without changing the asset (default false)"),
   end: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Query end (world point)"),
   enumType: z.string().optional().describe("Enum name or path for keyType=Enum"),
   executionMode: z.string().optional().describe("looped (default) | singleRun"),
@@ -2688,7 +2739,7 @@ export const schema: Record<string, z.ZodType> = {
   gameModePath: z.string().optional().describe("Alias for gameModeClass"),
   generatorClass: z.string().optional().describe("Generator class, short name (OnCircle) or full path"),
   hitLocation: z.record(z.unknown()).optional().describe("Impact point {x,y,z} (damage only)"),
-  imcPath: z.string().optional().describe("InputMappingContext asset path (add_imc_mapping, list_imc_mappings, read_imc, remove_imc_mapping, set_imc_mapping_action, set_imc_mapping_key, set_mapping_modifiers). Audit this one InputMappingContext instead of sweeping directory (validate_input)"),
+  imcPath: z.string().optional().describe("InputMappingContext asset path (add_imc_mapping, list_imc_mappings, read_imc, remove_imc_mapping, set_imc_mapping_action, set_imc_mapping_key, set_mapping_modifiers). InputMappingContext for per-mapping overrides (set_player_mappable_settings). Audit this one InputMappingContext instead of sweeping directory (validate_input)"),
   includeActions: z.boolean().optional().describe("Include each context's action/key mappings"),
   includeAuxNodes: z.boolean().optional().describe("Include the decorators and services currently active (default true)"),
   includeDebugStrings: z.boolean().optional().describe("Include the engine's DescribeActiveTasks / DescribeActiveTrees dumps (default true)"),
@@ -2696,7 +2747,7 @@ export const schema: Record<string, z.ZodType> = {
   includeProperties: z.boolean().optional().describe("Include each node's own UPROPERTY values"),
   index: z.number().optional().describe("Position among the parent's children, which is the execution order. For a decorator or service, its position in the parent's subnode list; on a SimpleParallel, the output pin (0 = main task, 1 = background) (add_bt_node, move_bt_node). Positional index into Config.Traits, as read_mass_entity_config reports it (remove_mass_trait). Index of the sense config to remove, as read_perception reports it (remove_sense)"),
   inputAction: z.string().optional().describe("Alias for inputActionPath"),
-  inputActionPath: z.string().optional().describe("InputAction asset path to map (add_imc_mapping). InputAction to read; omit for every action the player has bound (get_action_value). InputAction asset path (read_input_action, set_action_triggers, set_player_mappable_settings). Select the mapping by InputAction (with key) (remove_imc_mapping). Select the mapping by its current InputAction (set_imc_mapping_action). Select the mapping by its InputAction (set_imc_mapping_key)"),
+  inputActionPath: z.string().optional().describe("InputAction asset path to map (add_imc_mapping). InputAction to read; omit for every action the player has bound (get_action_value). InputAction asset path (read_input_action, set_action_triggers). Select the mapping by InputAction (with key) (remove_imc_mapping). Select the mapping by its current InputAction (set_imc_mapping_action). Select the mapping by its InputAction (set_imc_mapping_key). InputAction asset path; use this or imcPath plus mappingIndex (set_player_mappable_settings)"),
   instanceProperties: z.record(z.unknown()).optional().describe("Property writes applied to a freshly-spawned behavior instance"),
   instigatorLabel: z.string().optional().describe("The actor that caused the event"),
   instigatorPath: z.string().optional().describe("Full object path of the instigator"),
@@ -2710,8 +2761,8 @@ export const schema: Record<string, z.ZodType> = {
   location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World point to project onto the navmesh (project_point_to_navigation). Query point for queryMode=nearest (query_zone_graph). Event location; defaults to the instigator's (hearing) or the damaged actor's (damage) (report_noise_event). World location of the volume (default origin) (spawn_nav_modifier_volume)"),
   loudness: z.number().optional().describe("Noise loudness (default 1)"),
   mappingContext: z.string().optional().describe("Alias for imcPath (add_imc_mapping, read_imc, remove_imc_mapping). InputMappingContext asset path to apply to the live player (apply_mapping_context). Name or path of one context to answer yes/no about (get_input_mapping_contexts). InputMappingContext asset path to remove from the live player (remove_mapping_context)"),
-  mappingIndex: z.number().optional().describe("Index of the mapping to remove (remove_imc_mapping). Index of the mapping to retarget (set_imc_mapping_action). Index of the mapping to rebind (set_imc_mapping_key). Index of the mapping in the IMC (default 0) (set_mapping_modifiers)"),
-  mappingName: z.string().optional().describe("Stable FName saved with the player mapping; must be non-empty"),
+  mappingIndex: z.number().optional().describe("Index of the mapping to remove (remove_imc_mapping). Index of the mapping to retarget (set_imc_mapping_action). Index of the mapping to rebind (set_imc_mapping_key). Index of the mapping in the IMC (default 0) (set_mapping_modifiers). Mapping row index, required with imcPath; must be a non-negative integer (set_player_mappable_settings)"),
+  mappingName: z.string().optional().describe("Stable non-empty FName; required for InputAction edits, optional for existing mapping overrides"),
   maxRange: z.number().optional().describe("Maximum range the noise carries (0 = unlimited)"),
   mode: z.string().optional().describe("stop (default) | forced | restart | pause | resume"),
   modifiers: z.array(z.record(z.unknown())).optional().describe("Modifier specs that replace the action's own Modifiers array (set_action_triggers). Modifier objects: {type, ...props} or {class, properties}. Replaces the mapping's list (set_mapping_modifiers)"),
@@ -2738,6 +2789,7 @@ export const schema: Record<string, z.ZodType> = {
   perceiverPath: z.string().optional().describe("Full object path of the perceiver"),
   pieInstance: z.number().optional().describe("PIE world instance (0 = server/primary); omit for the first running one (apply_mapping_context, get_action_value, remove_mapping_context). PIE world instance (0 = server/primary); omit for the primary world (check_perception, get_bt_runtime, get_live_blackboard, get_perceived_actors, list_ai_agents, read_perception, report_noise_event, run_behavior_tree, set_live_blackboard, stop_behavior_tree). PIE world instance (0 = server/primary); omit for every running PIE world (get_input_mapping_contexts). PIE world instance (0 = server/primary) (get_state_tree_runtime). PIE world instance when world is pie or auto (query_zone_graph, run_eqs_query)"),
   playerIndex: z.number().optional().describe("Local player to act on (default 0) (apply_mapping_context, remove_mapping_context). Local player to read (default 0) (get_action_value). Player index; omit for every player (get_input_mapping_contexts)"),
+  playerMappableKeySettings: z.record(z.unknown()).nullable().optional().describe("Per-mapping reflected settings fields; null clears the override subobject"),
   priority: z.number().optional().describe("Enhanced Input context priority; higher wins for the same key (default 0)"),
   properties: z.record(z.unknown()).optional().describe("UPROPERTY writes on the new node, as a map of property path to value (add_bt_node). Several writes at once, as a map of property path to value. Applied as one batch: a rejected write puts the others back (set_bt_node_property, set_bt_task_property)"),
   property: z.string().optional().describe("Dotted, indexed property path on the node, e.g. 'FilterClass' or 'Lines[1].Text'"),
@@ -2759,6 +2811,7 @@ export const schema: Record<string, z.ZodType> = {
   schema: z.string().optional().describe("StateTree schema class path; omit to take the gameplay default (StateTreeComponentSchema, then StateTreeAIComponentSchema, then any concrete schema)"),
   senses: z.array(z.string()).optional().describe("Sense names (Sight, Hearing, Damage, Touch, Team, Prediction), AISenseConfig_* names or class paths"),
   senseType: z.string().optional().describe("Sight (default) | Hearing | Damage | Touch | Team | Prediction | Blueprint (configure_ai_perception_sense). Only report this sense: Sight | Hearing | Damage | Touch | Team | Prediction (get_perceived_actors). Sense to remove when index is omitted: Sight | Hearing | Damage | Touch | Team | Prediction | Blueprint (remove_sense). hearing (default) | damage (report_noise_event)"),
+  settingBehavior: z.enum(["InheritSettingsFromAction","OverrideSettings","IgnoreSettings"]).optional().describe("Per-mapping behavior: InheritSettingsFromAction, OverrideSettings or IgnoreSettings"),
   settings: z.record(z.unknown()).optional().describe("Per-sense property writes, e.g. {SightRadius: 1500}"),
   slotIndex: z.number().optional().describe("Slot index (add_smart_object_slot_behavior, set_smart_object_slot). Slot index to remove (remove_smart_object_slot)"),
   start: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Query start (world point)"),

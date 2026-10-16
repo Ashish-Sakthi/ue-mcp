@@ -2721,6 +2721,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetDataTableRow(const TSharedPtr<FJsonObj
 // Params: assetPath, rowName.
 TSharedPtr<FJsonValue> FAssetHandlers::RemoveDataTableRow(const TSharedPtr<FJsonObject>& Params)
 {
+	const bool bSave = OptionalBool(Params, TEXT("save"), true);
+	if (HasParam(Params, TEXT("rowNames")) || !bSave) return RemoveDataTableRows(Params);
 	FString RowName;
 	const TSharedPtr<FJsonValue> MissingRowName = RequireString(Params, TEXT("rowName"), RowName);
 	FString AssetPath;
