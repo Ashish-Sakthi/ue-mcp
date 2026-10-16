@@ -351,9 +351,11 @@ namespace MCPSourceControlDetail
 
 	/** Changed in a way list_changes reports: open, added, deleted, modified,
 	 *  conflicted, or (with bUntracked) on disk and not under control. */
-	bool IsChange(const FSourceControlStateRef& State, bool bUntracked)
+	bool IsChange(const FSourceControlStateRef& State, bool bUntracked, bool bUsesCheckout)
 	{
-		if (State->IsCheckedOut() || State->IsAdded() || State->IsDeleted() || State->IsModified() || State->IsConflicted())
+		// A provider without checkout (Git) reports every tracked file as checked out, so being
+		// checked out is a change only where checking out is a step of its own.
+		if ((bUsesCheckout && State->IsCheckedOut()) || State->IsAdded() || State->IsDeleted() || State->IsModified() || State->IsConflicted())
 		{
 			return true;
 		}
@@ -634,9 +636,10 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::ListChanges(const TSharedPtr<FJso
 	Update->SetGetOpenedOnly(!bUntracked);
 	const bool bUpdated = Provider->Execute(Update, Roots) == ECommandResult::Succeeded;
 
-	TArray<FSourceControlStateRef> States = Provider->GetCachedStateByPredicate([&Roots, bUntracked](const FSourceControlStateRef& State)
+	const bool bUsesCheckout = Provider->UsesCheckout();
+	TArray<FSourceControlStateRef> States = Provider->GetCachedStateByPredicate([&Roots, bUntracked, bUsesCheckout](const FSourceControlStateRef& State)
 	{
-		return IsUnder(State->GetFilename(), Roots) && IsChange(State, bUntracked);
+		return IsUnder(State->GetFilename(), Roots) && IsChange(State, bUntracked, bUsesCheckout);
 	});
 	States.Sort([](const FSourceControlStateRef& L, const FSourceControlStateRef& R) { return L->GetFilename() < R->GetFilename(); });
 
