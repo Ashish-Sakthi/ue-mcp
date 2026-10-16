@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1114,
+  "handlerCount": 1133,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -2275,7 +2275,7 @@
           "name": "trackType",
           "type": "string",
           "required": true,
-          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
         },
         {
           "name": "actorLabel",
@@ -2312,6 +2312,12 @@
           "type": "string",
           "required": false,
           "description": "Full object path of the camera actor. Wins over cameraActorLabel"
+        },
+        {
+          "name": "materialParameterCollection",
+          "type": "string",
+          "required": false,
+          "description": "Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"
         }
       ]
     },
@@ -2331,7 +2337,7 @@
           "name": "trackType",
           "type": "string",
           "required": true,
-          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
         },
         {
           "name": "actorLabel",
@@ -2344,6 +2350,12 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "materialParameterCollection",
+          "type": "string",
+          "required": false,
+          "description": "Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"
         }
       ]
     },
@@ -12344,6 +12356,127 @@
       ],
       "contractExempt": "Creates and saves a Widget Blueprint under the contract values; nothing it reads fails first"
     },
+    "datasmith_import": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Absolute path of the .udatasmith file to import"
+        },
+        {
+          "name": "destinationPath",
+          "type": "string",
+          "required": true,
+          "description": "Content folder for the scene asset and its assets, e.g. /Game/Datasmith/Site"
+        },
+        {
+          "name": "options",
+          "type": "object",
+          "required": false,
+          "description": "{dotted.option.path: value} on DatasmithImportOptions, e.g. {\"BaseOptions.bIncludeLight\": false, \"BaseOptions.SceneHandling\": \"AssetsOnly\"}; datasmith(inspect) lists them"
+        }
+      ]
+    },
+    "datasmith_inspect": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Absolute path of the .udatasmith (or other Datasmith-translatable) file"
+        }
+      ]
+    },
+    "datasmith_query_actors": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "tagPrefix",
+          "type": "string",
+          "required": false,
+          "description": "Match actors with a tag starting with this, e.g. Revit.Element.Id."
+        },
+        {
+          "name": "tags",
+          "type": "array",
+          "required": false,
+          "description": "Match actors carrying any of these exact tags",
+          "items": "string"
+        },
+        {
+          "name": "metadataKey",
+          "type": "string",
+          "required": false,
+          "description": "Match actors whose Datasmith metadata has this key"
+        },
+        {
+          "name": "metadataValue",
+          "type": "string",
+          "required": false,
+          "description": "With metadataKey, match only this value"
+        },
+        {
+          "name": "includeMetadata",
+          "type": "boolean",
+          "required": false,
+          "description": "Return each actor's Datasmith user-data metadata (default true)"
+        },
+        {
+          "name": "includeBounds",
+          "type": "boolean",
+          "required": false,
+          "description": "Return each actor's world bounds and the union (default true)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Rows to return (default 200, max 5000); matchedCount counts them all"
+        }
+      ]
+    },
+    "datasmith_reimport": {
+      "category": "datasmith",
+      "params": [
+        {
+          "name": "sceneAssetPath",
+          "type": "string",
+          "required": true,
+          "description": "The DatasmithScene asset to reimport"
+        },
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": false,
+          "description": "New source file path, when the source moved or changed name"
+        },
+        {
+          "name": "syncActors",
+          "type": "boolean",
+          "required": false,
+          "description": "Update the scene's actors in the level from the new source (default true)"
+        },
+        {
+          "name": "respawnDeleted",
+          "type": "boolean",
+          "required": false,
+          "description": "Respawn scene actors that were deleted from the level (default false)"
+        },
+        {
+          "name": "options",
+          "type": "object",
+          "required": false,
+          "description": "{dotted.option.path: value} applied before the reimport"
+        }
+      ]
+    },
+    "datasmith_status": {
+      "category": "datasmith",
+      "params": []
+    },
     "delete_actor": {
       "category": "level",
       "params": [
@@ -17595,6 +17728,93 @@
       "category": "level",
       "params": []
     },
+    "get_sequence_channel_keys": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "trackType",
+          "type": "string",
+          "required": false,
+          "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+        },
+        {
+          "name": "trackName",
+          "type": "string",
+          "required": false,
+          "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+        },
+        {
+          "name": "trackIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Which matching track, when several match (default 0)"
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Look in this binding's tracks instead of the root tracks"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Look in the binding with this name"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "sectionIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Section index on the track (default 0)"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "required": false,
+          "description": "Channel name (Location.X, a parameter name such as Intensity or Tint.R); omit for every channel on the section"
+        },
+        {
+          "name": "sampleStartFrame",
+          "type": "number",
+          "required": false,
+          "description": "Also evaluate the channel from this display frame"
+        },
+        {
+          "name": "sampleEndFrame",
+          "type": "number",
+          "required": false,
+          "description": "Last display frame to evaluate, inclusive"
+        },
+        {
+          "name": "sampleStep",
+          "type": "number",
+          "required": false,
+          "description": "Display frames between samples (default 1)"
+        }
+      ]
+    },
     "get_sequence_info": {
       "category": "editor",
       "params": [
@@ -17612,6 +17832,35 @@
           "type": "boolean",
           "required": false,
           "description": "Include attach sockets and first-key transform values per track"
+        }
+      ]
+    },
+    "get_sequence_runtime_bindings": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "auto (default: PIE when running, else editor) | pie | editor"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE instance index when several clients run"
+        },
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": false,
+          "description": "Report only actors playing this sequence"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Report only the LevelSequenceActor with this label or name"
         }
       ]
     },
@@ -22029,6 +22278,178 @@
         }
       ]
     },
+    "metahuman_assemble": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "pipelineType",
+          "type": "string",
+          "required": false,
+          "description": "Cinematic | Optimized (default) | UEFN"
+        },
+        {
+          "name": "quality",
+          "type": "string",
+          "required": false,
+          "description": "Pipeline quality level, e.g. Cinematic | High | Medium (default) | Low"
+        },
+        {
+          "name": "nameOverride",
+          "type": "string",
+          "required": false,
+          "description": "Name for the assembled assets instead of the character's"
+        },
+        {
+          "name": "commonFolderPath",
+          "type": "string",
+          "required": false,
+          "description": "Content folder for the shared MetaHuman assets"
+        }
+      ]
+    },
+    "metahuman_create_character": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Name of the new MetaHumanCharacter asset"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default /Game/MetaHumans)"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "skip (default) returns an existing asset untouched, error refuses"
+        }
+      ],
+      "contractExempt": "creates a MetaHumanCharacter asset"
+    },
+    "metahuman_read_character": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "includeBody",
+          "type": "boolean",
+          "required": false,
+          "description": "Open the character for editing to read body constraints, wardrobe and canBuild (default true)"
+        }
+      ]
+    },
+    "metahuman_request_rig": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "rigType",
+          "type": "string",
+          "required": false,
+          "description": "JointsOnly (default) | JointsAndBlendshapes"
+        },
+        {
+          "name": "blocking",
+          "type": "boolean",
+          "required": false,
+          "description": "Wait for the cloud service to return the rig (default true)"
+        }
+      ]
+    },
+    "metahuman_request_textures": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "blocking",
+          "type": "boolean",
+          "required": false,
+          "description": "Wait for the cloud service to return the textures (default true)"
+        }
+      ]
+    },
+    "metahuman_set_body": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "constraints",
+          "type": "object",
+          "required": true,
+          "description": "{ConstraintName: target} or {ConstraintName: {target, active}}, e.g. {\"Height\": 180, \"Muscularity\": 0.9}"
+        }
+      ]
+    },
+    "metahuman_set_wardrobe": {
+      "category": "metahuman",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "MetaHumanCharacter asset path",
+          "aliases": [
+            "characterPath"
+          ]
+        },
+        {
+          "name": "items",
+          "type": "object",
+          "required": true,
+          "description": "{slotName: wardrobeItemPath}, e.g. {\"Top Garment\": \"/Game/Fab/MetaHuman/WI_Crewneck\"}"
+        }
+      ]
+    },
+    "metahuman_status": {
+      "category": "metahuman",
+      "params": []
+    },
     "metasound_add_graph_input": {
       "category": "audio",
       "params": [
@@ -26051,6 +26472,63 @@
         }
       ]
     },
+    "rebind_possessable": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "The possessable to retarget. Pass this or bindingName"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "The possessable's name, when it is unique"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "includeChildren",
+          "type": "boolean",
+          "required": false,
+          "description": "Also retarget the binding's component possessables to the new actor's components (default true)"
+        },
+        {
+          "name": "componentMap",
+          "type": "object",
+          "required": false,
+          "description": "{childBindingNameOrGuid: componentName} for children whose component name differs from the binding name"
+        },
+        {
+          "name": "renameBinding",
+          "type": "boolean",
+          "required": false,
+          "description": "Rename the binding to the new actor's label (default false)"
+        }
+      ]
+    },
     "rebuild_navigation": {
       "category": "gameplay",
       "params": [],
@@ -27740,6 +28218,69 @@
         }
       ]
     },
+    "remove_sequence_section": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "trackType",
+          "type": "string",
+          "required": false,
+          "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+        },
+        {
+          "name": "trackName",
+          "type": "string",
+          "required": false,
+          "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+        },
+        {
+          "name": "trackIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Which matching track, when several match (default 0)"
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Look in this binding's tracks instead of the root tracks"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Look in the binding with this name"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "sectionIndex",
+          "type": "integer",
+          "required": true,
+          "description": "Index of the section to remove, as get_sequence_info lists them"
+        }
+      ]
+    },
     "remove_smart_object_slot": {
       "category": "gameplay",
       "params": [
@@ -29085,6 +29626,33 @@
           "type": "boolean",
           "required": false,
           "description": "Include the unused GameTraceChannel slots (default false)"
+        }
+      ]
+    },
+    "resolve_sequence_bindings": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Report only this binding"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Report only the binding with this name"
         }
       ]
     },
@@ -35887,6 +36455,112 @@
         }
       ]
     },
+    "set_sequence_channel_keys": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "trackType",
+          "type": "string",
+          "required": false,
+          "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+        },
+        {
+          "name": "trackName",
+          "type": "string",
+          "required": false,
+          "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+        },
+        {
+          "name": "trackIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Which matching track, when several match (default 0)"
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Look in this binding's tracks instead of the root tracks"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Look in the binding with this name"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "sectionIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Section index on the track (default 0)"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "required": true,
+          "description": "Channel name: Location.X, a parameter name such as Intensity, or Tint.R for a vector or color parameter"
+        },
+        {
+          "name": "keyframes",
+          "type": "array",
+          "required": false,
+          "description": "Keys as [{seconds | frame | tick, value, interpolation?}]; frame is a display frame, value a number or boolean",
+          "items": "object"
+        },
+        {
+          "name": "interpolation",
+          "type": "string",
+          "required": false,
+          "description": "cubic (default) | linear | constant, for keys without their own"
+        },
+        {
+          "name": "clearExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Delete the channel's keys before writing (default false)"
+        },
+        {
+          "name": "defaultValue",
+          "type": "any",
+          "required": false,
+          "description": "Value the channel holds where it has no keys"
+        },
+        {
+          "name": "clearDefault",
+          "type": "boolean",
+          "required": false,
+          "description": "Remove the channel's default value"
+        },
+        {
+          "name": "parameterType",
+          "type": "string",
+          "required": false,
+          "description": "scalar | bool | vector | vector2d | color: adds a missing parameter to a parameter section. Inferred from the collection on a Material Parameter Collection track"
+        }
+      ]
+    },
     "set_sequence_keyframes": {
       "category": "editor",
       "params": [
@@ -35904,7 +36578,7 @@
           "name": "trackType",
           "type": "string",
           "required": true,
-          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
         },
         {
           "name": "actorLabel",
@@ -35934,14 +36608,14 @@
           "name": "keyframes",
           "type": "array",
           "required": true,
-          "description": "Keys to add, as [{seconds, value}]",
+          "description": "Keys to add, as [{seconds, value, interpolation?}]",
           "items": "object"
         },
         {
           "name": "interpolation",
           "type": "string",
           "required": false,
-          "description": "cubic (default) | linear"
+          "description": "cubic (default) | linear | constant; a key's own interpolation wins"
         }
       ]
     },

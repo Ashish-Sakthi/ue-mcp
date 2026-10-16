@@ -3787,6 +3787,35 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAsset(const TSharedPtr<FJsonObject>& 
 			Result->SetStringField(TEXT("package"), Package->GetName());
 			DescribeOnDisk(Result, Package->GetName());
 		}
+		else if (GEditor && GEditor->PlayWorld && PreSavePackage)
+		{
+			// UEditorAssetLibrary::SaveAsset refuses every call while Play In Editor runs and only says so in
+			// the log. An asset package saves through the editor's own path; a map does not save during PIE,
+			// and the caller is told that instead of a bare false (#1232).
+			Result->SetBoolField(TEXT("playInEditorActive"), true);
+			Result->SetStringField(TEXT("package"), PreSavePackage->GetName());
+			if (PreSavePackage->ContainsMap())
+			{
+				Result->SetBoolField(TEXT("success"), false);
+				Result->SetStringField(TEXT("reason"), TEXT("play_in_editor_active"));
+				Result->SetStringField(TEXT("error"), FString::Printf(
+					TEXT("'%s' is a map, and the editor does not save a map while Play In Editor runs. Stop PIE with editor(action=\"play_in_editor\", pieAction=\"stop\"), then save again."),
+					*PreSavePackage->GetName()));
+				Result->SetBoolField(TEXT("rollbackPossible"), false);
+				return MCPResult(Result);
+			}
+			TArray<UPackage*> Packages{ PreSavePackage };
+			bSuccess = UEditorLoadingAndSavingUtils::SavePackages(Packages, /*bOnlyDirty=*/false);
+			Result->SetBoolField(TEXT("stillDirty"), PreSavePackage->IsDirty());
+			DescribeOnDisk(Result, PreSavePackage->GetName());
+			if (!bSuccess)
+			{
+				Result->SetStringField(TEXT("reason"), TEXT("play_in_editor_active"));
+				Result->SetStringField(TEXT("error"), FString::Printf(
+					TEXT("The editor did not save '%s' while Play In Editor runs. Stop PIE with editor(action=\"play_in_editor\", pieAction=\"stop\"), then save again."),
+					*PreSavePackage->GetName()));
+			}
+		}
 		else
 		{
 			bSuccess = UEditorAssetLibrary::SaveAsset(AssetPath);

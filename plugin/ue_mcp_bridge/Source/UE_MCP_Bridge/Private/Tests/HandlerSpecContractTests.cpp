@@ -28,6 +28,8 @@
 #include "Handlers/Animation/AnimationHandlers.h"
 #include "Handlers/Audio/AudioHandlers.h"
 #include "Handlers/Fab/FabHandlers.h"
+#include "Handlers/Datasmith/DatasmithHandlers.h"
+#include "Handlers/MetaHuman/MetaHumanHandlers.h"
 #include "Handlers/Networking/NetworkingHandlers.h"
 #include "Handlers/Project/ProjectHandlers.h"
 #include "Handlers/StateTree/StateTreeHandlers.h"
@@ -197,6 +199,8 @@ bool FMCPHandlerSpecContractTest::RunTest(const FString& Parameters)
 	FAudioHandlers::RegisterHandlers(Registry);
 	FNetworkingHandlers::RegisterHandlers(Registry);
 	FFabHandlers::RegisterHandlers(Registry);
+	FDatasmithHandlers::RegisterHandlers(Registry);
+	FMetaHumanHandlers::RegisterHandlers(Registry);
 	FProjectHandlers::RegisterHandlers(Registry);
 	FStateTreeHandlers::RegisterHandlers(Registry);
 	FGameplayHandlers::RegisterHandlers(Registry);
