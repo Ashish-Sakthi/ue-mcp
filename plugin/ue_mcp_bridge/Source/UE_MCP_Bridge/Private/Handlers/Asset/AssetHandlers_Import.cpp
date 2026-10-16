@@ -4025,7 +4025,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportStringTableCsv(const TSharedPtr<FJs
 		}
 		else
 		{
+#if WITH_EDITORONLY_DATA && UE_MCP_HAS_5_8_API
+			StringTable->GetMutableStringTable()->SetSourceString(FTextKey(Entry.Key), Entry.Value, FString());
+#else
 			StringTable->GetMutableStringTable()->SetSourceString(FTextKey(Entry.Key), Entry.Value);
+#endif
 		}
 	}
 
