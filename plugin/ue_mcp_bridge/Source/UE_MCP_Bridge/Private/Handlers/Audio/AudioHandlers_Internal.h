@@ -123,16 +123,23 @@ namespace MCPAudio
 		return true;
 	}
 
-	/** Detach slot Index. A single-input node keeps the slot empty instead of
-	 *  losing it; any other node drops the slot and its pin. */
+	/** Detach slot Index. A node above its minimum child count drops the slot
+	 *  and its input pin; any other node keeps the slot empty. The editor graph
+	 *  asserts that a node's input pins match its ChildNodes, so the pin goes
+	 *  exactly when the slot does. */
 	inline void DetachCueSlot(USoundNode* Parent, int32 Index)
 	{
+		Parent->Modify();
+		const int32 SlotsBefore = Parent->ChildNodes.Num();
 		if (Parent->GetMaxChildNodes() != 1)
 		{
 			Parent->RemoveChildNode(Index);
-			return;
 		}
-		Parent->ChildNodes[Index] = nullptr;
+		const bool bSlotRemoved = Parent->ChildNodes.Num() < SlotsBefore;
+		if (!bSlotRemoved)
+		{
+			Parent->ChildNodes[Index] = nullptr;
+		}
 #if WITH_EDITORONLY_DATA
 		if (UEdGraphNode* GraphNode = Parent->GetGraphNode())
 		{
@@ -140,7 +147,14 @@ namespace MCPAudio
 			for (UEdGraphPin* Pin : GraphNode->Pins)
 			{
 				if (!Pin || Pin->Direction != EGPD_Input) continue;
-				if (InputIndex++ == Index) { Pin->BreakAllPinLinks(); break; }
+				if (InputIndex++ != Index) continue;
+				Pin->BreakAllPinLinks();
+				if (bSlotRemoved)
+				{
+					GraphNode->Modify();
+					GraphNode->RemovePin(Pin);
+				}
+				break;
 			}
 		}
 #endif
