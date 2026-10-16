@@ -70,7 +70,7 @@ A successful transform write is not visual verification. Do not infer 3D contact
 
 export const SERVER_INSTRUCTIONS = `UE-MCP: Unreal Engine editor bridge (C++ plugin) - ${CATEGORY_COUNT} category tools covering ${ACTION_COUNT} actions: ${OWN_ACTION_COUNT} of ue-mcp's own, plus ${EPIC_ACTION_COUNT} official Unreal 5.8 tools wrapped in-process as \`epic_*\` actions (UE 5.8+; see the epic category).
 
-Every category tool takes "action" (the operation) and "args" (that action's parameters): level(action="spawn_actor", args={className: "PointLight"}). Call project(action="get_status") first.
+Every category tool takes "action" (the operation) and "args" (that action's parameters): level(action="place_actor", args={actorClass: "PointLight"}). Call project(action="get_status") first.
 
 ═══ QUICK START ═══
 1. project(action="get_status") - check if the editor is connected

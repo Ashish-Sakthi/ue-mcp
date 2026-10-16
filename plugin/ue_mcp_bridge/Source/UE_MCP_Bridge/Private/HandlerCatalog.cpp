@@ -37,6 +37,7 @@
 #include "Handlers/MetaHuman/MetaHumanHandlers.h"
 #include "Handlers/Lock/LockHandlers.h"
 #include "Handlers/Diff/DiffHandlers.h"
+#include "Handlers/SourceControl/SourceControlHandlers.h"
 
 void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 {
@@ -79,4 +80,5 @@ void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 	FMetaHumanHandlers::RegisterHandlers(Registry);
 	FLockHandlers::RegisterHandlers(Registry);
 	FDiffHandlers::RegisterHandlers(Registry);
+	FSourceControlHandlers::RegisterHandlers(Registry);
 }

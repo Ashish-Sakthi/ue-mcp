@@ -52,6 +52,7 @@
 #include "Handlers/SkeletalMesh/SkeletalMeshHandlers.h"
 #include "Handlers/Lock/LockHandlers.h"
 #include "Handlers/Diff/DiffHandlers.h"
+#include "Handlers/SourceControl/SourceControlHandlers.h"
 #include "Handlers/Blueprint/BlueprintHandlers.h"
 #include "Handlers/Blueprint/BlueprintHandlers_Collision.h"
 #include "Handlers/Chooser/ChooserHandlers.h"
@@ -225,6 +226,7 @@ bool FMCPHandlerSpecContractTest::RunTest(const FString& Parameters)
 	FSkeletalMeshHandlers::RegisterHandlers(Registry);
 	FLockHandlers::RegisterHandlers(Registry);
 	FDiffHandlers::RegisterHandlers(Registry);
+	FSourceControlHandlers::RegisterHandlers(Registry);
 	FBlueprintHandlers::RegisterHandlers(Registry);
 	FCollisionQueryHandlers::RegisterHandlers(Registry);
 	FChooserHandlers::RegisterHandlers(Registry);

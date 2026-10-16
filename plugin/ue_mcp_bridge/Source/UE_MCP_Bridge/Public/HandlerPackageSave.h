@@ -18,6 +18,7 @@
 #include "UObject/SavePackage.h"
 #include "HandlerResult.h"
 #include "HandlerAssetResolve.h"
+#include "HandlerSourceControl.h"
 
 // ── Package save ─────────────────────────────────────────────────────────────
 
@@ -111,9 +112,19 @@ inline bool MCPPackageWriteBlocked(UObject* Asset, FString& OutReason)
 	if (IFileManager::Get().FileExists(*PackageFileName)
 		&& IFileManager::Get().IsReadOnly(*PackageFileName))
 	{
+		// In auto checkout mode the provider is asked first; manual mode refuses.
+		FString CheckoutNote;
+		if (MCPSourceControl::TryAutoCheckout(PackageFileName, CheckoutNote))
+		{
+			return false;
+		}
 		OutReason = FString::Printf(
-			TEXT("'%s' is read-only on disk. Check it out of source control or clear the read-only flag, then retry."),
+			TEXT("'%s' is read-only on disk. Check it out with source_control(checkout), set source_control(set_checkout_mode, mode=auto) to check out on write, or clear the read-only flag, then retry."),
 			*PackageFileName);
+		if (!CheckoutNote.IsEmpty())
+		{
+			OutReason += TEXT(" ") + CheckoutNote;
+		}
 		return true;
 	}
 

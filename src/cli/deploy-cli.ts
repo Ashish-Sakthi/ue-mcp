@@ -5,6 +5,7 @@ import { coreSkillsInstalled, conflictMessages, installCoreSkills, syncPluginSki
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { findUProject } from "../config/uproject-path.js";
 import { RESET, BOLD, RED, DIM, CYAN, ok, fail } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 
 async function deployCmd(argv: string[]) {
   console.log("");
@@ -75,6 +76,13 @@ async function deployCmd(argv: string[]) {
   }
   console.log("");
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp deploy [project] [flags]",
+  summary: "Copy the bridge plugin sources into the project and refresh installed skills.",
+  strict: true,
+  flags: [{ name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" }],
+};
 
 /** Entry point for `ue-mcp deploy [project] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {

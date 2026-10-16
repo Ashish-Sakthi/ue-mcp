@@ -257,6 +257,11 @@ TSharedPtr<FJsonValue> FGameplayHandlers::CreateInputMappingContext(const TShare
 }
 
 
+namespace InputDepth_Internal
+{
+	static TSharedPtr<FJsonObject> DescribeHelper(const UObject* Helper, int32 Index);
+}
+
 // ─────────────────────────────────────────────────────────────
 // #57 / #60  read_imc - Read InputMappingContext mappings
 // ─────────────────────────────────────────────────────────────
@@ -278,25 +283,19 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ReadImc(const TSharedPtr<FJsonObject>&
 		MObj->SetStringField(TEXT("inputActionName"), Mapping.Action ? Mapping.Action->GetName() : TEXT("None"));
 		MObj->SetStringField(TEXT("key"), Mapping.Key.GetFName().ToString());
 
-		// Triggers
+		// Each trigger and modifier carries its class and property values (Negate
+		// X/Y/Z, SwizzleAxis Order), the same shape read_input_action reports (#1403).
 		TArray<TSharedPtr<FJsonValue>> TriggersArr;
-		for (const TObjectPtr<UInputTrigger>& Trigger : Mapping.Triggers)
+		for (int32 Index = 0; Index < Mapping.Triggers.Num(); ++Index)
 		{
-			if (Trigger)
-			{
-				TriggersArr.Add(MakeShared<FJsonValueString>(Trigger->GetClass()->GetName()));
-			}
+			TriggersArr.Add(MakeShared<FJsonValueObject>(InputDepth_Internal::DescribeHelper(Mapping.Triggers[Index], Index)));
 		}
 		MObj->SetArrayField(TEXT("triggers"), TriggersArr);
 
-		// Modifiers
 		TArray<TSharedPtr<FJsonValue>> ModifiersArr;
-		for (const TObjectPtr<UInputModifier>& Modifier : Mapping.Modifiers)
+		for (int32 Index = 0; Index < Mapping.Modifiers.Num(); ++Index)
 		{
-			if (Modifier)
-			{
-				ModifiersArr.Add(MakeShared<FJsonValueString>(Modifier->GetClass()->GetName()));
-			}
+			ModifiersArr.Add(MakeShared<FJsonValueObject>(InputDepth_Internal::DescribeHelper(Mapping.Modifiers[Index], Index)));
 		}
 		MObj->SetArrayField(TEXT("modifiers"), ModifiersArr);
 

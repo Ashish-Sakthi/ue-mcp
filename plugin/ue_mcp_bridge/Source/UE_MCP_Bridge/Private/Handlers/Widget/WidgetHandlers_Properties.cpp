@@ -1276,6 +1276,304 @@ TSharedPtr<FJsonValue> FWidgetHandlers::SetWidgetProperty(const TSharedPtr<FJson
 	return MCPWidgetFinishSetProperty(WidgetBP, AssetPath, WidgetName, PropertyName, PropertyValue, Capture);
 }
 
+// ─── #1300 build_tree ───────────────────────────────────────────────────────
+// A nested widget subtree in one call: validated whole before anything is
+// built, constructed under one parent, undone entirely on any failure, then
+// compiled and saved once. One rollback removes the subtree root.
+namespace
+{
+	struct FBuildTreeNode
+	{
+		UClass* Class = nullptr;
+		FString Name;
+		TSharedPtr<FJsonObject> Properties;
+		TArray<int32> Children;
+		FString Path;
+	};
+
+	FString BuildTreeErrorText(const TSharedPtr<FJsonValue>& Refusal)
+	{
+		const TSharedPtr<FJsonObject>* Obj = nullptr;
+		FString Text;
+		if (Refusal.IsValid() && Refusal->TryGetObject(Obj) && Obj && (*Obj)->TryGetStringField(TEXT("error"), Text)) return Text;
+		return TEXT("the value was refused");
+	}
+
+	/** Parse and validate one node and its children. Returns false with OutError. */
+	bool ParseBuildTreeNode(const TSharedPtr<FJsonObject>& Json, const FString& Path, UWidgetTree* Tree,
+		TArray<FBuildTreeNode>& Nodes, TSet<FString>& Names, int32& OutIndex, FString& OutError)
+	{
+		FString ClassName;
+		if (!Json->TryGetStringField(TEXT("widgetClass"), ClassName)) Json->TryGetStringField(TEXT("class"), ClassName);
+		if (ClassName.IsEmpty()) { OutError = FString::Printf(TEXT("%s: widgetClass is required"), *Path); return false; }
+		UClass* Cls = MCPWidget::ResolveWidgetClass(ClassName);
+		if (!Cls) { OutError = FString::Printf(TEXT("%s: unknown widget class '%s' (see widget(list_classes))"), *Path, *ClassName); return false; }
+
+		FString Name;
+		if (!Json->TryGetStringField(TEXT("widgetName"), Name)) Json->TryGetStringField(TEXT("name"), Name);
+		if (!Name.IsEmpty())
+		{
+			if (Names.Contains(Name)) { OutError = FString::Printf(TEXT("%s: name '%s' is used twice in the tree"), *Path, *Name); return false; }
+			if (MCPWidget::FindWidgetByName(Tree, Name)) { OutError = FString::Printf(TEXT("%s: a widget named '%s' already exists in this blueprint"), *Path, *Name); return false; }
+			Names.Add(Name);
+		}
+
+		FBuildTreeNode Node;
+		Node.Class = Cls;
+		Node.Name = Name;
+		Node.Path = Name.IsEmpty() ? Path : Name;
+		const TSharedPtr<FJsonObject>* Props = nullptr;
+		if (Json->TryGetObjectField(TEXT("properties"), Props) && Props) Node.Properties = *Props;
+		OutIndex = Nodes.Add(Node);
+
+		const TArray<TSharedPtr<FJsonValue>>* Children = nullptr;
+		if (Json->TryGetArrayField(TEXT("children"), Children) && Children && Children->Num() > 0)
+		{
+			const FString NodePath = Nodes[OutIndex].Path;
+			if (!Cls->IsChildOf(UPanelWidget::StaticClass()))
+			{
+				OutError = FString::Printf(TEXT("%s: %s is not a panel and cannot have children"), *NodePath, *Cls->GetName());
+				return false;
+			}
+			const UPanelWidget* PanelCDO = Cls->GetDefaultObject<UPanelWidget>();
+			if (PanelCDO && !PanelCDO->CanHaveMultipleChildren() && Children->Num() > 1)
+			{
+				OutError = FString::Printf(TEXT("%s: %s takes one child, %d given"), *NodePath, *Cls->GetName(), Children->Num());
+				return false;
+			}
+			for (int32 i = 0; i < Children->Num(); ++i)
+			{
+				const TSharedPtr<FJsonObject>* ChildJson = nullptr;
+				if (!(*Children)[i].IsValid() || !(*Children)[i]->TryGetObject(ChildJson) || !ChildJson)
+				{
+					OutError = FString::Printf(TEXT("%s.children[%d] is not an object"), *NodePath, i);
+					return false;
+				}
+				int32 ChildIndex = INDEX_NONE;
+				if (!ParseBuildTreeNode(*ChildJson, FString::Printf(TEXT("%s.children[%d]"), *NodePath, i), Tree, Nodes, Names, ChildIndex, OutError)) return false;
+				Nodes[OutIndex].Children.Add(ChildIndex);
+			}
+		}
+		return true;
+	}
+
+	/** One property from build_tree: scalars take set_widget_property's routes
+	 *  (typed, slot.*, reflected), objects and arrays the JSON setter. */
+	bool ApplyBuildTreeProperty(UWidgetBlueprint* WidgetBP, UWidget* Widget, const FString& Key, const TSharedPtr<FJsonValue>& Value, FString& OutError)
+	{
+		const bool bSlot = Key.StartsWith(TEXT("slot."), ESearchCase::IgnoreCase);
+		if (Value->Type == EJson::Object || Value->Type == EJson::Array)
+		{
+			UObject* Target = bSlot ? static_cast<UObject*>(Widget->Slot) : static_cast<UObject*>(Widget);
+			if (!Target) { OutError = TEXT("the widget has no slot"); return false; }
+			return MCPJsonProperty::SetDottedPropertyFromJson(Target, bSlot ? Key.Mid(5) : Key, Value, OutError);
+		}
+
+		FString Text;
+		if (Value->Type == EJson::Boolean) Text = Value->AsBool() ? TEXT("true") : TEXT("false");
+		else if (Value->Type == EJson::Number) Text = FString::SanitizeFloat(Value->AsNumber());
+		else Text = Value->AsString();
+
+		FMCPWidgetPropertyCapture Capture;
+		bool bSet = MCPWidgetApplyTypedProperty(Widget, Key, Text);
+		if (!bSet && bSlot)
+		{
+			if (auto Refusal = MCPWidgetApplySlotProperty(WidgetBP, Widget, Key, Text, Capture, bSet)) { OutError = BuildTreeErrorText(Refusal); return false; }
+		}
+		if (!bSet)
+		{
+			if (auto Refusal = MCPWidgetApplyReflectedProperty(Widget, Key, Text, Capture, bSet)) { OutError = BuildTreeErrorText(Refusal); return false; }
+		}
+		if (!bSet) OutError = TEXT("property not found or value format invalid");
+		return bSet;
+	}
+}
+
+TSharedPtr<FJsonValue> FWidgetHandlers::BuildTree(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	FString AssetPath;
+	TSharedPtr<FJsonValue> PathErr = RequireString(Params, TEXT("assetPath"), AssetPath);
+	const FString ParentName = OptionalString(Params, TEXT("parentWidgetName"));
+	TSharedPtr<FJsonValue> TreeValue = TryGetParam(Params, TEXT("tree"));
+	if (PathErr) return PathErr;
+	if (!TreeValue.IsValid()) return MCPError(TEXT("Missing 'tree': one node {widgetClass, widgetName?, properties?, children?}"));
+
+	// A one-element array is the same subtree; more than one root has no single
+	// rollback, so it is refused with the fix.
+	if (TreeValue->Type == EJson::String)
+	{
+		TSharedPtr<FJsonValue> Reparsed;
+		const TSharedRef<TJsonReader<>> Reader = TJsonReaderFactory<>::Create(TreeValue->AsString());
+		if (FJsonSerializer::Deserialize(Reader, Reparsed) && Reparsed.IsValid()) TreeValue = Reparsed;
+	}
+	const TArray<TSharedPtr<FJsonValue>>* TreeArray = nullptr;
+	if (TreeValue->TryGetArray(TreeArray) && TreeArray)
+	{
+		if (TreeArray->Num() != 1)
+		{
+			return MCPError(FString::Printf(TEXT("'tree' must be one subtree root, got %d. Wrap them in a panel node (VerticalBox, HorizontalBox) so one rollback removes the whole tree."), TreeArray->Num()));
+		}
+		TreeValue = (*TreeArray)[0];
+	}
+	const TSharedPtr<FJsonObject>* RootJson = nullptr;
+	if (!TreeValue.IsValid() || !TreeValue->TryGetObject(RootJson) || !RootJson)
+	{
+		return MCPError(TEXT("'tree' must be an object {widgetClass, widgetName?, properties?, children?}"));
+	}
+
+	TSharedPtr<FJsonValue> ResolveError;
+	UWidgetBlueprint* WidgetBP = MCPWidget::ResolveWidgetBlueprintOrError(AssetPath, ResolveError);
+	if (!WidgetBP) return ResolveError;
+	if (!WidgetBP->WidgetTree) return MCPWidget::MissingWidgetTreeError(AssetPath);
+	UWidgetTree* Tree = WidgetBP->WidgetTree;
+
+	// Where the subtree goes: the named panel, the root panel, or the root itself.
+	UPanelWidget* ParentPanel = nullptr;
+	bool bBecomesRoot = false;
+	if (!ParentName.IsEmpty())
+	{
+		UWidget* ParentRaw = MCPWidget::FindWidgetByName(Tree, ParentName);
+		if (!ParentRaw) return MCPError(FString::Printf(TEXT("Parent widget '%s' not found"), *ParentName));
+		ParentPanel = Cast<UPanelWidget>(ParentRaw);
+		if (!ParentPanel) return MCPError(FString::Printf(TEXT("Parent widget '%s' (%s) is not a panel"), *ParentName, *ParentRaw->GetClass()->GetName()));
+	}
+	else if (!Tree->RootWidget)
+	{
+		bBecomesRoot = true;
+	}
+	else
+	{
+		ParentPanel = Cast<UPanelWidget>(Tree->RootWidget);
+		if (!ParentPanel) return MCPError(TEXT("The root widget is not a panel. Pass parentWidgetName, or set a panel as root first."));
+	}
+	if (ParentPanel && !ParentPanel->CanAddMoreChildren())
+	{
+		return MCPError(FString::Printf(TEXT("Parent '%s' cannot take another child"), *ParentPanel->GetName()));
+	}
+
+	TArray<FBuildTreeNode> Nodes;
+	TSet<FString> Names;
+	int32 RootIndex = INDEX_NONE;
+	FString ParseError;
+	if (!ParseBuildTreeNode(*RootJson, TEXT("tree"), Tree, Nodes, Names, RootIndex, ParseError))
+	{
+		return MCPError(FString::Printf(TEXT("%s. Nothing was built."), *ParseError));
+	}
+
+	WidgetBP->Modify();
+	Tree->Modify();
+	TArray<UWidget*> Built;
+	Built.SetNumZeroed(Nodes.Num());
+	UWidget* RootWidget = nullptr;
+
+	// Undo everything built so far: detach the subtree root and move every
+	// built widget out of the tree, so the blueprint is as it was.
+	auto Undo = [&]()
+	{
+		if (RootWidget)
+		{
+			if (Tree->RootWidget == RootWidget) Tree->RootWidget = nullptr;
+			RootWidget->RemoveFromParent();
+		}
+		for (UWidget* W : Built)
+		{
+			if (!W) continue;
+			W->Rename(nullptr, GetTransientPackage(), REN_DontCreateRedirectors | REN_NonTransactional);
+			W->MarkAsGarbage();
+		}
+	};
+
+	// Nodes is parents-before-children, which is the construction order.
+	for (int32 i = 0; i < Nodes.Num(); ++i)
+	{
+		Built[i] = Tree->ConstructWidget<UWidget>(Nodes[i].Class, Nodes[i].Name.IsEmpty() ? NAME_None : FName(*Nodes[i].Name));
+		if (!Built[i])
+		{
+			Undo();
+			return MCPError(FString::Printf(TEXT("%s: failed to construct %s. Nothing was kept."), *Nodes[i].Path, *Nodes[i].Class->GetName()));
+		}
+	}
+	RootWidget = Built[RootIndex];
+	if (bBecomesRoot)
+	{
+		Tree->RootWidget = RootWidget;
+	}
+	else if (!ParentPanel->AddChild(RootWidget))
+	{
+		Undo();
+		return MCPError(FString::Printf(TEXT("Could not add the subtree root under '%s'. Nothing was kept."), *ParentPanel->GetName()));
+	}
+	for (int32 i = 0; i < Nodes.Num(); ++i)
+	{
+		for (int32 ChildIndex : Nodes[i].Children)
+		{
+			if (!Cast<UPanelWidget>(Built[i])->AddChild(Built[ChildIndex]))
+			{
+				Undo();
+				return MCPError(FString::Printf(TEXT("%s: could not add child %s. Nothing was kept."), *Nodes[i].Path, *Nodes[ChildIndex].Path));
+			}
+		}
+	}
+
+	// Properties last, so slot.* keys see the slot the parent gave the widget.
+	int32 PropertiesSet = 0;
+	for (int32 i = 0; i < Nodes.Num(); ++i)
+	{
+		if (!Nodes[i].Properties.IsValid()) continue;
+		for (const auto& Pair : Nodes[i].Properties->Values)
+		{
+			FString PropError;
+			if (!Pair.Value.IsValid() || !ApplyBuildTreeProperty(WidgetBP, Built[i], FString(*Pair.Key), Pair.Value, PropError))
+			{
+				Undo();
+				return MCPError(FString::Printf(TEXT("%s.%s: %s. Nothing was kept."), *Nodes[i].Path, *Pair.Key, *PropError));
+			}
+			++PropertiesSet;
+		}
+	}
+
+	WidgetBP->MarkPackageDirty();
+	const MCPWidgetGuidMap::FSyncReport GuidSync = MCPWidgetGuidMap::CompileChecked(WidgetBP);
+	if (!GuidSync.bCompiled)
+	{
+		return MCPWidgetGuidMap::BlockedError(AssetPath, GuidSync);
+	}
+	FString SaveError;
+	const bool bSaved = SaveAssetPackageChecked(WidgetBP, SaveError);
+
+	TArray<TSharedPtr<FJsonValue>> Created;
+	for (int32 i = 0; i < Nodes.Num(); ++i)
+	{
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("widgetName"), Built[i]->GetName());
+		if (!Nodes[i].Name.IsEmpty()) Row->SetStringField(TEXT("requestedWidgetName"), Nodes[i].Name);
+		Row->SetStringField(TEXT("widgetClass"), Built[i]->GetClass()->GetName());
+		if (UPanelWidget* P = Built[i]->GetParent()) Row->SetStringField(TEXT("parentWidgetName"), P->GetName());
+		Created.Add(MakeShared<FJsonValueObject>(Row));
+	}
+
+	auto Result = MCPSuccess();
+	MCPSetCreated(Result);
+	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	Result->SetStringField(TEXT("assetPath"), AssetPath);
+	Result->SetStringField(TEXT("rootWidgetName"), RootWidget->GetName());
+	Result->SetBoolField(TEXT("isRoot"), bBecomesRoot);
+	if (ParentPanel) Result->SetStringField(TEXT("parentWidgetName"), ParentPanel->GetName());
+	Result->SetArrayField(TEXT("created"), Created);
+	Result->SetNumberField(TEXT("widgetCount"), Created.Num());
+	Result->SetNumberField(TEXT("propertiesSet"), PropertiesSet);
+	MCPSetWidgetGuidOutcome(Result, GuidSync, AssetPath);
+	MCPSetWidgetCompileOutcome(Result, WidgetBP, AssetPath,
+		FString::Printf(TEXT("A %d-widget tree under '%s' was built"), Created.Num(), *RootWidget->GetName()));
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("assetPath"), AssetPath);
+	Payload->SetStringField(TEXT("widgetName"), RootWidget->GetName());
+	MCPSetRollback(Result, TEXT("remove_widget"), Payload);
+	return MCPResult(Result);
+}
+
 
 TSharedPtr<FJsonValue> FWidgetHandlers::ReadWidgetAnimations(const TSharedPtr<FJsonObject>& Params)
 {

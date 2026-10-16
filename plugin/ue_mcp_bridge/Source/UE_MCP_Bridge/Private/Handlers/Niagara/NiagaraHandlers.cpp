@@ -213,10 +213,10 @@ void FNiagaraHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		LocationParam(),
 		RotationParam(),
 		LabelParam(),
-		MCPParam::Optional(TEXT("scaleX"), EType::Number, TEXT("X scale of the spawned component (default 1)")),
-		MCPParam::Optional(TEXT("scaleY"), EType::Number, TEXT("Y scale of the spawned component (default 1)")),
-		MCPParam::Optional(TEXT("scaleZ"), EType::Number, TEXT("Z scale of the spawned component (default 1)")),
-		MCPParam::Optional(TEXT("autoDestroy"), EType::Boolean, TEXT("Destroy the component once the system finishes (default false)")),
+		MCPParam::Optional(TEXT("scaleX"), EType::Number, TEXT("X scale of the spawned host actor (default 1)")),
+		MCPParam::Optional(TEXT("scaleY"), EType::Number, TEXT("Y scale of the spawned host actor (default 1)")),
+		MCPParam::Optional(TEXT("scaleZ"), EType::Number, TEXT("Z scale of the spawned host actor (default 1)")),
+		MCPParam::Optional(TEXT("autoDestroy"), EType::Boolean, TEXT("Destroy the spawned host actor once the system finishes (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("spawn_niagara_actor"), &SpawnNiagaraActor, {
 		SystemPathParam(),
@@ -446,6 +446,26 @@ void FNiagaraHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SystemPathParam(),
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Recompile even when nothing looks dirty (default true)")),
 		MCPParam::Optional(TEXT("includeGpuShaders"), EType::Boolean, TEXT("Also wait for GPU shader compilation to finish (default false)")),
+	});
+	// The actor lookup fails first on the contract values.
+	Registry.RegisterHandler(TEXT("capture_niagara_sim_cache"), &CaptureNiagaraSimCache, {
+		ActorLabelParam, ActorPathParam,
+		MCPParam::Optional(TEXT("componentName"), EType::String, TEXT("NiagaraComponent instance name when the actor holds several (default: the first)")),
+		MCPParam::Optional(TEXT("frames"), EType::Integer, TEXT("Frames to record, 1..120 (default 1). Every frame after the first advances the simulation by tickDelta")),
+		MCPParam::Optional(TEXT("advanceSimulation"), EType::Boolean, TEXT("Advance one tick before the first frame too (default false)")),
+		MCPParam::Optional(TEXT("tickDelta"), EType::Number, TEXT("Seconds per advanced tick (default 1/60)")),
+		MCPParam::Optional(TEXT("attributeCaptureMode"), EType::String, TEXT("All (default) | RenderingOnly | ExplicitAttributes")),
+		MCPParam::Optional(TEXT("explicitAttributes"), EType::Array, TEXT("With ExplicitAttributes: names written Emitter.Particles.Attribute")).Items(EType::String),
+		MCPParam::Optional(TEXT("world"), EType::String, TEXT("World scope: editor (default) | pie")),
+		MCPParam::Optional(TEXT("pieInstance"), EType::Integer, TEXT("Which PIE world when world is pie: 0 = server or primary, 1..N = clients")),
+	}, ActorChoice);
+	Registry.RegisterHandler(TEXT("read_niagara_sim_cache"), &ReadNiagaraSimCache, {
+		MCPParam::Required(TEXT("simCachePath"), EType::String, TEXT("simCachePath from capture_niagara_sim_cache, or a NiagaraSimCache asset path")),
+		MCPParam::Optional(TEXT("emitterName"), EType::String, TEXT("Emitter to read (default: the only emitter; required when there are several)")),
+		MCPParam::Optional(TEXT("attributes"), EType::Array, TEXT("Attribute names to read. Bare (Position) or qualified (Particles.Position). Omit to list the layout only")).Items(EType::String),
+		MCPParam::Optional(TEXT("frameIndex"), EType::Integer, TEXT("Frame to read (default 0)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Values returned per attribute (default 16); min/max/avg always cover every instance")),
+		MCPParam::Optional(TEXT("summarize"), EType::Boolean, TEXT("Include per-component min/max/avg (default true)")),
 	});
 }
 
@@ -746,41 +766,44 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraAtLocation(const TSharedPtr
 		return ExistingActor;
 	}
 
-	UNiagaraComponent* SpawnedComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		World,
-		NiagaraSystem,
-		Location,
-		Rotation,
-		Scale,
-		bAutoDestroy
-	);
-
+	// Every spawn gets its own ANiagaraActor host. SpawnSystemAtLocation in an
+	// editor world parents the component to WorldSettings, so a label or a
+	// delete_actor rollback would land on WorldSettings (#1396).
+	FActorSpawnParameters SpawnParams;
+	ANiagaraActor* Host = World->SpawnActor<ANiagaraActor>(ANiagaraActor::StaticClass(), Location, Rotation, SpawnParams);
+	if (!Host)
+	{
+		return MCPError(TEXT("Failed to spawn an ANiagaraActor host for the Niagara system"));
+	}
+	UNiagaraComponent* SpawnedComponent = Host->GetNiagaraComponent();
 	if (!SpawnedComponent)
 	{
-		return MCPError(TEXT("Failed to spawn Niagara system at location"));
+		Host->Destroy();
+		return MCPError(TEXT("Spawned ANiagaraActor host has no NiagaraComponent"));
 	}
-
-	// Apply label if provided
+	Host->SetActorScale3D(Scale);
+	Host->SetDestroyOnSystemFinish(bAutoDestroy);
+	SpawnedComponent->SetAsset(NiagaraSystem);
 	if (!Label.IsEmpty())
 	{
-		SpawnedComponent->GetOwner()->SetActorLabel(*Label);
+		Host->SetActorLabel(*Label);
 	}
+	SpawnedComponent->Activate(/*bReset=*/true);
 
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("systemPath"), SystemPath);
 	Result->SetStringField(TEXT("componentName"), SpawnedComponent->GetName());
-	if (SpawnedComponent->GetOwner())
-	{
-		Result->SetStringField(TEXT("actorLabel"), SpawnedComponent->GetOwner()->GetActorLabel());
-		Result->SetStringField(TEXT("actorPath"), SpawnedComponent->GetOwner()->GetPathName());
-		Result->SetStringField(TEXT("actorName"), SpawnedComponent->GetOwner()->GetName());
+	Result->SetStringField(TEXT("actorLabel"), Host->GetActorLabel());
+	Result->SetStringField(TEXT("actorPath"), Host->GetPathName());
+	Result->SetStringField(TEXT("actorName"), Host->GetName());
+	Result->SetStringField(TEXT("actorClass"), Host->GetClass()->GetName());
+	Result->SetBoolField(TEXT("hostCreated"), true);
 
-		// Rollback: delete_actor
-		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
-		Payload->SetStringField(TEXT("actorLabel"), SpawnedComponent->GetOwner()->GetActorLabel());
-		MCPSetRollback(Result, TEXT("delete_actor"), Payload);
-	}
+	// The path names only the host this call created, so the inverse cannot reach a namesake.
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("actorPath"), Host->GetPathName());
+	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 
 	TSharedPtr<FJsonObject> LocationObj = MakeShared<FJsonObject>();
 	LocationObj->SetNumberField(TEXT("x"), Location.X);
@@ -798,11 +821,8 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraAtLocation(const TSharedPtr
 	return MCPResult(Result);
 }
 
-// spawn_niagara_actor -- place a PERSISTENT, labeled ANiagaraActor in the editor
-// world (unlike spawn_niagara_at_location, which makes a transient component
-// parented to WorldSettings that GC's before an offscreen capture and can't be
-// reliably found/reactivated). Assigns the system, sets the label, activates.
-// (#537) Params: systemPath, location?, rotation?, label?, activate? (default true).
+// spawn_niagara_actor: place a labeled ANiagaraActor in the editor world, assign
+// the system and activate unless activate=false (#537).
 TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraActor(const TSharedPtr<FJsonObject>& Params)
 {
 	FString SystemPath;
@@ -852,7 +872,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraActor(const TSharedPtr<FJso
 	Result->SetBoolField(TEXT("activated"), bActivate);
 
 	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
-	Payload->SetStringField(TEXT("actorLabel"), Actor->GetActorLabel());
+	Payload->SetStringField(TEXT("actorPath"), Actor->GetPathName());
 	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 	return MCPResult(Result);
 }
@@ -1061,7 +1081,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SetNiagaraParameter(const TSharedPtr<FJ
 	{
 		Result->SetBoolField(TEXT("rollbackPossible"), false);
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
-			TEXT("The component had no readable '%s' of type %s before this call, so there is no previous value to write back and no action that removes a user-parameter override. Check the name against niagara(list_niagara_system_parameters) if this is unexpected."),
+			TEXT("The component had no readable '%s' of type %s before this call, so there is no previous value to write back and no action that removes a user-parameter override. Check the name against niagara(list_system_parameters) if this is unexpected."),
 			*ParameterName, *ParameterType));
 	}
 	return MCPResult(Result);

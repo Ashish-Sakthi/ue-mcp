@@ -42,11 +42,48 @@ describe("blueprint container type specs", () => {
     expect(params).toMatchObject({ blueprintPath: BP, name: "OnTeamChanged", parameters });
   });
 
+  it("add_variable forwards category, tooltip and instanceEditable (#1209)", async () => {
+    const [method, params] = await route({
+      action: "add_variable", assetPath: BP, name: "Scores", varType: "map<int,enum:/Game/E.E>",
+      category: "Scalability", tooltip: "Per level", instanceEditable: true,
+    });
+    expect(method).toBe("add_variable");
+    expect(params).toMatchObject({ category: "Scalability", tooltip: "Per level", instanceEditable: true });
+  });
+
+  it("set_variable_default forwards propagateToInstances (#1209)", async () => {
+    const [method, params] = await route({ action: "set_variable_default", assetPath: BP, name: "Scores", value: "()", propagateToInstances: true });
+    expect(method).toBe("set_variable_default");
+    expect(params).toMatchObject({ name: "Scores", value: "()", propagateToInstances: true });
+  });
+
   it("documents the container syntax on every action that takes a type", () => {
     for (const action of ["add_variable", "add_local_variable", "add_function_parameter", "add_event_dispatcher"]) {
       const description = blueprintTool.actions[action].description ?? "";
       expect(description, action).toMatch(/set<Name>|set<Type>/);
       expect(description, action).toMatch(/map</);
     }
+  });
+});
+
+describe("blueprint list_subclasses (#1211)", () => {
+  it("forwards className, directory, includeTransitive and limit", async () => {
+    const [method, params] = await route({ action: "list_subclasses", className: "Character", directory: "/Game/AI", includeTransitive: false, limit: 50 });
+    expect(method).toBe("list_subclasses");
+    expect(params).toMatchObject({ className: "Character", directory: "/Game/AI", includeTransitive: false, limit: 50 });
+  });
+});
+
+describe("blueprint CDO component paths (#1293)", () => {
+  it("set_class_default forwards a component-qualified propertyName", async () => {
+    const [method, params] = await route({ action: "set_class_default", assetPath: BP, propertyName: "CharacterMovement.bUseRVOAvoidance", value: false });
+    expect(method).toBe("set_class_default");
+    expect(params).toMatchObject({ propertyName: "CharacterMovement.bUseRVOAvoidance", value: false });
+  });
+
+  it("get_variable_default forwards includeChildren", async () => {
+    const [method, params] = await route({ action: "get_variable_default", assetPath: BP, name: "CharacterMovement.PerchRadiusThreshold", includeChildren: true });
+    expect(method).toBe("get_blueprint_variable_default");
+    expect(params).toMatchObject({ name: "CharacterMovement.PerchRadiusThreshold", includeChildren: true });
   });
 });

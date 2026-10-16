@@ -33,6 +33,7 @@
 #include "Engine/SkeletalMesh.h"
 #include "Animation/Skeleton.h"
 #include "Animation/AnimSequence.h"
+#include "Animation/AnimData/IAnimationDataModel.h"
 #include "UObject/UObjectGlobals.h"
 #include "UObject/Package.h"
 #include "UObject/SavePackage.h"
@@ -630,18 +631,49 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportSkeletalMesh(const TSharedPtr<FJson
 }
 
 
+// Readback of one imported AnimSequence, the shape import_skeletal_mesh reports (#1228).
+static TSharedPtr<FJsonObject> MCPDescribeImportedAnimation(UAnimSequence* Seq)
+{
+	TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+	Out->SetStringField(TEXT("path"), Seq->GetPathName());
+	Out->SetNumberField(TEXT("playLength"), Seq->GetPlayLength());
+	Out->SetNumberField(TEXT("numberOfKeys"), Seq->GetNumberOfSampledKeys());
+	Out->SetNumberField(TEXT("frameRate"), Seq->GetSamplingFrameRate().AsDecimal());
+	Out->SetBoolField(TEXT("enableRootMotion"), Seq->bEnableRootMotion);
+	const USkeleton* Skeleton = Seq->GetSkeleton();
+	if (Skeleton) Out->SetStringField(TEXT("skeleton"), Skeleton->GetPathName());
+	const IAnimationDataModel* Model = Seq->GetDataModel();
+	if (!Model) return Out;
+	Out->SetNumberField(TEXT("numberOfFrames"), Model->GetNumberOfFrames());
+	TArray<FName> Tracks;
+	Model->GetBoneTrackNames(Tracks);
+	Out->SetNumberField(TEXT("boneTrackCount"), Tracks.Num());
+	Out->SetNumberField(TEXT("curveCount"), Model->GetFloatCurves().Num());
+	// Root motion came in when the root bone's own track travels.
+	if (Skeleton && Skeleton->GetReferenceSkeleton().GetNum() > 0)
+	{
+		const FName Root = Skeleton->GetReferenceSkeleton().GetBoneName(0);
+		TArray<FTransform> RootKeys;
+		if (Model->IsValidBoneTrackName(Root)) Model->GetBoneTrackTransforms(Root, RootKeys);
+		const double Travel = RootKeys.Num() > 1 ? FVector::Dist(RootKeys[0].GetLocation(), RootKeys.Last().GetLocation()) : 0.0;
+		Out->SetStringField(TEXT("rootBone"), Root.ToString());
+		Out->SetNumberField(TEXT("rootTravel"), Travel);
+		Out->SetBoolField(TEXT("hasRootMotion"), Travel > UE_KINDA_SMALL_NUMBER);
+	}
+	return Out;
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObject>& Params)
 {
-	FString FileName;
-	if (auto Err = RequireString(Params, TEXT("filePath"), FileName)) return Err;
-
+	// Every parameter is read before anything can fail (#1057).
+	FString SingleFile;
+	const bool bHasFile = TryGetStringParam(Params, TEXT("filePath"), SingleFile) && !SingleFile.IsEmpty();
+	const TArray<TSharedPtr<FJsonValue>>* FilesArr = nullptr;
+	const bool bHasFiles = TryGetArrayParam(Params, TEXT("filePaths"), FilesArr) && FilesArr;
 	FString SkeletonPath;
-	if (auto Err = RequireString(Params, TEXT("skeletonPath"), SkeletonPath)) return Err;
-
+	TSharedPtr<FJsonValue> SkeletonErr = RequireString(Params, TEXT("skeletonPath"), SkeletonPath);
 	FString DestinationPath = OptionalString(Params, TEXT("packagePath"));
 	if (DestinationPath.IsEmpty()) DestinationPath = TEXT("/Game/Animations");
-
-	// Every parameter is read before anything can fail (#1057).
 	bool bImportCustomAttribute = true;
 	const bool bHasImportCustomAttribute = TryGetBoolParam(Params, TEXT("importCustomAttribute"), bImportCustomAttribute);
 	bool bRemoveRedundantKeys = true;
@@ -649,10 +681,24 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 	const TSharedPtr<FJsonObject>* ImportSettings = nullptr;
 	const bool bHasImportSettings = TryGetObjectParam(Params, TEXT("importSettings"), ImportSettings) && ImportSettings;
 	const FString AssetName = OptionalString(Params, TEXT("name"));
+	if (SkeletonErr) return SkeletonErr;
 
-	if (!FPaths::FileExists(FileName))
+	if (bHasFile == bHasFiles)
 	{
-		return MCPError(FString::Printf(TEXT("File not found: %s"), *FileName));
+		return MCPError(TEXT("Pass exactly one of filePath (one FBX) and filePaths (a batch into one folder)"));
+	}
+	TArray<FString> Files;
+	if (bHasFile) Files.Add(SingleFile);
+	else Files = JsonArrayToStringList(FilesArr);
+	if (Files.Num() == 0) return MCPError(TEXT("filePaths is empty"));
+	if (Files.Num() > 200) return MCPError(FString::Printf(TEXT("filePaths holds %d files; the limit is 200"), Files.Num()));
+	if (bHasFiles && !AssetName.IsEmpty())
+	{
+		return MCPError(TEXT("name applies to a single filePath; a batch names each asset after its file"));
+	}
+	for (const FString& File : Files)
+	{
+		if (!FPaths::FileExists(File)) return MCPError(FString::Printf(TEXT("File not found: %s"), *File));
 	}
 
 	USkeleton* Skeleton = LoadAssetByPath<USkeleton>(SkeletonPath);
@@ -661,6 +707,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 		return MCPAssetLoadError(SkeletonPath, TEXT("Skeleton"));
 	}
 
+	// One factory and one set of options for every file, validated before the first import.
 	UFbxFactory* FbxFactory = NewObject<UFbxFactory>();
 	FGCRootScope FactoryRoot(FbxFactory);
 
@@ -671,9 +718,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 	ImportUI->bImportTextures = false;
 	ImportUI->bIsObjImport = false;
 	ImportUI->MeshTypeToImport = FBXIT_Animation;
+	// An automated import detects the type from the file by default, so an FBX that also carries a
+	// mesh came in as a SkeletalMesh and no AnimSequence at all (#1228).
+	ImportUI->bAutomatedImportShouldDetectType = false;
 	ImportUI->Skeleton = Skeleton;
-
-	// Apply optional animation settings
 	if (bHasImportCustomAttribute)
 	{
 		ImportUI->AnimSequenceImportData->bImportCustomAttribute = bImportCustomAttribute;
@@ -688,9 +736,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 	TArray<TSharedPtr<FJsonValue>> AppliedSettings;
 	if (bHasImportSettings)
 	{
-		UObject* AnimData = ImportUI->AnimSequenceImportData;
 		TArray<UObject*> Targets;
-		Targets.Add(AnimData);
+		Targets.Add(ImportUI->AnimSequenceImportData);
 		Targets.Add(ImportUI);
 		FString SettingsError;
 		if (!MCPApplyImportSettings(Targets, *ImportSettings, AppliedSettings, SettingsError))
@@ -698,54 +745,90 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportAnimation(const TSharedPtr<FJsonObj
 			return MCPError(SettingsError);
 		}
 	}
-
 	FbxFactory->ImportUI = ImportUI;
 
-	UAssetImportTask* Task = NewObject<UAssetImportTask>();
-	FGCRootScope TaskRoot(Task);
-	Task->bAutomated = true;
-	Task->bReplaceExisting = true;
-	Task->bSave = false;
-	Task->Filename = FileName;
-	Task->DestinationPath = DestinationPath;
-	Task->Factory = FbxFactory;
-
-	// Optional asset name
-	if (!AssetName.IsEmpty())
-	{
-		Task->DestinationName = AssetName;
-	}
-
 	FAssetToolsModule& AssetToolsModule = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools"));
-	TArray<UAssetImportTask*> Tasks;
-	Tasks.Add(Task);
-	AssetToolsModule.Get().ImportAssetTasks(Tasks);
-
 	TArray<TSharedPtr<FJsonValue>> ImportedPaths;
-	if (Task->GetObjects().Num() > 0)
+	TArray<TSharedPtr<FJsonValue>> Animations;
+	TArray<TSharedPtr<FJsonValue>> Rows;
+	int32 FailedFiles = 0;
+	for (const FString& File : Files)
 	{
+		UAssetImportTask* Task = NewObject<UAssetImportTask>();
+		FGCRootScope TaskRoot(Task);
+		Task->bAutomated = true;
+		Task->bReplaceExisting = true;
+		Task->bSave = false;
+		Task->Filename = File;
+		Task->DestinationPath = DestinationPath;
+		Task->Factory = FbxFactory;
+		if (!AssetName.IsEmpty()) Task->DestinationName = AssetName;
+
+		TArray<UAssetImportTask*> Tasks;
+		Tasks.Add(Task);
+		AssetToolsModule.Get().ImportAssetTasks(Tasks);
+
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("filePath"), File);
+		TArray<TSharedPtr<FJsonValue>> FileAssets;
+		TArray<FString> OtherClasses;
+		int32 FileAnimations = 0;
 		for (UObject* ImportedObj : Task->GetObjects())
 		{
-			if (ImportedObj)
+			if (!ImportedObj) continue;
+			FileAssets.Add(MakeShared<FJsonValueString>(ImportedObj->GetPathName()));
+			ImportedPaths.Add(MakeShared<FJsonValueString>(ImportedObj->GetPathName()));
+			if (UAnimSequence* Seq = Cast<UAnimSequence>(ImportedObj))
 			{
-				FString ObjPath = ImportedObj->GetPathName();
-				ImportedPaths.Add(MakeShared<FJsonValueString>(ObjPath));
+				Animations.Add(MakeShared<FJsonValueObject>(MCPDescribeImportedAnimation(Seq)));
+				++FileAnimations;
+			}
+			else
+			{
+				OtherClasses.AddUnique(ImportedObj->GetClass()->GetName());
 			}
 		}
+		Row->SetArrayField(TEXT("importedAssets"), FileAssets);
+		// An animation import that produced no AnimSequence did not do its job, whatever else it made.
+		Row->SetBoolField(TEXT("success"), FileAnimations > 0);
+		if (FileAssets.Num() == 0)
+		{
+			Row->SetStringField(TEXT("error"), TEXT("The import produced no asset"));
+			++FailedFiles;
+		}
+		else if (FileAnimations == 0)
+		{
+			Row->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("The import produced no AnimSequence, only %s"), *FString::Join(OtherClasses, TEXT(", "))));
+			++FailedFiles;
+		}
+		Rows.Add(MakeShared<FJsonValueObject>(Row));
 	}
 
 	auto Result = MCPSuccess();
 	if (ImportedPaths.Num() > 0) { MCPSetCreated(Result); }
-	Result->SetStringField(TEXT("filename"), FileName);
+	Result->SetStringField(TEXT("filename"), Files[0]);
 	Result->SetStringField(TEXT("skeletonPath"), SkeletonPath);
 	Result->SetStringField(TEXT("destinationPath"), DestinationPath);
 	if (AppliedSettings.Num() > 0) Result->SetArrayField(TEXT("importSettingsApplied"), AppliedSettings);
 	Result->SetArrayField(TEXT("importedAssets"), ImportedPaths);
 	Result->SetNumberField(TEXT("importedCount"), ImportedPaths.Num());
-	Result->SetBoolField(TEXT("success"), ImportedPaths.Num() > 0);
+	Result->SetArrayField(TEXT("animations"), Animations);
+	if (bHasFiles)
+	{
+		Result->SetArrayField(TEXT("files"), Rows);
+		Result->SetNumberField(TEXT("failedFiles"), FailedFiles);
+	}
+	Result->SetBoolField(TEXT("success"), ImportedPaths.Num() > 0 && FailedFiles == 0);
 	if (ImportedPaths.Num() == 0)
 	{
 		Result->SetStringField(TEXT("error"), TEXT("Import task completed but no assets were produced"));
+	}
+	else if (FailedFiles > 0)
+	{
+		Result->SetStringField(TEXT("error"), bHasFiles
+			? FString::Printf(TEXT("%d of %d file(s) produced no AnimSequence; files lists each one"), FailedFiles, Files.Num())
+			: FString::Printf(TEXT("The import produced no AnimSequence from %s; importedAssets lists what it made instead"), *Files[0]));
 	}
 
 	EmitImportedAssetsRollback(Result, ImportedPaths);
@@ -771,7 +854,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	const bool bHasFactoryProperties = TryGetObjectParam(Params, TEXT("factoryProperties"), FactoryProperties) && FactoryProperties;
 	const bool bAutomated = OptionalBool(Params, TEXT("automated"), true);
 	const bool bReplaceExisting = OptionalBool(Params, TEXT("replaceExisting"), true);
-	const bool bSaveImported = OptionalBool(Params, TEXT("save"), false);
+	// An import that is never written is lost on editor close, so it saves by default like every create (#1280).
+	const bool bSaveImported = OptionalBool(Params, TEXT("save"), true);
 	const FString AssetName = OptionalString(Params, TEXT("name"));
 
 	DestinationPath.RemoveFromEnd(TEXT("/"));
@@ -835,7 +919,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	FGCRootScope TaskRoot(Task);
 	Task->bAutomated = bAutomated;
 	Task->bReplaceExisting = bReplaceExisting;
-	Task->bSave = bSaveImported;
+	// Saved below per asset, so a failed write is reported on its row rather than only logged.
+	Task->bSave = false;
 	Task->Filename = FileName;
 	Task->DestinationPath = DestinationPath;
 	Task->Factory = Factory; // null lets AssetTools pick by extension
@@ -851,9 +936,27 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	AssetToolsModule.Get().ImportAssetTasks(Tasks);
 
 	TArray<TSharedPtr<FJsonValue>> ImportedPaths;
+	TArray<TSharedPtr<FJsonValue>> ImportedRows;
+	bool bAllSaved = true;
 	for (UObject* ImportedObj : Task->GetObjects())
 	{
-		if (ImportedObj) ImportedPaths.Add(MakeShared<FJsonValueString>(ImportedObj->GetPathName()));
+		if (!ImportedObj) continue;
+		ImportedPaths.Add(MakeShared<FJsonValueString>(ImportedObj->GetPathName()));
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("assetPath"), ImportedObj->GetPathName());
+		Row->SetStringField(TEXT("class"), ImportedObj->GetClass()->GetName());
+		bool bSaved = false;
+		if (bSaveImported)
+		{
+			FString SaveError;
+			bSaved = SaveAssetPackageChecked(ImportedObj, SaveError);
+			if (!bSaved) Row->SetStringField(TEXT("saveError"), SaveError);
+		}
+		Row->SetBoolField(TEXT("saved"), bSaved);
+		UPackage* Package = ImportedObj->GetOutermost();
+		if (!bSaved && Package && Package->IsDirty()) Row->SetBoolField(TEXT("dirtyNotSaved"), true);
+		bAllSaved &= bSaved;
+		ImportedRows.Add(MakeShared<FJsonValueObject>(Row));
 	}
 
 	auto Result = MCPSuccess();
@@ -863,8 +966,15 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportFile(const TSharedPtr<FJsonObject>&
 	Result->SetStringField(TEXT("factoryClass"), Factory ? Factory->GetClass()->GetPathName() : TEXT("auto"));
 	if (AppliedProperties.Num() > 0) Result->SetArrayField(TEXT("factoryPropertiesApplied"), AppliedProperties);
 	Result->SetArrayField(TEXT("importedAssets"), ImportedPaths);
+	Result->SetArrayField(TEXT("imported"), ImportedRows);
 	Result->SetNumberField(TEXT("importedCount"), ImportedPaths.Num());
+	Result->SetBoolField(TEXT("saved"), ImportedPaths.Num() > 0 && bAllSaved);
 	Result->SetBoolField(TEXT("success"), ImportedPaths.Num() > 0);
+	if (bSaveImported && ImportedPaths.Num() > 0 && !bAllSaved)
+	{
+		Result->SetBoolField(TEXT("success"), false);
+		Result->SetStringField(TEXT("error"), TEXT("The import produced assets, but at least one could not be saved; its row carries saveError."));
+	}
 	if (ImportedPaths.Num() == 0)
 	{
 		Result->SetStringField(TEXT("error"),

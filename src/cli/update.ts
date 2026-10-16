@@ -13,6 +13,7 @@ import { findUProject, isUProjectPath } from "../config/uproject-path.js";
 import { installKindOf, resolvePluginDir } from "../editor/install-marker.js";
 import { applyUpdate, repinClientConfigs } from "../editor/bridge-update.js";
 import { RESET, BOLD, RED, DIM, CYAN, YELLOW, ok, fail, info as step } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 
 /** The version behind the `latest` dist-tag, which is the stable line. */
 function getLatestVersion(): string | null {
@@ -230,6 +231,21 @@ async function update(argv: string[]) {
   console.log(`  ${BOLD}Next:${RESET} quit your MCP client and relaunch it so it spawns the updated server.`);
   console.log("");
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp update [project] [flags]",
+  summary: "Update the ue-mcp package, deploy its bridge plugin into the project, and rebuild the editor.",
+  strict: true,
+  flags: [
+    { name: "--no-deploy", description: "Update the package only; leave the project's plugin as it is" },
+    { name: "--no-build", description: "Deploy the plugin but do not rebuild the editor" },
+    { name: "--deploy", description: "Deploy the plugin (the default; kept for older scripts)" },
+    { name: "--build", description: "Rebuild after deploying (the default; kept for older scripts)" },
+    { name: "--apply-only", description: "Install this package's own bridge into the project and stop" },
+    { name: "--binaries", value: "<dir-or-url>", description: "Prebuilt binaries to install with --apply-only" },
+    { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
+  ],
+};
 
 /** Entry point for `ue-mcp update [project] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {

@@ -37,6 +37,12 @@
 #include "Dom/JsonValue.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Settings/LevelEditorPlaySettings.h"
+#include "GameFramework/WorldSettings.h"
+#include "GameFramework/PlayerState.h"
+#include "Camera/PlayerCameraManager.h"
+#include "Engine/DebugCameraController.h"
+#include "GameFramework/PawnMovementComponent.h"
+#include "GameFramework/SpectatorPawn.h"
 
 namespace
 {
@@ -182,6 +188,28 @@ namespace
 			return BP->GetPropertyValue_InContainer(Obj);
 		}
 		return 0;
+	}
+
+	static bool GetIntPointPropOn(const UObject* Obj, const TCHAR* Name, FIntPoint& Out)
+	{
+		FStructProperty* P = CastField<FStructProperty>(Obj->GetClass()->FindPropertyByName(FName(Name)));
+		if (!P || P->Struct != TBaseStructure<FIntPoint>::Get()) return false;
+		Out = *P->ContainerPtrToValuePtr<FIntPoint>(Obj);
+		return true;
+	}
+	static bool SetIntPointPropOn(UObject* Obj, const TCHAR* Name, const FIntPoint& NewVal)
+	{
+		FStructProperty* P = CastField<FStructProperty>(Obj->GetClass()->FindPropertyByName(FName(Name)));
+		if (!P || P->Struct != TBaseStructure<FIntPoint>::Get()) return false;
+		*P->ContainerPtrToValuePtr<FIntPoint>(Obj) = NewVal;
+		return true;
+	}
+	static TSharedPtr<FJsonObject> IntPointToJson(const FIntPoint& Point)
+	{
+		TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+		Out->SetNumberField(TEXT("x"), Point.X);
+		Out->SetNumberField(TEXT("y"), Point.Y);
+		return Out;
 	}
 
 	static const TCHAR* NetModeNameFromValue(int64 V)
@@ -894,11 +922,11 @@ namespace
 		if (bBound)
 		{
 			{
-				// #806: without this guard an actor getter called against the
-				// editor world is skipped and the zeroed frame reads back as a
-				// real value.
-				FEditorScriptExecutionGuard ScriptGuard;
-				Target->ProcessEvent(Fn, Frame.GetData());
+				// #806: an editor-world getter runs under the script guard, or it
+				// is skipped and the zeroed frame reads back as a real value. A
+				// PIE getter runs in its own instance's context (#1217).
+				bool bUsedEditorGuard = false;
+				MCPFunctionCall::ProcessEventInOwnContext(Target, Fn, Frame.GetData(), bUsedEditorGuard);
 			}
 			WritePropertyValue(Out, FieldKey, RetProp, RetProp->ContainerPtrToValuePtr<void>(Frame.GetData()));
 		}
@@ -981,15 +1009,30 @@ namespace
 			{
 				if (AActor* AsActor = Cast<AActor>(CurObject))
 				{
+					// #1204: the instance name, case-insensitive, or else the
+					// component class when exactly one component has it.
+					UActorComponent* Match = nullptr;
+					UActorComponent* ClassMatch = nullptr;
+					int32 ClassMatches = 0;
 					for (UActorComponent* Comp : AsActor->GetComponents())
 					{
-						if (Comp && Comp->GetName() == Seg)
+						if (!Comp) continue;
+						if (Comp->GetName().Equals(Seg, ESearchCase::IgnoreCase)) { Match = Comp; break; }
+						const FString ClassName = Comp->GetClass()->GetName();
+						if (ClassName.Equals(Seg, ESearchCase::IgnoreCase)
+							|| ClassName.Equals(Seg + TEXT("Component"), ESearchCase::IgnoreCase))
 						{
-							CurContainer = Comp;
-							CurStruct = Comp->GetClass();
-							CurObject = Comp;
-							goto NextSegment;
+							ClassMatch = Comp;
+							++ClassMatches;
 						}
+					}
+					if (!Match && ClassMatches == 1) Match = ClassMatch;
+					if (Match)
+					{
+						CurContainer = Match;
+						CurStruct = Match->GetClass();
+						CurObject = Match;
+						goto NextSegment;
 					}
 				}
 			}
@@ -1006,9 +1049,27 @@ namespace
 				return;
 			}
 
-			OutErr = FString::Printf(
-				TEXT("Segment '%s' is neither a property, component, nor a UFUNCTION on %s. A UFUNCTION that takes arguments is written '%s(value)'."),
-				*Seg, *CurStruct->GetName(), *Seg);
+			{
+				// #1204: name what this segment could have been.
+				TArray<FString> PropertyNames;
+				for (TFieldIterator<FProperty> It(CurStruct, EFieldIteratorFlags::IncludeSuper); It && PropertyNames.Num() < 40; ++It)
+				{
+					PropertyNames.Add(It->GetName());
+				}
+				FString ComponentList;
+				if (AActor* AsActor = (i == 0) ? Cast<AActor>(CurObject) : nullptr)
+				{
+					TArray<FString> ComponentNames;
+					for (UActorComponent* Comp : AsActor->GetComponents())
+					{
+						if (Comp) ComponentNames.Add(FString::Printf(TEXT("%s (%s)"), *Comp->GetName(), *Comp->GetClass()->GetName()));
+					}
+					ComponentList = FString::Printf(TEXT(" Components: [%s]."), *FString::Join(ComponentNames, TEXT(", ")));
+				}
+				OutErr = FString::Printf(
+					TEXT("Segment '%s' is neither a property, component, nor a UFUNCTION on %s. A UFUNCTION that takes arguments is written '%s(value)'.%s Properties: [%s]."),
+					*Seg, *CurStruct->GetName(), *Seg, *ComponentList, *FString::Join(PropertyNames, TEXT(", ")));
+			}
 			return;
 
 		NextSegment:;
@@ -1221,6 +1282,97 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetPieTimeScale(const TSharedPtr<FJsonOb
 			TEXT("The world's time dilation before this call was %g, and this handler refuses a factor that is not greater than zero. Replaying it with that value would be rejected, so no rollback is offered."),
 			PreviousFactor));
 	}
+	return MCPResult(Result);
+}
+
+// #1215: pause or resume a running PIE instance. execute_command 'pause' runs
+// against the editor world, so a game paused by its own startup menu could not
+// be resumed without Python.
+TSharedPtr<FJsonValue> FEditorHandlers::SetPiePaused(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	bool bPaused = false;
+	const bool bHasPaused = TryGetBoolParam(Params, TEXT("paused"), bPaused);
+	const FString Mode = OptionalString(Params, TEXT("mode"), TEXT("game")).ToLower();
+	const bool bForce = OptionalBool(Params, TEXT("force"), false);
+	UWorld* World = ResolveWorldFromParams(Params, TEXT("pie"));
+
+	if (!bHasPaused) return MCPError(TEXT("Missing required boolean 'paused'"));
+	if (Mode != TEXT("game") && Mode != TEXT("debug"))
+	{
+		return MCPError(FString::Printf(TEXT("Unknown mode '%s'. Use game | debug."), *Mode));
+	}
+	if (!World || !World->IsPlayInEditor())
+	{
+		return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+	}
+
+	auto ReadGamePaused = [World]()
+	{
+		const AWorldSettings* Settings = World->GetWorldSettings();
+		return Settings && Settings->GetPauserPlayerState() != nullptr;
+	};
+	const bool bPrevGamePaused = ReadGamePaused();
+	const bool bPrevDebugPaused = World->bDebugPauseExecution;
+
+	bool bAccepted = true;
+	bool bForced = false;
+	if (Mode == TEXT("debug"))
+	{
+		if (!GEditor) return MCPError(TEXT("Editor not available"));
+		bAccepted = GEditor->SetPIEWorldsPaused(bPaused);
+	}
+	else
+	{
+		FMCPScopedPlayWorldContext PlayContext(World);
+		bAccepted = UGameplayStatics::SetGamePaused(World, bPaused);
+		if (!bPaused && bForce && ReadGamePaused())
+		{
+			if (AWorldSettings* Settings = World->GetWorldSettings())
+			{
+				Settings->SetPauserPlayerState(nullptr);
+				bForced = true;
+			}
+		}
+	}
+
+	const bool bGamePaused = ReadGamePaused();
+	const bool bDebugPaused = World->bDebugPauseExecution;
+	const bool bNowPaused = Mode == TEXT("debug") ? bDebugPaused : bGamePaused;
+	if (bNowPaused != bPaused)
+	{
+		return MCPError(Mode == TEXT("debug")
+			? TEXT("The editor did not change the PIE pause state.")
+			: (bPaused
+				? TEXT("The game refused to pause: GameMode::AllowPausing returned false, or the world has no local player controller to pause with.")
+				: TEXT("The game refused to unpause: the pause belongs to a player whose CanUnpause delegate still holds it. Pass force=true to clear the world's pauser.")));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("world"), World->GetPathName());
+	Result->SetStringField(TEXT("netMode"), DescribePIENetMode(World));
+	Result->SetStringField(TEXT("mode"), Mode);
+	Result->SetBoolField(TEXT("requestedPaused"), bPaused);
+	Result->SetBoolField(TEXT("accepted"), bAccepted);
+	Result->SetBoolField(TEXT("gamePaused"), bGamePaused);
+	Result->SetBoolField(TEXT("debugPaused"), bDebugPaused);
+	Result->SetBoolField(TEXT("previousGamePaused"), bPrevGamePaused);
+	Result->SetBoolField(TEXT("previousDebugPaused"), bPrevDebugPaused);
+	if (bForced) Result->SetBoolField(TEXT("forcedPauserCleared"), true);
+	const bool bChanged = bGamePaused != bPrevGamePaused || bDebugPaused != bPrevDebugPaused;
+	Result->SetBoolField(TEXT("changed"), bChanged);
+	if (bChanged) MCPSetUpdated(Result);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetBoolField(TEXT("paused"), Mode == TEXT("debug") ? bPrevDebugPaused : bPrevGamePaused);
+	Payload->SetStringField(TEXT("mode"), Mode);
+	if (HasParam(Params, TEXT("world"))) Payload->SetStringField(TEXT("world"), OptionalString(Params, TEXT("world")));
+	if (HasParam(Params, TEXT("pieInstance"))) Payload->SetNumberField(TEXT("pieInstance"), OptionalInt(Params, TEXT("pieInstance"), 0));
+	MCPSetRollback(Result, TEXT("set_pie_paused"), Payload);
+	Result->SetBoolField(TEXT("rollbackLossy"), bForced);
+	Result->SetStringField(TEXT("rollbackNote"), bForced
+		? TEXT("Restores the paused state, but a forced unpause cleared the pauser and a replayed pause is owned by this world's first local player rather than whoever paused before.")
+		: TEXT("Restores the previous paused state. It needs the same PIE session to still be running."));
 	return MCPResult(Result);
 }
 
@@ -1495,14 +1647,14 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 	// the world and collects garbage, and CallTarget is read again below.
 	FGCObjectScopeGuard CallTargetGuard(CallTarget);
 
-	// #973: read the callspace BEFORE the guard opens. That is the only moment
-	// it is observable: inside the guard GAllowActorScriptExecutionInEditor
-	// makes AActor::GetFunctionCallspace answer Local in its first branch, so a
-	// UFUNCTION(Server) runs its implementation on this copy instead of being
-	// sent, and the result used to say nothing about it.
+	// #973/#1217: only an editor-world target runs under the script guard, which
+	// forces every actor callspace to Local. Read the callspace before it opens;
+	// a PIE target runs in its own instance's context and routes normally.
+	const bool bNeedsGuard = MCPFunctionCall::NeedsEditorScriptGuard(CallTarget);
 	FString NaturalCallspace;
-	const bool bCallspaceForcedLocal =
-		MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+	const bool bCallspaceForcedLocal = bNeedsGuard
+		&& MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+	if (!bNeedsGuard) NaturalCallspace = MCPFunctionCall::NetCallspaceOf(CallTarget, Func);
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
@@ -1541,7 +1693,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"), bPureFunction
 		? TEXT("A pure or const function writes nothing, so there is nothing to undo.")
-		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
+		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
 
 	// #973: the opt-in escape from the override above. Queued for the next
 	// engine tick, the send happens after the guard's scope has ended and the
@@ -1576,10 +1728,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 	// (X=0,Y=0,Z=0) with success. FEditorScriptExecutionGuard opens the same
 	// gate the editor itself uses for CallInEditor functions, for this call
 	// only, so the placed instance actually runs the function.
-	{
-		FEditorScriptExecutionGuard ScriptGuard;
-		CallTarget->ProcessEvent(Func, ParamBuf.GetData());
-	}
+	bool bUsedEditorGuard = false;
+	MCPFunctionCall::ProcessEventInOwnContext(CallTarget, Func, ParamBuf.GetData(), bUsedEditorGuard);
+	Result->SetStringField(TEXT("callContext"), bUsedEditorGuard ? TEXT("editorScriptGuard") : TEXT("playInstance"));
 
 	if (bCallspaceForcedLocal)
 	{
@@ -1587,6 +1738,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 		Result->SetBoolField(TEXT("callspaceForcedLocal"), true);
 		Result->SetStringField(TEXT("warning"),
 			MCPFunctionCall::DescribeForcedLocalCallspace(FunctionName, NaturalCallspace));
+	}
+	else if (!NaturalCallspace.IsEmpty())
+	{
+		Result->SetStringField(TEXT("netCallspace"), NaturalCallspace);
+		Result->SetBoolField(TEXT("callspaceForcedLocal"), false);
 	}
 
 	// #885: containers come back as real JSON. Export text renders a
@@ -1835,7 +1991,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeStaticFunction(const TSharedPtr<FJ
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"), bPureFunction
 		? TEXT("A pure or const function writes nothing, so there is nothing to undo.")
-		: TEXT("A static library call has no known inverse. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional."));
+		: TEXT("A static library call has no known inverse. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional."));
 
 	Cleanup();
 	return MCPResult(Result);
@@ -1860,6 +2016,21 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	const bool bPrevLaunchSeparateServer = GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false);
 	const int32 PrevNewWindowWidth = GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0);
 	const int32 PrevNewWindowHeight = GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0);
+	// #1235: separate-process clients take their size from ClientWindow* and
+	// their position from NewWindowPosition once CenterNewWindow is off.
+	const int32 PrevClientWindowWidth = GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0);
+	const int32 PrevClientWindowHeight = GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0);
+	FIntPoint PrevNewWindowPosition = FIntPoint::ZeroValue;
+	GetIntPointPropOn(Settings, TEXT("NewWindowPosition"), PrevNewWindowPosition);
+	const bool bPrevCenterNewWindow = GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true);
+
+	int32 ClientW = 0, ClientH = 0;
+	const bool bHasClientW = TryGetNumberParam(Params, TEXT("clientWindowWidth"), ClientW);
+	const bool bHasClientH = TryGetNumberParam(Params, TEXT("clientWindowHeight"), ClientH);
+	const TSharedPtr<FJsonObject>* PositionObj = nullptr;
+	const bool bHasPosition = TryGetObjectParam(Params, TEXT("newWindowPosition"), PositionObj) && PositionObj && PositionObj->IsValid();
+	bool bCenterNewWindow = false;
+	const bool bHasCenter = TryGetBoolParam(Params, TEXT("centerNewWindow"), bCenterNewWindow);
 
 	bool bAny = false;
 	int32 NumClients = 0;
@@ -1917,9 +2088,43 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 		bAny = true;
 	}
 
+	if (bHasClientW)
+	{
+		if (ClientW <= 0) return MCPError(TEXT("clientWindowWidth must be greater than zero"));
+		SetIntPropOn(Settings, TEXT("ClientWindowWidth"), ClientW);
+		bAny = true;
+	}
+	if (bHasClientH)
+	{
+		if (ClientH <= 0) return MCPError(TEXT("clientWindowHeight must be greater than zero"));
+		SetIntPropOn(Settings, TEXT("ClientWindowHeight"), ClientH);
+		bAny = true;
+	}
+	if (bHasPosition)
+	{
+		double X = 0.0, Y = 0.0;
+		if (!(*PositionObj)->TryGetNumberField(TEXT("x"), X) || !(*PositionObj)->TryGetNumberField(TEXT("y"), Y))
+		{
+			return MCPError(TEXT("newWindowPosition takes {x, y} in screen pixels"));
+		}
+		if (!SetIntPointPropOn(Settings, TEXT("NewWindowPosition"), FIntPoint(FMath::RoundToInt(X), FMath::RoundToInt(Y))))
+		{
+			return MCPError(TEXT("NewWindowPosition property not found - engine drift?"));
+		}
+		// The engine ignores the position of a centred window, so placing one
+		// turns centring off unless centerNewWindow was also passed.
+		if (!bHasCenter) SetBoolPropOn(Settings, TEXT("CenterNewWindow"), false);
+		bAny = true;
+	}
+	if (bHasCenter)
+	{
+		SetBoolPropOn(Settings, TEXT("CenterNewWindow"), bCenterNewWindow);
+		bAny = true;
+	}
+
 	if (!bAny)
 	{
-		return MCPError(TEXT("Nothing to configure - provide numClients / netMode / runUnderOneProcess / launchSeparateServer / newWindowWidth / newWindowHeight"));
+		return MCPError(TEXT("Nothing to configure - provide numClients / netMode / runUnderOneProcess / launchSeparateServer / newWindowWidth / newWindowHeight / clientWindowWidth / clientWindowHeight / newWindowPosition / centerNewWindow"));
 	}
 
 	Settings->SaveConfig();
@@ -1932,6 +2137,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	Result->SetBoolField(TEXT("launchSeparateServer"), GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false));
 	Result->SetNumberField(TEXT("newWindowWidth"), GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0));
 	Result->SetNumberField(TEXT("newWindowHeight"), GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0));
+	FIntPoint NewWindowPosition = FIntPoint::ZeroValue;
+	GetIntPointPropOn(Settings, TEXT("NewWindowPosition"), NewWindowPosition);
+	Result->SetNumberField(TEXT("clientWindowWidth"), GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0));
+	Result->SetNumberField(TEXT("clientWindowHeight"), GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0));
+	Result->SetObjectField(TEXT("newWindowPosition"), IntPointToJson(NewWindowPosition));
+	Result->SetBoolField(TEXT("centerNewWindow"), GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true));
 
 	Result->SetNumberField(TEXT("previousNumClients"), PrevNumClients);
 	Result->SetStringField(TEXT("previousNetMode"), PrevNetMode);
@@ -1939,13 +2150,21 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	Result->SetBoolField(TEXT("previousLaunchSeparateServer"), bPrevLaunchSeparateServer);
 	Result->SetNumberField(TEXT("previousNewWindowWidth"), PrevNewWindowWidth);
 	Result->SetNumberField(TEXT("previousNewWindowHeight"), PrevNewWindowHeight);
+	Result->SetNumberField(TEXT("previousClientWindowWidth"), PrevClientWindowWidth);
+	Result->SetNumberField(TEXT("previousClientWindowHeight"), PrevClientWindowHeight);
+	Result->SetObjectField(TEXT("previousNewWindowPosition"), IntPointToJson(PrevNewWindowPosition));
+	Result->SetBoolField(TEXT("previousCenterNewWindow"), bPrevCenterNewWindow);
 	const bool bChanged =
 		GetIntPropOn(Settings, TEXT("PlayNumberOfClients"), 1) != PrevNumClients
 		|| PrevNetMode != NetModeNameFromValue(GetEnumPropOn(Settings, TEXT("PlayNetMode")))
 		|| GetBoolPropOn(Settings, TEXT("RunUnderOneProcess"), true) != bPrevRunUnderOneProcess
 		|| GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false) != bPrevLaunchSeparateServer
 		|| GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0) != PrevNewWindowWidth
-		|| GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0) != PrevNewWindowHeight;
+		|| GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0) != PrevNewWindowHeight
+		|| GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0) != PrevClientWindowWidth
+		|| GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0) != PrevClientWindowHeight
+		|| NewWindowPosition != PrevNewWindowPosition
+		|| GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true) != bPrevCenterNewWindow;
 	Result->SetBoolField(TEXT("changed"), bChanged);
 
 	// Self-inverse: the same handler with every field's previous value. The
@@ -1958,6 +2177,10 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	Payload->SetBoolField(TEXT("launchSeparateServer"), bPrevLaunchSeparateServer);
 	Payload->SetNumberField(TEXT("newWindowWidth"), PrevNewWindowWidth);
 	Payload->SetNumberField(TEXT("newWindowHeight"), PrevNewWindowHeight);
+	if (PrevClientWindowWidth > 0) Payload->SetNumberField(TEXT("clientWindowWidth"), PrevClientWindowWidth);
+	if (PrevClientWindowHeight > 0) Payload->SetNumberField(TEXT("clientWindowHeight"), PrevClientWindowHeight);
+	Payload->SetObjectField(TEXT("newWindowPosition"), IntPointToJson(PrevNewWindowPosition));
+	Payload->SetBoolField(TEXT("centerNewWindow"), bPrevCenterNewWindow);
 	MCPSetRollback(Result, TEXT("configure_pie"), Payload);
 	// This handler ignores a non-positive numClients / newWindowWidth /
 	// newWindowHeight, so a previous value of zero cannot be written back and
@@ -1966,11 +2189,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::ConfigurePie(const TSharedPtr<FJsonObjec
 	if (PrevNumClients <= 0) Unrestorable.Add(TEXT("numClients"));
 	if (PrevNewWindowWidth <= 0) Unrestorable.Add(TEXT("newWindowWidth"));
 	if (PrevNewWindowHeight <= 0) Unrestorable.Add(TEXT("newWindowHeight"));
+	if (PrevClientWindowWidth <= 0) Unrestorable.Add(TEXT("clientWindowWidth"));
+	if (PrevClientWindowHeight <= 0) Unrestorable.Add(TEXT("clientWindowHeight"));
 	Result->SetBoolField(TEXT("rollbackLossy"), Unrestorable.Num() > 0);
 	if (Unrestorable.Num() > 0)
 	{
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
-			TEXT("Restores every field except %s, which was zero or negative before this call. This handler only applies those three when they are greater than zero, so replaying the previous value is a no-op for them and they keep the value written here."),
+			TEXT("Restores every field except %s, which was zero or negative before this call. This handler only applies window sizes and numClients when they are greater than zero, so replaying the previous value is a no-op for them and they keep the value written here."),
 			*FString::Join(Unrestorable, TEXT(", "))));
 	}
 	return MCPResult(Result);
@@ -2010,6 +2235,205 @@ TSharedPtr<FJsonValue> FEditorHandlers::PieSetPlayerView(const TSharedPtr<FJsonO
 	Result->SetBoolField(TEXT("rollbackLossy"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
 		TEXT("The rollback needs the same PIE session and player controller to still exist. Once play ends it reports that PIE is not running rather than restoring anything, and a live controller keeps turning under player or AI input after the write either way."));
+	return MCPResult(Result);
+}
+
+// #1203: make an actor the PIE player's view target, so a spawned CameraActor
+// frames capture_screenshot(target=pie) in a map with no possessed pawn.
+TSharedPtr<FJsonValue> FEditorHandlers::SetPieViewTarget(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	UWorld* World = ResolveWorldFromParams(Params, TEXT("pie"));
+	HasParam(Params, TEXT("actorLabel"));
+	HasParam(Params, TEXT("actorPath"));
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	const double BlendTime = OptionalNumber(Params, TEXT("blendTime"), 0.0);
+
+	if (!World || !World->IsPlayInEditor())
+	{
+		return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+	}
+	if (BlendTime < 0.0 || !FMath::IsFinite(BlendTime)) return MCPError(TEXT("blendTime must be zero or greater"));
+
+	FMCPActorSelector ActorSel;
+	ActorSel.Match = EMCPActorMatch::LabelNameOrPath;
+	ActorSel.WorldLabel = TEXT("PIE");
+	TSharedPtr<FJsonValue> ActorErr;
+	AActor* Target = MCPResolveActor(World, Params, ActorErr, ActorSel);
+	if (!Target) return ActorErr;
+
+	APlayerController* PC = UGameplayStatics::GetPlayerController(World, PlayerIndex);
+	if (!PC) return MCPError(FString::Printf(TEXT("No player controller at playerIndex %d in %s"), PlayerIndex, *World->GetName()));
+
+	AActor* Previous = PC->GetViewTarget();
+	{
+		FMCPScopedPlayWorldContext PlayContext(World);
+		PC->SetViewTargetWithBlend(Target, static_cast<float>(BlendTime));
+	}
+	AActor* Current = PC->GetViewTarget();
+	AActor* Pending = PC->PlayerCameraManager ? PC->PlayerCameraManager->PendingViewTarget.Target.Get() : nullptr;
+	const bool bReached = Current == Target || Pending == Target;
+	if (!bReached)
+	{
+		return MCPError(FString::Printf(TEXT("The player controller kept its view target %s: the camera manager refused %s"),
+			Current ? *Current->GetPathName() : TEXT("(none)"), *Target->GetPathName()));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("world"), World->GetPathName());
+	Result->SetStringField(TEXT("playerController"), PC->GetPathName());
+	Result->SetStringField(TEXT("viewTarget"), Current ? Current->GetPathName() : FString());
+	if (Pending) Result->SetStringField(TEXT("pendingViewTarget"), Pending->GetPathName());
+	Result->SetStringField(TEXT("previousViewTarget"), Previous ? Previous->GetPathName() : FString());
+	Result->SetNumberField(TEXT("blendTime"), BlendTime);
+	const bool bChanged = Previous != Target;
+	Result->SetBoolField(TEXT("changed"), bChanged);
+	if (bChanged) MCPSetUpdated(Result);
+	if (Previous)
+	{
+		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+		Payload->SetStringField(TEXT("actorPath"), Previous->GetPathName());
+		Payload->SetNumberField(TEXT("playerIndex"), PlayerIndex);
+		if (HasParam(Params, TEXT("world"))) Payload->SetStringField(TEXT("world"), OptionalString(Params, TEXT("world")));
+		if (HasParam(Params, TEXT("pieInstance"))) Payload->SetNumberField(TEXT("pieInstance"), OptionalInt(Params, TEXT("pieInstance"), 0));
+		MCPSetRollback(Result, TEXT("set_pie_view_target"), Payload);
+		Result->SetBoolField(TEXT("rollbackLossy"), false);
+		Result->SetStringField(TEXT("rollbackNote"), TEXT("Restores the previous view target by path. It needs the same PIE session, and a possess or camera manager update can move the view again in the meantime."));
+	}
+	else
+	{
+		MCPSetNoRollback(Result, TEXT("The player controller had no view target before this call, so there is nothing to restore."));
+	}
+	return MCPResult(Result);
+}
+
+// #1250: eject and aim the PIE debug camera. Moving the DebugCameraController
+// actor is overridden by its free camera, which follows the spectator pawn and
+// the control rotation, so those are what get posed.
+TSharedPtr<FJsonValue> FEditorHandlers::PoseDebugCamera(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	UWorld* World = ResolveWorldFromParams(Params, TEXT("pie"));
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	const bool bEnabled = OptionalBool(Params, TEXT("enabled"), true);
+	const bool bHasLocation = HasParam(Params, TEXT("location"));
+	const FVector RequestedLocation = bHasLocation ? OptionalVec3(Params, TEXT("location")) : FVector::ZeroVector;
+	const bool bHasRotation = HasParam(Params, TEXT("rotation"));
+	const FRotator RequestedRotation = bHasRotation ? OptionalRotator(Params, TEXT("rotation")) : FRotator::ZeroRotator;
+	const bool bHasLookAtLabel = HasParam(Params, TEXT("lookAtActorLabel"));
+	const bool bHasLookAtPath = HasParam(Params, TEXT("lookAtActorPath"));
+	const bool bHasLookAt = bHasLookAtLabel || bHasLookAtPath;
+
+	if (!World || !World->IsPlayInEditor())
+	{
+		return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+	}
+	UGameInstance* GI = World->GetGameInstance();
+	ULocalPlayer* LocalPlayer = GI ? GI->GetLocalPlayerByIndex(PlayerIndex) : nullptr;
+	if (!LocalPlayer || !LocalPlayer->PlayerController)
+	{
+		return MCPError(FString::Printf(TEXT("No local player controller at playerIndex %d in %s"), PlayerIndex, *World->GetName()));
+	}
+
+	auto ActiveDebugController = [LocalPlayer]() { return Cast<ADebugCameraController>(LocalPlayer->PlayerController); };
+	ADebugCameraController* Debug = ActiveDebugController();
+	const bool bWasActive = Debug != nullptr;
+	FVector PreviousLocation = FVector::ZeroVector;
+	FRotator PreviousRotation = FRotator::ZeroRotator;
+	if (Debug)
+	{
+		if (APawn* CameraPawn = Debug->GetPawnOrSpectator()) PreviousLocation = CameraPawn->GetActorLocation();
+		PreviousRotation = Debug->GetControlRotation();
+	}
+
+	if (bEnabled != bWasActive)
+	{
+		// ToggleDebugCamera is the cheat manager's own exec, routed through the
+		// local player so it runs as that player in its own instance.
+		FMCPScopedPlayWorldContext PlayContext(World);
+		LocalPlayer->PlayerController->ConsoleCommand(TEXT("ToggleDebugCamera"), false);
+		Debug = ActiveDebugController();
+		if (bEnabled && !Debug)
+		{
+			return MCPError(TEXT("ToggleDebugCamera did not activate a debug camera: the player controller has no cheat manager (cheats disabled), or the game replaces the debug camera."));
+		}
+		if (!bEnabled && Debug)
+		{
+			return MCPError(TEXT("ToggleDebugCamera did not return control to the player controller."));
+		}
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("world"), World->GetPathName());
+	Result->SetBoolField(TEXT("enabled"), Debug != nullptr);
+	Result->SetBoolField(TEXT("wasEnabled"), bWasActive);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetBoolField(TEXT("enabled"), bWasActive);
+	if (bWasActive)
+	{
+		Payload->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(PreviousLocation));
+		Payload->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(PreviousRotation));
+	}
+	Payload->SetNumberField(TEXT("playerIndex"), PlayerIndex);
+	if (HasParam(Params, TEXT("world"))) Payload->SetStringField(TEXT("world"), OptionalString(Params, TEXT("world")));
+	if (HasParam(Params, TEXT("pieInstance"))) Payload->SetNumberField(TEXT("pieInstance"), OptionalInt(Params, TEXT("pieInstance"), 0));
+
+	if (!bEnabled)
+	{
+		Result->SetBoolField(TEXT("changed"), bWasActive);
+		MCPSetRollback(Result, TEXT("pose_debug_camera"), Payload);
+		return MCPResult(Result);
+	}
+
+	APawn* CameraPawn = Debug->GetPawnOrSpectator();
+	const FVector Location = bHasLocation ? RequestedLocation : (CameraPawn ? CameraPawn->GetActorLocation() : static_cast<AActor*>(Debug)->GetActorLocation());
+	FRotator Rotation = bHasRotation ? RequestedRotation : Debug->GetControlRotation();
+	if (bHasLookAt)
+	{
+		FMCPActorSelector LookSel;
+		LookSel.LabelKey = TEXT("lookAtActorLabel");
+		LookSel.PathKey = TEXT("lookAtActorPath");
+		LookSel.Match = EMCPActorMatch::LabelNameOrPath;
+		LookSel.WorldLabel = TEXT("PIE");
+		TSharedPtr<FJsonValue> LookErr;
+		AActor* LookAt = MCPResolveActor(World, Params, LookErr, LookSel);
+		if (!LookAt) return LookErr;
+		FVector Origin, Extent;
+		LookAt->GetActorBounds(false, Origin, Extent);
+		Rotation = (Origin - Location).Rotation();
+		Result->SetStringField(TEXT("lookAtActorPath"), LookAt->GetPathName());
+	}
+
+	if (CameraPawn)
+	{
+		if (UPawnMovementComponent* Movement = CameraPawn->GetMovementComponent())
+		{
+			Movement->StopMovementImmediately();
+		}
+		CameraPawn->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	else
+	{
+		static_cast<AActor*>(Debug)->SetActorLocation(Location);
+	}
+	Debug->SetControlRotation(Rotation);
+	if (Debug->PlayerCameraManager)
+	{
+		Debug->PlayerCameraManager->UpdateCamera(0.0f);
+		Result->SetObjectField(TEXT("cameraLocation"), MCPVec3ToJsonObject(Debug->PlayerCameraManager->GetCameraLocation()));
+		Result->SetObjectField(TEXT("cameraRotation"), MCPRotatorToJsonObject(Debug->PlayerCameraManager->GetCameraRotation()));
+	}
+	Result->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(CameraPawn ? CameraPawn->GetActorLocation() : static_cast<AActor*>(Debug)->GetActorLocation()));
+	Result->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(Debug->GetControlRotation()));
+	Result->SetBoolField(TEXT("changed"), true);
+	MCPSetUpdated(Result);
+
+	MCPSetRollback(Result, TEXT("pose_debug_camera"), Payload);
+	Result->SetBoolField(TEXT("rollbackLossy"), false);
+	Result->SetStringField(TEXT("rollbackNote"), bWasActive
+		? TEXT("Restores the debug camera pose it had before this call. It needs the same PIE session.")
+		: TEXT("Turns the debug camera off again, returning control to the player controller. It needs the same PIE session."));
 	return MCPResult(Result);
 }
 
@@ -2074,5 +2498,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetPieConfig(const TSharedPtr<FJsonObjec
 	Result->SetStringField(TEXT("netMode"), NetModeNameFromValue(GetEnumPropOn(Settings, TEXT("PlayNetMode"))));
 	Result->SetBoolField(TEXT("runUnderOneProcess"), GetBoolPropOn(Settings, TEXT("RunUnderOneProcess"), true));
 	Result->SetBoolField(TEXT("launchSeparateServer"), GetBoolPropOn(Settings, TEXT("bLaunchSeparateServer"), false));
+	Result->SetNumberField(TEXT("newWindowWidth"), GetIntPropOn(Settings, TEXT("NewWindowWidth"), 0));
+	Result->SetNumberField(TEXT("newWindowHeight"), GetIntPropOn(Settings, TEXT("NewWindowHeight"), 0));
+	Result->SetNumberField(TEXT("clientWindowWidth"), GetIntPropOn(Settings, TEXT("ClientWindowWidth"), 0));
+	Result->SetNumberField(TEXT("clientWindowHeight"), GetIntPropOn(Settings, TEXT("ClientWindowHeight"), 0));
+	FIntPoint NewWindowPosition = FIntPoint::ZeroValue;
+	GetIntPointPropOn(Settings, TEXT("NewWindowPosition"), NewWindowPosition);
+	Result->SetObjectField(TEXT("newWindowPosition"), IntPointToJson(NewWindowPosition));
+	Result->SetBoolField(TEXT("centerNewWindow"), GetBoolPropOn(Settings, TEXT("CenterNewWindow"), true));
 	return MCPResult(Result);
 }

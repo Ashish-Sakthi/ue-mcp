@@ -1,4 +1,5 @@
 #include "LevelHandlers.h"
+#include "FileHelpers.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "HandlerPagination.h"
@@ -263,6 +264,8 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("load_level"), &LoadLevel, {
 		MCPParam::Required(TEXT("levelPath"), EType::String, TEXT("Map package to open")),
+		MCPParam::Optional(TEXT("saveFirst"), EType::Boolean, TEXT("Save the open map and its dirty external actor packages before switching (default false)")).Alias(TEXT("saveCurrent")),
+		MCPParam::Optional(TEXT("discardUnsaved"), EType::Boolean, TEXT("Switch even though the open map has unsaved changes, discarding them (default false)")),
 	}, MCPSpec::ContractExempt(TEXT("Ends any play session, collects garbage and swaps the open map before the contract path can fail")));
 	Registry.RegisterHandler(TEXT("clear_level_script"), &ClearLevelScript, {
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report what would be removed without removing it (default true)")),
@@ -643,6 +646,8 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecAttachRule,
 		MCPParam::Optional(TEXT("weldSimulatedBodies"), EType::Boolean, TEXT("Weld simulated bodies during attachment (default false)")),
 		SpecSocketName,
+		MCPParam::Optional(TEXT("relativeLocation"), EType::Vec3, TEXT("Relative location set after the attach, in the parent component or socket frame")),
+		MCPParam::Optional(TEXT("relativeRotation"), EType::Rotator, TEXT("Relative rotation set after the attach, in the parent component or socket frame")),
 	});
 	Registry.RegisterHandler(TEXT("detach_component"), &DetachComponent, {
 		SpecChildLabel, SpecChildPath,
@@ -697,6 +702,8 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::OptionalField(TEXT("rotation"), EType::Rotator, TEXT("World rotation")),
 			MCPParam::OptionalField(TEXT("scale"), EType::Vec3, TEXT("World scale")),
 			MCPParam::OptionalField(TEXT("label"), EType::String, TEXT("Actor label")),
+			MCPParam::OptionalField(TEXT("tags"), EType::Array, TEXT("Actor tags to add")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("parentLabel"), EType::String, TEXT("Label of the actor to attach to, keeping world transform; may name an actor later in the batch")),
 		}),
 	});
 	// #910/#943/#912: the general editor-side component query. A whole-map
@@ -712,8 +719,9 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("actorLabelContains"), EType::String, TEXT("Case-insensitive substring over the actor's editor label")),
 		MCPParam::Optional(TEXT("actorTag"), EType::String, TEXT("Actor must carry this tag")),
 		SpecFolderPath, SpecFolderPathPrefix,
-		MCPParam::Optional(TEXT("fields"), EType::Array, TEXT("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health")).Items(EType::String),
+		MCPParam::Optional(TEXT("fields"), EType::Array, TEXT("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData")).Items(EType::String),
 		MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Component UPROPERTY names projected under props.*, at most 32")).Items(EType::String),
+		MCPParam::Optional(TEXT("actorPropertyNames"), EType::Array, TEXT("Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32")).Items(EType::String),
 		MCPParam::Optional(TEXT("where"), EType::Array, TEXT("Predicates evaluated in the editor, at most 24")).Items(EType::Object).WithFields({
 			MCPParam::RequiredField(TEXT("field"), EType::String, TEXT("Dot path into the row, such as shadow.effectiveCastShadow or props.CullDistance")),
 			MCPParam::OptionalField(TEXT("op"), EType::String, TEXT("eq (default) | ne | lt | lte | gt | gte | contains | notContains | startsWith | endsWith | in | notIn | exists | notExists | isNull | isNotNull | isTrue | isFalse")),
@@ -1452,7 +1460,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetActorDetails(const TSharedPtr<FJsonObj
 			// MCPExportPropertyValue returns a JSON array of one string per
 			// element when ArrayDim > 1 and a plain string otherwise, so the two
 			// cases stay distinguishable rather than being conflated.
-			P->SetField(TEXT("value"), MCPExportPropertyValue(Prop, Actor));
+			MCPSetBoundedPropertyValue(P, Prop, Actor);
 			if (MCPPropertyIsFixedArray(Prop))
 			{
 				P->SetNumberField(TEXT("arrayDim"), Prop->ArrayDim);
@@ -1684,7 +1692,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetComponentTree(const TSharedPtr<FJsonOb
 				// exporting it without an index reports element 0 as though it
 				// were the whole value. Same helper as the actor dump, so the
 				// two cannot drift.
-				P->SetField(TEXT("value"), MCPExportPropertyValue(Prop, Comp));
+				MCPSetBoundedPropertyValue(P, Prop, Comp);
 				if (MCPPropertyIsFixedArray(Prop))
 				{
 					P->SetNumberField(TEXT("arrayDim"), Prop->ArrayDim);
@@ -1905,21 +1913,41 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 	const FRotator PreviousRotation = Actor->GetActorRotation();
 	const FVector PreviousScale = Actor->GetActorScale3D();
 
-	if (HasParam(Params, TEXT("location")))
+	// An editor move is undoable and dirties the actor's package, so a plain save persists it (#1261).
+	const bool bEditorWorld = !World->IsGameWorld();
 	{
-		Actor->SetActorLocation(OptionalVec3(Params, TEXT("location"), Actor->GetActorLocation()));
-	}
-	if (HasParam(Params, TEXT("rotation")))
-	{
-		Actor->SetActorRotation(OptionalRotator(Params, TEXT("rotation"), Actor->GetActorRotation()));
-	}
-	if (HasParam(Params, TEXT("scale")))
-	{
-		Actor->SetActorScale3D(OptionalVec3(Params, TEXT("scale"), Actor->GetActorScale3D()));
+		const FScopedTransaction Transaction(FText::FromString(TEXT("Move Actor")), bEditorWorld);
+		if (bEditorWorld)
+		{
+			Actor->Modify();
+			Actor->GetRootComponent()->Modify();
+		}
+		if (HasParam(Params, TEXT("location")))
+		{
+			Actor->SetActorLocation(OptionalVec3(Params, TEXT("location"), Actor->GetActorLocation()));
+		}
+		if (HasParam(Params, TEXT("rotation")))
+		{
+			Actor->SetActorRotation(OptionalRotator(Params, TEXT("rotation"), Actor->GetActorRotation()));
+		}
+		if (HasParam(Params, TEXT("scale")))
+		{
+			Actor->SetActorScale3D(OptionalVec3(Params, TEXT("scale"), Actor->GetActorScale3D()));
+		}
+		if (bEditorWorld)
+		{
+			Actor->MarkPackageDirty();
+		}
 	}
 
 	auto Result = MCPSuccess();
 	MCPSetUpdated(Result);
+	if (bEditorWorld)
+	{
+		UPackage* ActorPackage = Actor->GetPackage();
+		Result->SetBoolField(TEXT("packageDirty"), ActorPackage && ActorPackage->IsDirty());
+		if (ActorPackage) Result->SetStringField(TEXT("package"), ActorPackage->GetName());
+	}
 	Result->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(Actor->GetActorLocation()));
 	Result->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(Actor->GetActorRotation()));
 	Result->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(Actor->GetActorScale3D()));
@@ -1937,6 +1965,12 @@ TSharedPtr<FJsonValue> FLevelHandlers::MoveActor(const TSharedPtr<FJsonObject>& 
 	Payload->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(PreviousScale));
 	MCPSetRollback(Result, TEXT("move_actor"), Payload);
 
+	// Last, because it can rerun construction scripts: listeners on OnActorMoved (PCG, splines) see the move (#1315).
+	if (bEditorWorld)
+	{
+		Actor->PostEditMove(true);
+		MCPNotifyEditorMove(Actor);
+	}
 	return MCPResult(Result);
 }
 
@@ -2362,6 +2396,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::RemoveComponentFromActor(const TSharedPtr
 
 TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& Params)
 {
+	MCPReadParamsAhead(Params, { TEXT("levelPath"), TEXT("saveFirst"), TEXT("discardUnsaved") });
 	FString LevelPath;
 	if (auto Err = RequireString(Params, TEXT("levelPath"), LevelPath)) return Err;
 
@@ -2423,6 +2458,60 @@ TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& 
 		return MCPError(FString::Printf(TEXT("Level '%s' does not exist on disk. Nothing was unloaded."), *LevelPath));
 	}
 
+	// Loading discards unsaved map and external actor packages, so it refuses unless told what to do with them (#1259).
+	const bool bSaveFirst = OptionalBool(Params, TEXT("saveFirst"), false);
+	const bool bDiscardUnsaved = OptionalBool(Params, TEXT("discardUnsaved"), false);
+	if (bSaveFirst && bDiscardUnsaved)
+	{
+		return MCPError(TEXT("Pass saveFirst or discardUnsaved, not both."));
+	}
+	auto CollectDirtyWorldPackages = []()
+	{
+		TArray<UPackage*> Packages;
+		FEditorFileUtils::GetDirtyWorldPackages(Packages);
+		TArray<FString> Names;
+		for (UPackage* Package : Packages)
+		{
+			if (Package && Package->IsDirty()) Names.AddUnique(Package->GetName());
+		}
+		Names.Sort();
+		return Names;
+	};
+	TArray<FString> DirtyBefore = CollectDirtyWorldPackages();
+	TArray<FString> SavedFirst;
+	if (DirtyBefore.Num() > 0 && !bDiscardUnsaved)
+	{
+		if (!bSaveFirst)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("The open map has %d unsaved package(s) that loading '%s' would discard. Pass saveFirst=true to save them first, or discardUnsaved=true to drop them. Nothing was unloaded."),
+				DirtyBefore.Num(), *LevelPath));
+			Refusal->SetArrayField(TEXT("dirtyPackages"), MCPStringListToJson(DirtyBefore));
+			return MCPResult(Refusal);
+		}
+		// An untitled map has no path to save to, and saving it would raise a modal Save As dialog.
+		for (const FString& Name : DirtyBefore)
+		{
+			if (FPackageName::IsTempPackage(Name) || !FPackageName::IsValidLongPackageName(Name))
+			{
+				TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+					TEXT("'%s' is an untitled map with no file to save to. Save it under a path first, or pass discardUnsaved=true. Nothing was unloaded."), *Name));
+				Refusal->SetArrayField(TEXT("dirtyPackages"), MCPStringListToJson(DirtyBefore));
+				return MCPResult(Refusal);
+			}
+		}
+		UEditorLoadingAndSavingUtils::SaveDirtyPackages(/*bSaveMapPackages*/ true, /*bSaveContentPackages*/ false);
+		const TArray<FString> StillDirty = CollectDirtyWorldPackages();
+		if (StillDirty.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("saveFirst could not save %d package(s); the output log carries the reason. Nothing was unloaded."), StillDirty.Num()));
+			Refusal->SetArrayField(TEXT("stillDirty"), MCPStringListToJson(StillDirty));
+			return MCPResult(Refusal);
+		}
+		SavedFirst = DirtyBefore;
+	}
+
 	// #590/#589: loading a map right after a PIE session (or a level-script
 	// recompile / duplicate) fatally asserts "World Memory Leaks: N leaks
 	// objects and packages" - the previous world's objects are still
@@ -2465,7 +2554,10 @@ TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& 
 	Result->SetStringField(TEXT("worldName"), World->GetName());
 	Result->SetStringField(TEXT("worldPath"), World->GetPathName());
 	Result->SetStringField(TEXT("levelPath"), LevelPath);
+	Result->SetStringField(TEXT("levelName"), FPackageName::GetShortName(RequestedPackageName));
 	Result->SetBoolField(TEXT("endedPlaySession"), bEndedPIE);
+	if (SavedFirst.Num() > 0) Result->SetArrayField(TEXT("savedPackages"), MCPStringListToJson(SavedFirst));
+	if (bDiscardUnsaved && DirtyBefore.Num() > 0) Result->SetArrayField(TEXT("discardedPackages"), MCPStringListToJson(DirtyBefore));
 	// The already-open case returned above, so reaching here is a real load.
 	Result->SetBoolField(TEXT("alreadyOpen"), false);
 	Result->SetBoolField(TEXT("unchanged"), false);
@@ -2478,7 +2570,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::LoadLevel(const TSharedPtr<FJsonObject>& 
 		MCPSetRollback(Result, TEXT("load_level"), Payload);
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"),
-			TEXT("Reopening the previous map loads it from disk. Unsaved in-memory changes to it were discarded by this load and do not come back, and any play session this call ended is not restarted."));
+			TEXT("Reopening the previous map loads it from disk. Changes dropped with discardUnsaved do not come back, and any play session this call ended is not restarted."));
 	}
 	else
 	{

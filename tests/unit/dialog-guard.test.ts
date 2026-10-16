@@ -819,6 +819,24 @@ describe("who may press the button is the mode's decision, not the allow list's"
     expect((await guard.check("editor.respond_to_dialog", "action")).allow).toBe(true);
   });
 
+  it("gates the window press and close by the mode, and leaves list_windows readable (#1231)", async () => {
+    for (const method of ["list_windows", "press_window_button", "close_window"]) {
+      expect(isModalSafeMethod(method), method).toBe(true);
+      expect(DialogGuard.bridgeAllowed(method), method).toBe(true);
+    }
+    for (const mode of ["interactive", "defer"] as const) {
+      const guard = make({ mode, elicit: accept("Cancel") });
+      for (const action of ["editor.press_window_button", "editor.close_window"]) {
+        expect((await guard.check(action, "action")).allow, `${mode} ${action}`).toBe(false);
+      }
+      expect((await guard.check("editor.list_windows", "action")).allow, mode).toBe(true);
+    }
+    const auto = make({ mode: "auto" });
+    for (const action of ["editor.list_windows", "editor.press_window_button", "editor.close_window"]) {
+      expect((await auto.check(action, "action")).allow, action).toBe(true);
+    }
+  });
+
   it("still lets the guard press the button the PERSON picked", async () => {
     // The gate is on the action route only. The guard's own press, on the
     // button chosen in the elicitation form, travels over the bridge, and

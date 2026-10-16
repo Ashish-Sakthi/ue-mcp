@@ -217,4 +217,10 @@ describe("searchToolGraph", () => {
       ]));
     });
   });
+
+  it("finds level(load) by the words a caller uses to switch maps (#1393)", () => {
+    for (const query of ["switch map", "open level", "load map", "change the current editor map"]) {
+      expect(firstParty(query)[0], query).toBe("level.load");
+    }
+  });
 });

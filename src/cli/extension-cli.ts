@@ -16,6 +16,7 @@ import { extensionsDir } from "../daemon/extensions.js";
 import { installExtension, removeExtension } from "../daemon/extension-install.js";
 import { ensureDaemon } from "../daemon/shim.js";
 import { fail, ok } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 
 const USAGE = "usage: ue-mcp extension <install <zip|url> [--sha256 <hex>] | remove <name> | list> [project] [--json]";
 
@@ -35,6 +36,16 @@ async function restartDaemon(uproject: string): Promise<boolean> {
   await ensureDaemon(uproject);
   return true;
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp extension <install <zip|url> | remove <name> | list> [project] [flags]",
+  summary: "Install, remove or list daemon extensions.",
+  strict: true,
+  flags: [
+    { name: "--json", description: "Print one JSON document" },
+    { name: "--sha256", value: "<hex>", description: "install: expected archive digest" },
+  ],
+};
 
 export async function run(argv: string[]): Promise<number | void> {
   const json = argv.includes("--json");

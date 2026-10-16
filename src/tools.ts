@@ -35,6 +35,7 @@ import { datasmithTool } from "./tools/datasmith.js";
 import { metahumanTool } from "./tools/metahuman.js";
 import { dataflowTool } from "./tools/dataflow.js";
 import { conversationTool } from "./tools/conversation.js";
+import { sourceControlTool } from "./tools/source_control.js";
 
 export const ALL_TOOLS: ToolDef[] = [
   projectTool,
@@ -65,6 +66,7 @@ export const ALL_TOOLS: ToolDef[] = [
   metahumanTool,
   dataflowTool,
   conversationTool,
+  sourceControlTool,
 ];
 
 /** Flatten to (toolName, actionName, bridgeMethod) triples for every action
