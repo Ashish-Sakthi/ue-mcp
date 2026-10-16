@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "UObject/UnrealType.h"
 #include "UObject/PropertyPortFlags.h"
+#include "Misc/OutputDevice.h"
 #include "Misc/OutputDeviceNull.h"
 #include "Misc/DefaultValueHelper.h"
 
@@ -205,8 +206,25 @@ namespace MCPPropertyText
 		return 0;
 	}
 
-	// Engine text import, with the engine's own warnings swallowed: a null
-	// return is the failure signal the callers act on.
+	// Collects what the engine importer reports. It skips a struct member it
+	// cannot find with only a warning, so that warning has to be read.
+	class FImportTextCapture : public FOutputDevice
+	{
+	public:
+		TArray<FString> UnknownMembers;
+		virtual void Serialize(const TCHAR* V, ELogVerbosity::Type Verbosity, const FName& Category) override
+		{
+			const FString Line(V);
+			if (Line.Contains(TEXT("Unknown member"), ESearchCase::IgnoreCase)
+				|| Line.Contains(TEXT("Unknown property"), ESearchCase::IgnoreCase))
+			{
+				UnknownMembers.Add(Line.TrimStartAndEnd());
+			}
+		}
+	};
+
+	// Engine text import. A null return, or a struct member the target does
+	// not have, is the failure signal the callers act on.
 	inline bool ImportTextRaw(const FProperty* Prop, void* ValueAddr, const FString& Text, UObject* Owner, int32 PortFlags, FString& OutError)
 	{
 		// The engine's numeric import reads "banana" as 0 and reports success.
@@ -226,11 +244,18 @@ namespace MCPPropertyText
 			}
 		}
 
-		FOutputDeviceNull Silent;
-		const TCHAR* Rest = Prop->ImportText_Direct(*Text, ValueAddr, Owner, PortFlags, &Silent);
+		FImportTextCapture Capture;
+		const TCHAR* Rest = Prop->ImportText_Direct(*Text, ValueAddr, Owner, PortFlags, &Capture);
 		if (Rest == nullptr)
 		{
 			OutError = FString::Printf(TEXT("ImportText failed for '%s'"), *Text);
+			return false;
+		}
+		if (Capture.UnknownMembers.Num() > 0)
+		{
+			OutError = FString::Printf(
+				TEXT("'%s' names a member the target does not have (%s). If a struct was just edited, its dependents may need reinstancing"),
+				*Prop->GetName(), *FString::Join(Capture.UnknownMembers, TEXT("; ")));
 			return false;
 		}
 		return true;

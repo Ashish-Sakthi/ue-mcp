@@ -18,6 +18,10 @@
 #include "MCPEngineCompat.h"
 #include "Kismet2/StructureEditorUtils.h"
 #include "EdGraph/EdGraphPin.h"
+#include "Engine/Blueprint.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "UObject/UObjectIterator.h"
 #include "UserDefinedStructure/UserDefinedStructEditorData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorAssetLibrary.h"
@@ -79,6 +83,59 @@ static bool ResolveStructFieldGuid(const TSharedPtr<FJsonObject>& Params, UUserD
 		}
 	}
 	return false;
+}
+
+// True when a value of this property holds Target anywhere: directly, in a
+// container, or inside another struct.
+static bool StructEditPropertyHolds(const FProperty* Prop, const UScriptStruct* Target, int32 Depth = 0)
+{
+	if (!Prop || Depth > 12) return false;
+	if (const FStructProperty* SP = CastField<FStructProperty>(Prop))
+	{
+		if (SP->Struct == Target) return true;
+		for (TFieldIterator<FProperty> It(SP->Struct); It; ++It)
+		{
+			if (StructEditPropertyHolds(*It, Target, Depth + 1)) return true;
+		}
+		return false;
+	}
+	if (const FArrayProperty* AP = CastField<FArrayProperty>(Prop)) return StructEditPropertyHolds(AP->Inner, Target, Depth + 1);
+	if (const FSetProperty* SetP = CastField<FSetProperty>(Prop)) return StructEditPropertyHolds(SetP->ElementProp, Target, Depth + 1);
+	if (const FMapProperty* MP = CastField<FMapProperty>(Prop))
+	{
+		return StructEditPropertyHolds(MP->KeyProp, Target, Depth + 1) || StructEditPropertyHolds(MP->ValueProp, Target, Depth + 1);
+	}
+	return false;
+}
+
+// Recompile every loaded Blueprint whose class holds the struct, so the
+// compiler reinstances its live instances onto the new layout. Unloaded
+// Blueprints pick the layout up when they load.
+static void RecompileStructDependents(UUserDefinedStruct* Struct, TSharedPtr<FJsonObject> Res)
+{
+	TArray<UBlueprint*> Dependents;
+	for (TObjectIterator<UBlueprint> It; It; ++It)
+	{
+		UBlueprint* BP = *It;
+		if (!BP || !BP->GeneratedClass || BP->HasAnyFlags(RF_ClassDefaultObject | RF_Transient)) continue;
+		for (TFieldIterator<FProperty> P(BP->GeneratedClass, EFieldIteratorFlags::IncludeSuper); P; ++P)
+		{
+			if (StructEditPropertyHolds(*P, Struct))
+			{
+				Dependents.Add(BP);
+				break;
+			}
+		}
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Done;
+	for (UBlueprint* BP : Dependents)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(BP);
+		FKismetEditorUtilities::CompileBlueprint(BP);
+		Done.Add(MakeShared<FJsonValueString>(BP->GetPathName()));
+	}
+	Res->SetArrayField(TEXT("dependentsRecompiled"), Done);
 }
 
 TSharedPtr<FJsonValue> FAssetHandlers::CreateUserDefinedStruct(const TSharedPtr<FJsonObject>& Params)
@@ -280,6 +337,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		const bool bSaved = SaveAssetPackageChecked(Struct, SaveReason);
 		MCPSetUpdated(Res);
 		MCPNoteSaveOutcome(Res, AssetPath, bSaved, SaveReason);
+		RecompileStructDependents(Struct, Res);
 		if (const FStructVariableDescription* Desc = FStructureEditorUtils::GetVarDescByGuid(Struct, NewGuid))
 		{
 			Res->SetObjectField(TEXT("field"), StructFieldToJson(*Desc, INDEX_NONE));
@@ -350,6 +408,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		const bool bSaved = SaveAssetPackageChecked(Struct, SaveReason);
 		MCPSetUpdated(Res);
 		MCPNoteSaveOutcome(Res, AssetPath, bSaved, SaveReason);
+		RecompileStructDependents(Struct, Res);
 		if (const FStructVariableDescription* After = FStructureEditorUtils::GetVarDescByGuid(Struct, Guid))
 		{
 			Res->SetObjectField(TEXT("field"), StructFieldToJson(*After, INDEX_NONE));
@@ -378,6 +437,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		const bool bSaved = SaveAssetPackageChecked(Struct, SaveReason);
 		MCPSetUpdated(Res);
 		MCPNoteSaveOutcome(Res, AssetPath, bSaved, SaveReason);
+		RecompileStructDependents(Struct, Res);
 		if (Removed.IsValid()) Res->SetObjectField(TEXT("removed"), Removed);
 		Res->SetNumberField(TEXT("count"), FStructureEditorUtils::GetVarDesc(Struct).Num());
 		return MCPResult(Res);
