@@ -1404,25 +1404,25 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "scaleX",
         "type": "number",
         "required": false,
-        "description": "X scale of the spawned component (default 1)"
+        "description": "X scale of the spawned host actor (default 1)"
       },
       {
         "name": "scaleY",
         "type": "number",
         "required": false,
-        "description": "Y scale of the spawned component (default 1)"
+        "description": "Y scale of the spawned host actor (default 1)"
       },
       {
         "name": "scaleZ",
         "type": "number",
         "required": false,
-        "description": "Z scale of the spawned component (default 1)"
+        "description": "Z scale of the spawned host actor (default 1)"
       },
       {
         "name": "autoDestroy",
         "type": "boolean",
         "required": false,
-        "description": "Destroy the component once the system finishes (default false)"
+        "description": "Destroy the spawned host actor once the system finishes (default false)"
       }
     ]
   },
@@ -1491,7 +1491,7 @@ export const schema: Record<string, z.ZodType> = {
   actorLabel: z.string().optional().describe("Editor label of the actor holding the NiagaraComponent; a label naming several actors is refused"),
   actorPath: z.string().optional().describe("Full actor object path; the unambiguous selector"),
   assetPath: z.string().optional().describe("NiagaraEmitter asset path (get_emitter_info). NiagaraSystem asset path (get_niagara_info). Alias for systemPath (set_emitter_property)"),
-  autoDestroy: z.boolean().optional().describe("Destroy the component once the system finishes (default false)"),
+  autoDestroy: z.boolean().optional().describe("Destroy the spawned host actor once the system finishes (default false)"),
   cursor: z.string().optional().describe("Resume a paged read: pass back the 'nextCursor' from the previous page, unmodified"),
   dynamicInputScript: z.string().optional().describe("The dynamic-input NiagaraScript to wire in"),
   emitterIndex: z.number().optional().describe("Emitter handle index, used when emitterName is omitted"),
@@ -1524,9 +1524,9 @@ export const schema: Record<string, z.ZodType> = {
   rendererIndex: z.number().int().optional().describe("Index of the renderer on the emitter (remove_emitter_renderer). Index of the renderer on the emitter (default 0) (set_renderer_property)"),
   rendererType: z.string().optional().describe("sprite|mesh|ribbon or full class name"),
   rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation {pitch,yaw,roll}"),
-  scaleX: z.number().optional().describe("X scale of the spawned component (default 1)"),
-  scaleY: z.number().optional().describe("Y scale of the spawned component (default 1)"),
-  scaleZ: z.number().optional().describe("Z scale of the spawned component (default 1)"),
+  scaleX: z.number().optional().describe("X scale of the spawned host actor (default 1)"),
+  scaleY: z.number().optional().describe("Y scale of the spawned host actor (default 1)"),
+  scaleZ: z.number().optional().describe("Z scale of the spawned host actor (default 1)"),
   scriptPath: z.string().optional().describe("NiagaraScript asset holding the CustomHLSL node"),
   sourceEmitterId: z.string().optional().describe("Id of the emitter whose events this handler listens to (default: this emitter)"),
   stackContext: z.string().optional().describe("ParticleSpawn|ParticleUpdate|EmitterSpawn|EmitterUpdate (add_niagara_module, remove_niagara_dynamic_input, remove_niagara_module, set_niagara_dynamic_input, set_niagara_module_enabled). Stack of the addressed system graph: ParticleSpawn|ParticleUpdate|EmitterSpawn|EmitterUpdate (default ParticleUpdate) (get_niagara_custom_hlsl, set_niagara_custom_hlsl). ParticleSpawn|ParticleUpdate|EmitterSpawn|EmitterUpdate|all (default all) (list_niagara_dynamic_inputs, list_niagara_module_inputs, list_niagara_static_switches, set_niagara_module_input, set_niagara_static_switch)"),

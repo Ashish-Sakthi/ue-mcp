@@ -213,10 +213,10 @@ void FNiagaraHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		LocationParam(),
 		RotationParam(),
 		LabelParam(),
-		MCPParam::Optional(TEXT("scaleX"), EType::Number, TEXT("X scale of the spawned component (default 1)")),
-		MCPParam::Optional(TEXT("scaleY"), EType::Number, TEXT("Y scale of the spawned component (default 1)")),
-		MCPParam::Optional(TEXT("scaleZ"), EType::Number, TEXT("Z scale of the spawned component (default 1)")),
-		MCPParam::Optional(TEXT("autoDestroy"), EType::Boolean, TEXT("Destroy the component once the system finishes (default false)")),
+		MCPParam::Optional(TEXT("scaleX"), EType::Number, TEXT("X scale of the spawned host actor (default 1)")),
+		MCPParam::Optional(TEXT("scaleY"), EType::Number, TEXT("Y scale of the spawned host actor (default 1)")),
+		MCPParam::Optional(TEXT("scaleZ"), EType::Number, TEXT("Z scale of the spawned host actor (default 1)")),
+		MCPParam::Optional(TEXT("autoDestroy"), EType::Boolean, TEXT("Destroy the spawned host actor once the system finishes (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("spawn_niagara_actor"), &SpawnNiagaraActor, {
 		SystemPathParam(),
@@ -746,41 +746,44 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraAtLocation(const TSharedPtr
 		return ExistingActor;
 	}
 
-	UNiagaraComponent* SpawnedComponent = UNiagaraFunctionLibrary::SpawnSystemAtLocation(
-		World,
-		NiagaraSystem,
-		Location,
-		Rotation,
-		Scale,
-		bAutoDestroy
-	);
-
+	// Every spawn gets its own ANiagaraActor host. SpawnSystemAtLocation in an
+	// editor world parents the component to WorldSettings, so a label or a
+	// delete_actor rollback would land on WorldSettings (#1396).
+	FActorSpawnParameters SpawnParams;
+	ANiagaraActor* Host = World->SpawnActor<ANiagaraActor>(ANiagaraActor::StaticClass(), Location, Rotation, SpawnParams);
+	if (!Host)
+	{
+		return MCPError(TEXT("Failed to spawn an ANiagaraActor host for the Niagara system"));
+	}
+	UNiagaraComponent* SpawnedComponent = Host->GetNiagaraComponent();
 	if (!SpawnedComponent)
 	{
-		return MCPError(TEXT("Failed to spawn Niagara system at location"));
+		Host->Destroy();
+		return MCPError(TEXT("Spawned ANiagaraActor host has no NiagaraComponent"));
 	}
-
-	// Apply label if provided
+	Host->SetActorScale3D(Scale);
+	Host->SetDestroyOnSystemFinish(bAutoDestroy);
+	SpawnedComponent->SetAsset(NiagaraSystem);
 	if (!Label.IsEmpty())
 	{
-		SpawnedComponent->GetOwner()->SetActorLabel(*Label);
+		Host->SetActorLabel(*Label);
 	}
+	SpawnedComponent->Activate(/*bReset=*/true);
 
 	auto Result = MCPSuccess();
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("systemPath"), SystemPath);
 	Result->SetStringField(TEXT("componentName"), SpawnedComponent->GetName());
-	if (SpawnedComponent->GetOwner())
-	{
-		Result->SetStringField(TEXT("actorLabel"), SpawnedComponent->GetOwner()->GetActorLabel());
-		Result->SetStringField(TEXT("actorPath"), SpawnedComponent->GetOwner()->GetPathName());
-		Result->SetStringField(TEXT("actorName"), SpawnedComponent->GetOwner()->GetName());
+	Result->SetStringField(TEXT("actorLabel"), Host->GetActorLabel());
+	Result->SetStringField(TEXT("actorPath"), Host->GetPathName());
+	Result->SetStringField(TEXT("actorName"), Host->GetName());
+	Result->SetStringField(TEXT("actorClass"), Host->GetClass()->GetName());
+	Result->SetBoolField(TEXT("hostCreated"), true);
 
-		// Rollback: delete_actor
-		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
-		Payload->SetStringField(TEXT("actorLabel"), SpawnedComponent->GetOwner()->GetActorLabel());
-		MCPSetRollback(Result, TEXT("delete_actor"), Payload);
-	}
+	// The path names only the host this call created, so the inverse cannot reach a namesake.
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetStringField(TEXT("actorPath"), Host->GetPathName());
+	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 
 	TSharedPtr<FJsonObject> LocationObj = MakeShared<FJsonObject>();
 	LocationObj->SetNumberField(TEXT("x"), Location.X);
@@ -798,11 +801,8 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraAtLocation(const TSharedPtr
 	return MCPResult(Result);
 }
 
-// spawn_niagara_actor -- place a PERSISTENT, labeled ANiagaraActor in the editor
-// world (unlike spawn_niagara_at_location, which makes a transient component
-// parented to WorldSettings that GC's before an offscreen capture and can't be
-// reliably found/reactivated). Assigns the system, sets the label, activates.
-// (#537) Params: systemPath, location?, rotation?, label?, activate? (default true).
+// spawn_niagara_actor: place a labeled ANiagaraActor in the editor world, assign
+// the system and activate unless activate=false (#537).
 TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraActor(const TSharedPtr<FJsonObject>& Params)
 {
 	FString SystemPath;
@@ -852,7 +852,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::SpawnNiagaraActor(const TSharedPtr<FJso
 	Result->SetBoolField(TEXT("activated"), bActivate);
 
 	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
-	Payload->SetStringField(TEXT("actorLabel"), Actor->GetActorLabel());
+	Payload->SetStringField(TEXT("actorPath"), Actor->GetPathName());
 	MCPSetRollback(Result, TEXT("delete_actor"), Payload);
 	return MCPResult(Result);
 }

@@ -36744,25 +36744,25 @@
           "name": "scaleX",
           "type": "number",
           "required": false,
-          "description": "X scale of the spawned component (default 1)"
+          "description": "X scale of the spawned host actor (default 1)"
         },
         {
           "name": "scaleY",
           "type": "number",
           "required": false,
-          "description": "Y scale of the spawned component (default 1)"
+          "description": "Y scale of the spawned host actor (default 1)"
         },
         {
           "name": "scaleZ",
           "type": "number",
           "required": false,
-          "description": "Z scale of the spawned component (default 1)"
+          "description": "Z scale of the spawned host actor (default 1)"
         },
         {
           "name": "autoDestroy",
           "type": "boolean",
           "required": false,
-          "description": "Destroy the component once the system finishes (default false)"
+          "description": "Destroy the spawned host actor once the system finishes (default false)"
         }
       ]
     },
