@@ -5,7 +5,7 @@ description: Use when driving Unreal Engine editor via the ue-mcp MCP server. Co
 
 # ue-mcp workflow
 
-The `ue-mcp` MCP exposes 26 category tools (action-dispatch style) that drive a live Unreal Engine editor via a C++ bridge plugin. Every tool takes an `action` parameter.
+The `ue-mcp` MCP exposes 27 category tools (action-dispatch style) that drive a live Unreal Engine editor via a C++ bridge plugin. Every tool takes an `action` parameter.
 
 How a call is spelled depends on the project's context strategy. These skills write `level(action="get_outliner", limit=5)`; send it as:
 
@@ -45,6 +45,7 @@ For any write action:
 - **Action typos silently fail** - each tool validates `action` against an enum; a typo returns `Unknown action '<x>'. Available: <list>`. Read the `Available:` list rather than guessing.
 - **Asset paths use `/Game/...`**, not filesystem paths. Package paths (folder) vs object paths (`Folder/Name.Name`) matter - most create handlers take `packagePath` (folder) plus `name`; most read handlers take `assetPath` (full object path).
 - **`execute_python` is an escape hatch, not a shortcut** - if a native tool exists for the job, use it. When you use `execute_python`, a hook may prompt you to file a GitHub issue so the native tool gap can be closed.
+- **Saving under source control** - on Perforce a file must be checked out before it can be written, and a save to a read-only file is refused. Call `source_control(action="checkout", paths=[...])` first, or `source_control(action="set_checkout_mode", mode="auto")` once to have writes check out for you. `source_control(action="get_provider")` says which provider is active.
 - **Editor must be fully loaded** for asset registry queries. If a `list_*` action retries with "still initializing", the editor is still starting - wait a few seconds and retry.
 
 ## When something truly can't be done

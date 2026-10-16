@@ -123,7 +123,7 @@ namespace
 		if (bReadOnly)
 		{
 			return FString::Printf(
-				TEXT("'%s' is read-only on disk. Under source control this means the file is not checked out; otherwise clear the read-only attribute."),
+				TEXT("'%s' is read-only on disk. Under source control this means the file is not checked out: check it out with source_control(checkout), or set source_control(set_checkout_mode, mode=auto). Otherwise clear the read-only attribute."),
 				*FileName);
 		}
 		if (Result == ESavePackageResult::Canceled)
@@ -187,7 +187,20 @@ namespace
 
 		IFileManager& FileManager = IFileManager::Get();
 		const bool bFileExists = FileManager.FileExists(*FileName);
-		const bool bReadOnly = bFileExists && FileManager.IsReadOnly(*FileName);
+		bool bReadOnly = bFileExists && FileManager.IsReadOnly(*FileName);
+		if (bReadOnly)
+		{
+			FString CheckoutNote;
+			if (MCPSourceControl::TryAutoCheckout(FileName, CheckoutNote))
+			{
+				bReadOnly = false;
+				Entry->SetBoolField(TEXT("autoCheckedOut"), true);
+			}
+			else if (!CheckoutNote.IsEmpty())
+			{
+				Entry->SetStringField(TEXT("checkoutNote"), CheckoutNote);
+			}
+		}
 		Entry->SetBoolField(TEXT("fileExists"), bFileExists);
 		Entry->SetBoolField(TEXT("readOnly"), bReadOnly);
 

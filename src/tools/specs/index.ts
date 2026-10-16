@@ -27,6 +27,7 @@ import { handlerSpecs as pcg } from "./pcg.generated.js";
 import { handlerSpecs as physics } from "./physics.generated.js";
 import { handlerSpecs as project } from "./project.generated.js";
 import { handlerSpecs as reflection } from "./reflection.generated.js";
+import { handlerSpecs as source_control } from "./source_control.generated.js";
 import { handlerSpecs as statetree } from "./statetree.generated.js";
 import { handlerSpecs as widget } from "./widget.generated.js";
 
@@ -54,6 +55,7 @@ export const RECORDED_HANDLER_SPECS: HandlerSpecs = {
   ...physics,
   ...project,
   ...reflection,
+  ...source_control,
   ...statetree,
   ...widget,
 };
