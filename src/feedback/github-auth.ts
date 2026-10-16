@@ -26,7 +26,8 @@ export function githubApiBase(): string {
 export function authDir(): string {
   return readEnv("authDir") || userDir();
 }
-const authFile = () => join(authDir(), "auth.json");
+/** The cached GitHub token's file. */
+export const authFile = () => join(authDir(), "auth.json");
 const pendingFile = () => join(authDir(), "device-pending.json");
 
 export interface UserAuth {
