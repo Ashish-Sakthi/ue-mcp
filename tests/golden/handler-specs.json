@@ -17211,17 +17211,24 @@
         {
           "name": "filePath",
           "type": "string",
-          "required": true,
-          "description": "Source file on disk",
+          "required": false,
+          "description": "Source FBX on disk; exclusive with filePaths",
           "aliases": [
             "filename"
           ]
         },
         {
+          "name": "filePaths",
+          "type": "array",
+          "required": false,
+          "description": "Batch: up to 200 FBX files imported into one folder with the same settings",
+          "items": "string"
+        },
+        {
           "name": "name",
           "type": "string",
           "required": false,
-          "description": "Asset name (default: the file name)",
+          "description": "Asset name for a single filePath (default: the file name)",
           "aliases": [
             "assetName"
           ]
@@ -17258,6 +17265,19 @@
           "type": "object",
           "required": false,
           "description": "FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "filePath"
+            ],
+            [
+              "filePaths"
+            ]
+          ]
         }
       ]
     },

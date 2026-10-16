@@ -3102,17 +3102,24 @@ export const handlerSpecs: HandlerSpecs = {
       {
         "name": "filePath",
         "type": "string",
-        "required": true,
-        "description": "Source file on disk",
+        "required": false,
+        "description": "Source FBX on disk; exclusive with filePaths",
         "aliases": [
           "filename"
         ]
       },
       {
+        "name": "filePaths",
+        "type": "array",
+        "required": false,
+        "description": "Batch: up to 200 FBX files imported into one folder with the same settings",
+        "items": "string"
+      },
+      {
         "name": "name",
         "type": "string",
         "required": false,
-        "description": "Asset name (default: the file name)",
+        "description": "Asset name for a single filePath (default: the file name)",
         "aliases": [
           "assetName"
         ]
@@ -3149,6 +3156,19 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "object",
         "required": false,
         "description": "FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path"
+      }
+    ],
+    "choices": [
+      {
+        "mode": "exactlyOne",
+        "branches": [
+          [
+            "filePath"
+          ],
+          [
+            "filePaths"
+          ]
+        ]
       }
     ]
   },
@@ -5722,7 +5742,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_static_mesh_build_settings: "Params: assetPath (or path), lodIndex?",
   get_stringtable_entry: "Params: assetPath (or path), key",
   get_texture_info: "Params: assetPath (or path)",
-  import_animation: "Params: filePath (or filename), name? (or assetName), packagePath? (or destinationPath), skeletonPath, importCustomAttribute?, removeRedundantKeys?, importSettings?",
+  import_animation: "Params: filePath (or filename) OR filePaths, name? (or assetName), packagePath? (or destinationPath), skeletonPath, importCustomAttribute?, removeRedundantKeys?, importSettings?",
   import_curvetable: "Params: assetPath (or path), jsonString?, csvString?, filePath? (or jsonPath, or csvPath), format?, interpMode?",
   import_file: "Params: filePath (or filename), packagePath (or destinationPath), name? (or assetName), factoryClass?, factoryProperties?, replaceExisting?, save?, automated?",
   import_skeletal_mesh: "Params: filePath (or filename), name? (or assetName), packagePath? (or destinationPath), skeletonPath?, importMaterials?, importTextures?, importUniformScale?, importMorphTargets?, createPhysicsAsset?, replaceExisting?",
@@ -5886,7 +5906,8 @@ export const schema: Record<string, z.ZodType> = {
   fieldName: z.string().optional().describe("Member by friendly or internal name; add_field names the new member with it (edit_user_defined_struct). Member by friendly or internal name (rename_struct_field). Row-struct field to write (set_datatable_cell)"),
   fields: z.record(z.unknown()).optional().describe("Alias for row"),
   filename: z.string().optional().describe("Alias for filePath"),
-  filePath: z.string().optional().describe("Alias for outputPath (export_texture). Source file on disk (import_animation, import_file, import_skeletal_mesh, import_static_mesh, import_texture). JSON or CSV file to replace the table from (import_curvetable). CSV file to merge into the table (import_stringtable). Alias for csvPath (import_stringtable_csv). New source file to record and reimport from (reimport_asset)"),
+  filePath: z.string().optional().describe("Alias for outputPath (export_texture). Source FBX on disk; exclusive with filePaths (import_animation). JSON or CSV file to replace the table from (import_curvetable). Source file on disk (import_file, import_skeletal_mesh, import_static_mesh, import_texture). CSV file to merge into the table (import_stringtable). Alias for csvPath (import_stringtable_csv). New source file to record and reimport from (reimport_asset)"),
+  filePaths: z.array(z.string()).optional().describe("Batch: up to 200 FBX files imported into one folder with the same settings"),
   fillHoles: z.boolean().optional().describe("Cap each piece where the plane cut it (default true) (apply_mesh_fracture). Close the holes the cut opens (default true) (mesh_boolean)"),
   fillMethod: z.string().optional().describe("Automatic (default) | MinimalFill | PolygonTriangulation | TriangleFan | PlanarProjection"),
   fix: z.string().optional().describe("naming (rename to the convention) | unreferenced (quarantine or delete)"),
@@ -5963,7 +5984,7 @@ export const schema: Record<string, z.ZodType> = {
   minThickness: z.number().optional().describe("Thinnest a shape may be, in centimetres (default 1)"),
   minWeight: z.number().optional().describe("Count a vertex for every bone weighing at least this much (0 < minWeight <= 1); omit to count each vertex once, for its dominant bone"),
   mode: z.string().optional().describe("Alias for curveType"),
-  name: z.string().optional().describe("Asset name (create_asset_by_class, create_curvetable, create_customizable_object, create_data_asset, create_datatable, create_stringtable, create_user_defined_enum, create_user_defined_struct). Pipeline asset name, placed in packagePath (create_interchange_pipeline). Asset name, without '/' or '.' (create_render_target_2d). Subobject name (create_subobject). Enumerator to act on by short or display name; add_value uses it as the display name when displayName is omitted (edit_user_defined_enum). Asset name (default: the file name) (import_animation, import_file, import_skeletal_mesh, import_static_mesh, import_texture)"),
+  name: z.string().optional().describe("Asset name (create_asset_by_class, create_curvetable, create_customizable_object, create_data_asset, create_datatable, create_stringtable, create_user_defined_enum, create_user_defined_struct). Pipeline asset name, placed in packagePath (create_interchange_pipeline). Asset name, without '/' or '.' (create_render_target_2d). Subobject name (create_subobject). Enumerator to act on by short or display name; add_value uses it as the display name when displayName is omitted (edit_user_defined_enum). Asset name for a single filePath (default: the file name) (import_animation). Asset name (default: the file name) (import_file, import_skeletal_mesh, import_static_mesh, import_texture)"),
   namespace: z.string().optional().describe("StringTable namespace"),
   namingRuleMode: z.string().optional().describe("merge (default, the caller's rules over the built-in table) | replace"),
   namingRules: z.array(z.object({ class: z.string().describe("Asset class name the registry reports, such as StaticMesh or WidgetBlueprint, not a class path"), prefix: z.string().optional().describe("Name prefix the class requires"), suffix: z.string().optional().describe("Name suffix the class requires") })).optional().describe("Naming convention entries"),

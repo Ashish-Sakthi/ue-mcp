@@ -597,14 +597,15 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
 	});
 	Registry.RegisterHandler(TEXT("import_animation"), &ImportAnimation, {
-		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
-		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("Source FBX on disk; exclusive with filePaths")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("filePaths"), EType::Array, TEXT("Batch: up to 200 FBX files imported into one folder with the same settings")).Items(EType::String),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name for a single filePath (default: the file name)")).Alias(TEXT("assetName")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Animations)")).Alias(TEXT("destinationPath")),
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("Skeleton the animation targets")),
 		MCPParam::Optional(TEXT("importCustomAttribute"), EType::Boolean, TEXT("Import FBX custom attributes as curves (default true)")),
 		MCPParam::Optional(TEXT("removeRedundantKeys"), EType::Boolean, TEXT("Strip keys that do not change the value (default true)")),
 		MCPParam::Optional(TEXT("importSettings"), EType::Object, TEXT("FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path")),
-	});
+	}, MCPSpec::ExactlyOne({ { TEXT("filePath") }, { TEXT("filePaths") } }));
 	Registry.RegisterHandler(TEXT("import_file"), &ImportFile, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Required(TEXT("packagePath"), EType::String, TEXT("Destination folder")).Alias(TEXT("destinationPath")),
