@@ -2239,6 +2239,19 @@ export const handlerSpecs: HandlerSpecs = {
             "type": "string",
             "required": false,
             "description": "Actor label"
+          },
+          {
+            "name": "tags",
+            "type": "array",
+            "required": false,
+            "description": "Actor tags to add",
+            "items": "string"
+          },
+          {
+            "name": "parentLabel",
+            "type": "string",
+            "required": false,
+            "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
           }
         ]
       }
@@ -5085,7 +5098,7 @@ export const schema: Record<string, z.ZodType> = {
   actorPathA: z.string().optional().describe("First actor object path"),
   actorPathB: z.string().optional().describe("Second actor object path"),
   actorPaths: z.array(z.string()).optional().describe("Full actor object paths"),
-  actors: z.array(z.object({ staticMesh: z.string().describe("Static mesh asset path"), location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World scale"), label: z.string().optional().describe("Actor label") })).optional().describe("StaticMeshActors to spawn; meshes load once per path"),
+  actors: z.array(z.object({ staticMesh: z.string().describe("Static mesh asset path"), location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World scale"), label: z.string().optional().describe("Actor label"), tags: z.array(z.string()).optional().describe("Actor tags to add"), parentLabel: z.string().optional().describe("Label of the actor to attach to, keeping world transform; may name an actor later in the batch") })).optional().describe("StaticMeshActors to spawn; meshes load once per path"),
   actorTag: z.string().optional().describe("Actor must carry this tag"),
   all: z.boolean().optional().describe("Destroy every transient verification actor in the world (destroy_transient_actor). Target every actor (set_editor_visibility)"),
   allowSubtractive: z.boolean().optional().describe("Also convert subtractive brushes, which have no surface of their own"),

@@ -22184,6 +22184,19 @@
               "type": "string",
               "required": false,
               "description": "Actor label"
+            },
+            {
+              "name": "tags",
+              "type": "array",
+              "required": false,
+              "description": "Actor tags to add",
+              "items": "string"
+            },
+            {
+              "name": "parentLabel",
+              "type": "string",
+              "required": false,
+              "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
             }
           ]
         }

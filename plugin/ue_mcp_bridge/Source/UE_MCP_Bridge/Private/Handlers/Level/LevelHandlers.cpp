@@ -700,6 +700,8 @@ void FLevelHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::OptionalField(TEXT("rotation"), EType::Rotator, TEXT("World rotation")),
 			MCPParam::OptionalField(TEXT("scale"), EType::Vec3, TEXT("World scale")),
 			MCPParam::OptionalField(TEXT("label"), EType::String, TEXT("Actor label")),
+			MCPParam::OptionalField(TEXT("tags"), EType::Array, TEXT("Actor tags to add")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("parentLabel"), EType::String, TEXT("Label of the actor to attach to, keeping world transform; may name an actor later in the batch")),
 		}),
 	});
 	// #910/#943/#912: the general editor-side component query. A whole-map

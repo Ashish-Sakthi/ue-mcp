@@ -32,3 +32,16 @@ describe("level(create) worldPartition (#1247)", () => {
     expect(levelTool.schema.worldPartition.safeParse(true).success).toBe(true);
   });
 });
+
+describe("level(place_actors_batch) tags and parentLabel (#1263)", () => {
+  it("types tags as strings and parentLabel as a label on each entry", () => {
+    const fields = Object.fromEntries(
+      (levelSpecs.place_actors_batch.params[0].fields ?? []).map((f) => [f.name, f]),
+    );
+    expect(fields.tags).toMatchObject({ type: "array", items: "string" });
+    expect(fields.parentLabel).toMatchObject({ type: "string", required: false });
+    const actors = [{ staticMesh: "/Engine/BasicShapes/Cube", tags: ["Root"], parentLabel: "Base" }];
+    expect(levelTool.schema.actors.safeParse(actors).success).toBe(true);
+    expect(levelTool.schema.actors.safeParse([{ staticMesh: "/Engine/BasicShapes/Cube", tags: "Root" }]).success).toBe(false);
+  });
+});
