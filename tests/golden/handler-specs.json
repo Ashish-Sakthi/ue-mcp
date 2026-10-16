@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1080,
+  "handlerCount": 1081,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -18131,6 +18131,32 @@
           ]
         },
         {
+          "name": "modify",
+          "type": "object",
+          "required": false,
+          "description": "Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument",
+          "fields": [
+            {
+              "name": "argument",
+              "type": "string",
+              "required": true,
+              "description": "Struct parameter of functionName to fill"
+            },
+            {
+              "name": "getter",
+              "type": "string",
+              "required": true,
+              "description": "Zero-argument UFUNCTION on the same object that returns that struct"
+            },
+            {
+              "name": "patch",
+              "type": "object",
+              "required": false,
+              "description": "Field name or dotted path to structured JSON value, applied to the struct the getter returned"
+            }
+          ]
+        },
+        {
           "name": "world",
           "type": "string",
           "required": false,
@@ -33368,6 +33394,60 @@
           "type": "number",
           "required": true,
           "description": "Time-scale factor, greater than 0 (e.g. 500)"
+        }
+      ]
+    },
+    "set_pie_view_target": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Player whose view target is set (default 0)"
+        },
+        {
+          "name": "blendTime",
+          "type": "number",
+          "required": false,
+          "description": "Seconds to blend from the current view (default 0, a cut)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
         }
       ]
     },

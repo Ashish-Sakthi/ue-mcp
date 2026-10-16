@@ -101,3 +101,27 @@ describe("configure_pie client windows (#1235)", () => {
     expect(editorTool.schema.newWindowPosition.safeParse({ x: 10 }).success).toBe(false);
   });
 });
+
+describe("PIE view target (#1203)", () => {
+  it("forwards the actor selector, player and blend to set_pie_view_target", async () => {
+    const { call, ctx } = mockContext();
+    await editorTool.handler(ctx, { action: "set_pie_view_target", actorLabel: "CameraActor_2", playerIndex: 0, blendTime: 0.5 });
+    const bag = forwarded(call, "set_pie_view_target");
+    expect(bag.actorLabel).toBe("CameraActor_2");
+    expect(bag.playerIndex).toBe(0);
+    expect(bag.blendTime).toBe(0.5);
+  });
+});
+
+describe("struct read-modify-write (#1203)", () => {
+  it("forwards modify to invoke_object_function", async () => {
+    const { call, ctx } = mockContext();
+    const modify = { argument: "NewSettings", getter: "GetSettings", patch: { Speed: 300, "Weights": [{ key: "Arm", value: 0.5 }] } };
+    await editorTool.handler(ctx, { action: "invoke_object_function", objectPath: "/Game/Maps/UEDPIE_0_L.L:PersistentLevel.NPC_0.Body", functionName: "SetSettings", modify });
+    expect(forwarded(call, "invoke_object_function").modify).toEqual(modify);
+  });
+
+  it("requires argument and getter", () => {
+    expect(editorTool.schema.modify.safeParse({ getter: "GetSettings" }).success).toBe(false);
+  });
+});

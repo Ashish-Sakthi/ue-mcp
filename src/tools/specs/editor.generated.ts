@@ -1161,6 +1161,32 @@ export const handlerSpecs: HandlerSpecs = {
         ]
       },
       {
+        "name": "modify",
+        "type": "object",
+        "required": false,
+        "description": "Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument",
+        "fields": [
+          {
+            "name": "argument",
+            "type": "string",
+            "required": true,
+            "description": "Struct parameter of functionName to fill"
+          },
+          {
+            "name": "getter",
+            "type": "string",
+            "required": true,
+            "description": "Zero-argument UFUNCTION on the same object that returns that struct"
+          },
+          {
+            "name": "patch",
+            "type": "object",
+            "required": false,
+            "description": "Field name or dotted path to structured JSON value, applied to the struct the getter returned"
+          }
+        ]
+      },
+      {
         "name": "world",
         "type": "string",
         "required": false,
@@ -2286,6 +2312,60 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "set_pie_view_target": {
+    "category": "editor",
+    "params": [
+      {
+        "name": "actorLabel",
+        "type": "string",
+        "required": false,
+        "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+      },
+      {
+        "name": "actorPath",
+        "type": "string",
+        "required": false,
+        "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+      },
+      {
+        "name": "playerIndex",
+        "type": "number",
+        "required": false,
+        "description": "Player whose view target is set (default 0)"
+      },
+      {
+        "name": "blendTime",
+        "type": "number",
+        "required": false,
+        "description": "Seconds to blend from the current view (default 0, a cut)"
+      },
+      {
+        "name": "world",
+        "type": "string",
+        "required": false,
+        "description": "World scope: editor | pie | auto. Each action names its own default"
+      },
+      {
+        "name": "pieInstance",
+        "type": "number",
+        "required": false,
+        "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+      }
+    ],
+    "choices": [
+      {
+        "mode": "atLeastOne",
+        "branches": [
+          [
+            "actorLabel"
+          ],
+          [
+            "actorPath"
+          ]
+        ]
+      }
+    ]
+  },
   "set_property": {
     "category": "editor",
     "params": [
@@ -2931,7 +3011,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   hit_test_viewport_pixel: "Params: x, y, width?, height?, maxDistance?, ignoreActors?",
   hot_reload: "Params: none",
   invoke_function: "Params: functionName, at least one of actorLabel/actorPath, component?, args?, actorArgs?, world?, pieInstance?, deferToNextTick?",
-  invoke_object_function: "Params: functionName, objectPath?, target?, subsystemClass?, playerIndex?, propertyPath?, args?, world?, pieInstance?, deferToNextTick?",
+  invoke_object_function: "Params: functionName, objectPath?, target?, subsystemClass?, playerIndex?, propertyPath?, args?, modify?, world?, pieInstance?, deferToNextTick?",
   invoke_object_functions: "Params: calls, world?, pieInstance?",
   invoke_static_function: "Params: className, functionName, args?, actorArgs?, worldContextParam?, world?, pieInstance?",
   launch_standalone_game: "Params: mapName?, channels?, traceFile?, windowed?, resX?, resY?, extraArgs?",
@@ -2969,6 +3049,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_object_property: "Params: propertyName, value, objectPath?, target?, subsystemClass?, playerIndex?, propertyPath?, postEditChange?, world?, pieInstance?",
   set_pie_paused: "Params: paused, mode?, force?, world?, pieInstance?",
   set_pie_time_scale: "Params: factor",
+  set_pie_view_target: "Params: at least one of actorLabel/actorPath, playerIndex?, blendTime?, world?, pieInstance?",
   set_property: "Params: objectPath (or path, or assetPath), propertyName, value, save?",
   set_realtime: "Params: enabled?",
   set_runtime_visibility: "Params: hidden, actorLabels OR actorPaths OR actorClass, componentNames?, componentClasses?, affectActor?, affectComponents?, propagateToChildren?, matchSubclasses?, maxTargets?, dryRun?, world?, pieInstance?",
@@ -3006,6 +3087,7 @@ export const schema: Record<string, z.ZodType> = {
   assetPath: z.string().optional().describe("Alias for sequencePath (add_sequence_section, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_keyframes, set_sequence_playback_range). Level Sequence asset path (add_sequence_track, get_sequence_info). Alias for objectPath (describe_object, get_property, set_property). Asset to open in its editor (open_asset). One exact package or object path to validate (validate_assets)"),
   assetPaths: z.array(z.string()).optional().describe("Exact package or object paths to validate"),
   assetRegistryTimeoutSeconds: z.number().optional().describe("start only: how long to wait for that scan (default 180)"),
+  blendTime: z.number().optional().describe("Seconds to blend from the current view (default 0, a cut)"),
   bones: z.array(z.string()).optional().describe("Bone or socket names; omit for every bone up to limit"),
   bookmark: z.boolean().optional().describe("Also drop a trace bookmark at the stall (default true)"),
   bookmarkName: z.string().optional().describe("Label for the timeline marker"),
@@ -3110,6 +3192,7 @@ export const schema: Record<string, z.ZodType> = {
   maxTests: z.number().optional().describe("Cap on tests to run (default 50)"),
   maxValueLength: z.number().optional().describe("Truncate each exported value past this many characters (default 2000)"),
   mode: z.string().optional().describe("none | walking | navwalking | falling | swimming | flying | custom (set_movement_mode). game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world (set_pie_paused). fixed | auto (set_viewport_exposure)"),
+  modify: z.object({ argument: z.string().describe("Struct parameter of functionName to fill"), getter: z.string().describe("Zero-argument UFUNCTION on the same object that returns that struct"), patch: z.record(z.unknown()).optional().describe("Field name or dotted path to structured JSON value, applied to the struct the getter returned") }).optional().describe("Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument"),
   name: z.string().optional().describe("Name of the new Level Sequence asset (create_level_sequence). Console variable to read (get_cvars). Bare stat name such as unit, fps, game or gpu, prefixed with 'stat ' (default fps) (run_stat_command)"),
   nameContains: z.string().optional().describe("Case-insensitive substring of the object name"),
   names: z.array(z.string()).optional().describe("Console variables to read"),
@@ -3134,7 +3217,7 @@ export const schema: Record<string, z.ZodType> = {
   pieInstance: z.number().optional().describe("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"),
   pitch: z.number().optional().describe("Control-rotation pitch"),
   platform: z.string().optional().describe("Target platform (default Windows)"),
-  playerIndex: z.number().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0) (get_object_properties, invoke_object_function, set_object_property). 0-based player index (default 0) (get_pie_pawn)"),
+  playerIndex: z.number().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0) (get_object_properties, invoke_object_function, set_object_property). 0-based player index (default 0) (get_pie_pawn). Player whose view target is set (default 0) (set_pie_view_target)"),
   postEditChange: z.boolean().optional().describe("Fire PostEditChangeProperty after the write (default false)"),
   prefix: z.string().optional().describe("Purge sys.modules entries starting with this prefix; must be non-empty"),
   projection: z.string().optional().describe("perspective | top | bottom | left | right | front | back | orthoFreelook. Switched before the pose is applied"),
@@ -3186,7 +3269,7 @@ export const schema: Record<string, z.ZodType> = {
   waitForAssetRegistry: z.boolean().optional().describe("start only: block until the AssetRegistry initial scan completes, since PIE silently no-ops during it on a cold editor (default true)"),
   width: z.number().optional().describe("Capture width in pixels (default 1280) (capture_scene_png). Viewport width to read x against, when picking from a screenshot of another resolution (hit_test_viewport_pixel). Frame width in pixels (default 1280) (render_sequence_frames)"),
   windowed: z.boolean().optional().describe("Run windowed rather than fullscreen (default true)"),
-  world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_pie_paused, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
+  world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_pie_paused, set_pie_view_target, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
   worldContextParam: z.string().optional().describe("UObject* parameter to fill with the selected world; detected from WorldContext metadata and for WorldContextObject when omitted"),
   worldPath: z.string().optional().describe("Exact PIE UWorld path or name to capture"),
   x: z.number().optional().describe("Viewport pixel X"),

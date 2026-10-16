@@ -402,6 +402,97 @@ namespace
 		return nullptr;
 	}
 
+	/**
+	 * #1203: read a struct from a zero-argument getter on Target, apply Patch to
+	 * its fields (dotted paths, structured JSON values) and return it in the
+	 * structured form an `args` entry takes.
+	 */
+	TSharedPtr<FJsonValue> ReadPatchedStructFromGetter(UObject* Target, const FString& GetterName,
+		const TSharedPtr<FJsonObject>& Patch, const UScriptStruct* ExpectedStruct, FString& OutError)
+	{
+		UFunction* Getter = Target->FindFunction(FName(*GetterName));
+		if (!Getter)
+		{
+			OutError = FString::Printf(TEXT("modify.getter '%s' not found on %s"), *GetterName, *Target->GetClass()->GetName());
+			return nullptr;
+		}
+		FStructProperty* ReturnProp = CastField<FStructProperty>(Getter->GetReturnProperty());
+		if (!ReturnProp)
+		{
+			OutError = FString::Printf(TEXT("modify.getter '%s' does not return a struct"), *GetterName);
+			return nullptr;
+		}
+		if (ExpectedStruct && ReturnProp->Struct != ExpectedStruct)
+		{
+			OutError = FString::Printf(TEXT("modify.getter '%s' returns %s but the argument takes %s"),
+				*GetterName, *ReturnProp->Struct->GetName(), *ExpectedStruct->GetName());
+			return nullptr;
+		}
+		for (TFieldIterator<FProperty> It(Getter); It && (It->PropertyFlags & CPF_Parm); ++It)
+		{
+			const bool bInput = !(It->PropertyFlags & CPF_ReturnParm)
+				&& (!(It->PropertyFlags & CPF_OutParm) || (It->PropertyFlags & CPF_ReferenceParm));
+			if (bInput)
+			{
+				OutError = FString::Printf(TEXT("modify.getter '%s' takes arguments; only a zero-argument getter can be read here"), *GetterName);
+				return nullptr;
+			}
+		}
+
+		TArray<uint8> Frame;
+		Frame.SetNumZeroed(Getter->ParmsSize);
+		for (TFieldIterator<FProperty> It(Getter); It && (It->PropertyFlags & CPF_Parm); ++It)
+		{
+			It->InitializeValue_InContainer(Frame.GetData());
+		}
+		bool bUsedEditorGuard = false;
+		MCPFunctionCall::ProcessEventInOwnContext(Target, Getter, Frame.GetData(), bUsedEditorGuard);
+
+		void* StructMemory = ReturnProp->ContainerPtrToValuePtr<void>(Frame.GetData());
+		TSharedPtr<FJsonValue> Out;
+		bool bPatched = true;
+		if (Patch.IsValid())
+		{
+			for (const auto& Entry : Patch->Values)
+			{
+				const FString Key(Entry.Key);
+				TArray<FString> Parts;
+				Key.ParseIntoArray(Parts, TEXT("."), true);
+				const UStruct* Owner = ReturnProp->Struct;
+				void* Container = StructMemory;
+				FProperty* Leaf = nullptr;
+				for (int32 Index = 0; Index < Parts.Num(); ++Index)
+				{
+					FProperty* Field = FindPropertyBySpelling(Owner, Parts[Index]);
+					if (!Field)
+					{
+						OutError = FString::Printf(TEXT("modify.patch '%s': no field '%s' on %s"), *Key, *Parts[Index], *Owner->GetName());
+						break;
+					}
+					if (Index == Parts.Num() - 1) { Leaf = Field; break; }
+					FStructProperty* Nested = CastField<FStructProperty>(Field);
+					if (!Nested)
+					{
+						OutError = FString::Printf(TEXT("modify.patch '%s': '%s' is not a struct"), *Key, *Parts[Index]);
+						break;
+					}
+					Container = Nested->ContainerPtrToValuePtr<void>(Container);
+					Owner = Nested->Struct;
+				}
+				FString SetError;
+				if (!Leaf || !MCPJsonProperty::SetJsonOnProperty(Leaf, Leaf->ContainerPtrToValuePtr<void>(Container), Entry.Value, SetError))
+				{
+					if (Leaf) OutError = FString::Printf(TEXT("modify.patch '%s': %s"), *Key, *SetError);
+					bPatched = false;
+					break;
+				}
+			}
+		}
+		if (bPatched) Out = FMCPJsonSerializer::SerializeValue(StructMemory, ReturnProp);
+		MCPFunctionCall::DestroyFrame(Getter, Frame.GetData());
+		return Out;
+	}
+
 	/** The root selected by objectPath or target, then propertyPath followed from it (#1215). */
 	UObject* ResolveRuntimeObject(
 		const TSharedPtr<FJsonObject>& Params,
@@ -626,6 +717,8 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunction(const TSharedPtr<FJ
 	// target is resolved (#811).
 	TSharedPtr<FJsonObject> ArgsMap;
 	if (auto Err = MCPReadFunctionArgs(Params, TEXT("args"), ArgsMap)) return Err;
+	const TSharedPtr<FJsonObject>* ModifyObj = nullptr;
+	const bool bHasModify = TryGetObjectParam(Params, TEXT("modify"), ModifyObj) && ModifyObj && ModifyObj->IsValid();
 
 	UWorld* World = ResolveWorldFromParams(Params, TEXT("auto"));
 
@@ -633,7 +726,42 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunction(const TSharedPtr<FJ
 	UObject* Target = ResolveRuntimeObject(Params, World, Description, Error);
 	if (!Target) return MCPError(Error);
 
+	// #1203: read-modify-write of a struct argument in one call. The getter's
+	// struct is patched and handed to the setter as that argument.
+	FString ModifiedArgument;
+	if (bHasModify)
+	{
+		FString ArgumentName, GetterName;
+		(*ModifyObj)->TryGetStringField(TEXT("argument"), ArgumentName);
+		(*ModifyObj)->TryGetStringField(TEXT("getter"), GetterName);
+		const TSharedPtr<FJsonObject>* PatchObj = nullptr;
+		(*ModifyObj)->TryGetObjectField(TEXT("patch"), PatchObj);
+		if (ArgumentName.IsEmpty() || GetterName.IsEmpty())
+		{
+			return MCPError(TEXT("modify takes {argument, getter, patch}: the setter's struct argument, the zero-argument getter that returns it, and the fields to change"));
+		}
+		UFunction* Setter = Target->FindFunction(FName(*FunctionName));
+		FStructProperty* ArgProp = Setter ? CastField<FStructProperty>(Setter->FindPropertyByName(FName(*ArgumentName))) : nullptr;
+		if (!ArgProp)
+		{
+			return MCPError(FString::Printf(TEXT("modify.argument '%s' is not a struct parameter of '%s' on %s"),
+				*ArgumentName, *FunctionName, *Target->GetClass()->GetName()));
+		}
+		FString ModifyError;
+		TSharedPtr<FJsonValue> Patched = ReadPatchedStructFromGetter(
+			Target, GetterName, PatchObj ? *PatchObj : nullptr, ArgProp->Struct, ModifyError);
+		if (!Patched.IsValid()) return MCPError(ModifyError);
+		if (!ArgsMap.IsValid()) ArgsMap = MakeShared<FJsonObject>();
+		ArgsMap->SetField(ArgProp->GetName(), Patched);
+		ModifiedArgument = ArgProp->GetName();
+	}
+
 	auto Result = MCPSuccess();
+	if (!ModifiedArgument.IsEmpty())
+	{
+		Result->SetStringField(TEXT("modifiedArgument"), ModifiedArgument);
+		Result->SetField(TEXT("modifiedValue"), ArgsMap->TryGetField(ModifiedArgument));
+	}
 	Result->SetStringField(TEXT("objectPath"), Description);
 	Result->SetStringField(TEXT("objectClass"), Target->GetClass()->GetName());
 	if (World)

@@ -39,6 +39,7 @@
 #include "Settings/LevelEditorPlaySettings.h"
 #include "GameFramework/WorldSettings.h"
 #include "GameFramework/PlayerState.h"
+#include "Camera/PlayerCameraManager.h"
 
 namespace
 {
@@ -2231,6 +2232,75 @@ TSharedPtr<FJsonValue> FEditorHandlers::PieSetPlayerView(const TSharedPtr<FJsonO
 	Result->SetBoolField(TEXT("rollbackLossy"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
 		TEXT("The rollback needs the same PIE session and player controller to still exist. Once play ends it reports that PIE is not running rather than restoring anything, and a live controller keeps turning under player or AI input after the write either way."));
+	return MCPResult(Result);
+}
+
+// #1203: make an actor the PIE player's view target, so a spawned CameraActor
+// frames capture_screenshot(target=pie) in a map with no possessed pawn.
+TSharedPtr<FJsonValue> FEditorHandlers::SetPieViewTarget(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	UWorld* World = ResolveWorldFromParams(Params, TEXT("pie"));
+	HasParam(Params, TEXT("actorLabel"));
+	HasParam(Params, TEXT("actorPath"));
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	const double BlendTime = OptionalNumber(Params, TEXT("blendTime"), 0.0);
+
+	if (!World || !World->IsPlayInEditor())
+	{
+		return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+	}
+	if (BlendTime < 0.0 || !FMath::IsFinite(BlendTime)) return MCPError(TEXT("blendTime must be zero or greater"));
+
+	FMCPActorSelector ActorSel;
+	ActorSel.Match = EMCPActorMatch::LabelNameOrPath;
+	ActorSel.WorldLabel = TEXT("PIE");
+	TSharedPtr<FJsonValue> ActorErr;
+	AActor* Target = MCPResolveActor(World, Params, ActorErr, ActorSel);
+	if (!Target) return ActorErr;
+
+	APlayerController* PC = UGameplayStatics::GetPlayerController(World, PlayerIndex);
+	if (!PC) return MCPError(FString::Printf(TEXT("No player controller at playerIndex %d in %s"), PlayerIndex, *World->GetName()));
+
+	AActor* Previous = PC->GetViewTarget();
+	{
+		FMCPScopedPlayWorldContext PlayContext(World);
+		PC->SetViewTargetWithBlend(Target, static_cast<float>(BlendTime));
+	}
+	AActor* Current = PC->GetViewTarget();
+	AActor* Pending = PC->PlayerCameraManager ? PC->PlayerCameraManager->PendingViewTarget.Target.Get() : nullptr;
+	const bool bReached = Current == Target || Pending == Target;
+	if (!bReached)
+	{
+		return MCPError(FString::Printf(TEXT("The player controller kept its view target %s: the camera manager refused %s"),
+			Current ? *Current->GetPathName() : TEXT("(none)"), *Target->GetPathName()));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("world"), World->GetPathName());
+	Result->SetStringField(TEXT("playerController"), PC->GetPathName());
+	Result->SetStringField(TEXT("viewTarget"), Current ? Current->GetPathName() : FString());
+	if (Pending) Result->SetStringField(TEXT("pendingViewTarget"), Pending->GetPathName());
+	Result->SetStringField(TEXT("previousViewTarget"), Previous ? Previous->GetPathName() : FString());
+	Result->SetNumberField(TEXT("blendTime"), BlendTime);
+	const bool bChanged = Previous != Target;
+	Result->SetBoolField(TEXT("changed"), bChanged);
+	if (bChanged) MCPSetUpdated(Result);
+	if (Previous)
+	{
+		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+		Payload->SetStringField(TEXT("actorPath"), Previous->GetPathName());
+		Payload->SetNumberField(TEXT("playerIndex"), PlayerIndex);
+		if (HasParam(Params, TEXT("world"))) Payload->SetStringField(TEXT("world"), OptionalString(Params, TEXT("world")));
+		if (HasParam(Params, TEXT("pieInstance"))) Payload->SetNumberField(TEXT("pieInstance"), OptionalInt(Params, TEXT("pieInstance"), 0));
+		MCPSetRollback(Result, TEXT("set_pie_view_target"), Payload);
+		Result->SetBoolField(TEXT("rollbackLossy"), false);
+		Result->SetStringField(TEXT("rollbackNote"), TEXT("Restores the previous view target by path. It needs the same PIE session, and a possess or camera manager update can move the view again in the meantime."));
+	}
+	else
+	{
+		MCPSetNoRollback(Result, TEXT("The player controller had no view target before this call, so there is nothing to restore."));
+	}
 	return MCPResult(Result);
 }
 

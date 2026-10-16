@@ -104,6 +104,10 @@ namespace UEMCP::SceneCapture
 		void Capture(bool bFullyLoadTextures)
 		{
 			if (!Comp) return;
+			// Components created or moved this frame (BeginPlay attachments,
+			// skinned poses) reach the renderer at end of frame; push them now
+			// so the capture sees the same scene the game viewport does (#1203).
+			if (World) World->SendAllEndOfFrameUpdates();
 			if (bFullyLoadTextures)
 			{
 				IStreamingManager::Get().StreamAllResources(0.0f);

@@ -547,6 +547,11 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		Spec.Append(RuntimeTargetParams());
 		Spec.Append({
 			FunctionArgsParam(),
+			MCPParam::Optional(TEXT("modify"), EType::Object, TEXT("Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument")).WithFields({
+				MCPParam::RequiredField(TEXT("argument"), EType::String, TEXT("Struct parameter of functionName to fill")),
+				MCPParam::RequiredField(TEXT("getter"), EType::String, TEXT("Zero-argument UFUNCTION on the same object that returns that struct")),
+				MCPParam::OptionalField(TEXT("patch"), EType::Object, TEXT("Field name or dotted path to structured JSON value, applied to the struct the getter returned")),
+			}),
 			WorldParam(),
 			PieInstanceParam(),
 			MCPParam::Optional(TEXT("deferToNextTick"), EType::Boolean, TEXT("Queue the call for the next engine tick, outside the editor script-execution guard, so a replicated UFUNCTION routes normally; return and out values are not reported")),
@@ -814,6 +819,15 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("yaw"), EType::Number, TEXT("Control-rotation yaw")),
 		MCPParam::Optional(TEXT("roll"), EType::Number, TEXT("Control-rotation roll")),
 	}, MCPSpec::ContractExempt(TEXT("rotates the running PIE player's view")));
+	// #1203: point the PIE player's camera at an actor, such as a spawned CameraActor.
+	Registry.RegisterHandler(TEXT("set_pie_view_target"), &SetPieViewTarget, {
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player whose view target is set (default 0)")),
+		MCPParam::Optional(TEXT("blendTime"), EType::Number, TEXT("Seconds to blend from the current view (default 0, a cut)")),
+		WorldParam(),
+		PieInstanceParam(),
+	}, MCPSpec::AtLeastOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } }));
 	Registry.RegisterHandler(TEXT("stage_game_input"), &StageGameInput, {
 		MCPParam::Optional(TEXT("inputMode"), EType::String, TEXT("gameOnly (default) | gameAndUI | uiOnly")),
 		MCPParam::Optional(TEXT("showMouseCursor"), EType::Boolean, TEXT("Show the mouse cursor (default false for gameOnly, true otherwise)")),
@@ -4264,6 +4278,42 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScenePng(const TSharedPtr<FJsonOb
 	const bool bFullyLoadTextures = OptionalBool(Params, TEXT("fullyLoadTextures"), true);
 	Rig.Capture(bFullyLoadTextures);
 
+	// #1203: components spawned at runtime are flushed to the renderer before
+	// the capture. Name the ones it still cannot show: no render state, or
+	// bOnlyOwnerSee, which a capture (owned by its own actor) never draws.
+	TSharedPtr<FJsonObject> RuntimeComponents;
+	if (World->IsGameWorld())
+	{
+		int32 RuntimeCount = 0;
+		int32 WithoutRenderState = 0;
+		int32 OnlyOwnerSee = 0;
+		TArray<TSharedPtr<FJsonValue>> NotDrawn;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			for (UActorComponent* Component : It->GetComponents())
+			{
+				UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Component);
+				if (!Primitive || Primitive->CreationMethod != EComponentCreationMethod::Instance) continue;
+				if (!Primitive->IsRegistered() || !Primitive->IsVisible() || Primitive->bHiddenInGame) continue;
+				++RuntimeCount;
+				const bool bNoRenderState = !Primitive->IsRenderStateCreated();
+				const bool bOwnerOnly = Primitive->bOnlyOwnerSee;
+				if (bNoRenderState) ++WithoutRenderState;
+				if (bOwnerOnly) ++OnlyOwnerSee;
+				if ((bNoRenderState || bOwnerOnly) && NotDrawn.Num() < 20)
+				{
+					NotDrawn.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("%s.%s (%s)"),
+						*It->GetActorLabel(), *Primitive->GetName(), bNoRenderState ? TEXT("no render state") : TEXT("bOnlyOwnerSee"))));
+				}
+			}
+		}
+		RuntimeComponents = MakeShared<FJsonObject>();
+		RuntimeComponents->SetNumberField(TEXT("visibleRuntimePrimitives"), RuntimeCount);
+		RuntimeComponents->SetNumberField(TEXT("withoutRenderState"), WithoutRenderState);
+		RuntimeComponents->SetNumberField(TEXT("onlyOwnerSee"), OnlyOwnerSee);
+		if (NotDrawn.Num() > 0) RuntimeComponents->SetArrayField(TEXT("notDrawn"), NotDrawn);
+	}
+
 	FString AbsPath = UEMCP::SceneCapture::ResolveOutputPath(OutputPath);
 	if (!AbsPath.EndsWith(TEXT(".png"))) AbsPath += TEXT(".png");
 
@@ -4302,6 +4352,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScenePng(const TSharedPtr<FJsonOb
 	CaptureMetadata->SetNumberField(TEXT("worldTimeSeconds"), World->GetTimeSeconds());
 	CaptureMetadata->SetBoolField(TEXT("fullyLoadTextures"), bFullyLoadTextures);
 	if (FocusMetadata) CaptureMetadata->SetObjectField(TEXT("focus"), FocusMetadata);
+	if (RuntimeComponents) CaptureMetadata->SetObjectField(TEXT("runtimeComponents"), RuntimeComponents);
 	Result->SetObjectField(TEXT("captureMetadata"), CaptureMetadata);
 	// The capture actor is gone by the time this reaches the caller, so say so
 	// rather than naming an actor they could go and look for.
