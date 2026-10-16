@@ -26,6 +26,7 @@ import { normalizeProjectRoot } from "../bridge/port.js";
 import { bridgeInstancesDir, findLiveInstanceRecord, type BridgeInstanceRecord } from "../bridge/editor-target.js";
 import type { EditorSession } from "../sessions/session.js";
 import { createRuntime, type Runtime } from "../server/runtime.js";
+import { startVersionCheck } from "../core/version-check.js";
 import { createMcpServer } from "../server/mcp-server.js";
 import {
   DAEMON_API_VERSION,
@@ -712,6 +713,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
  */
 export async function runDaemon(projects: string[]): Promise<number> {
   stampLogs();
+  // Each client's first tool response carries the notice, as in process.
+  startVersionCheck(packageVersion());
   if (projects.length === 0) {
     error("daemon", "no .uproject given");
     return 2;

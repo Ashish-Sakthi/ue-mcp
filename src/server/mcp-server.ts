@@ -13,12 +13,14 @@ import { envelopeInputSchema, envelopeShape, usesArgsEnvelope } from "../surface
 import type { ToolDef } from "../core/types.js";
 import { withholdFromTool } from "../surface/registered-surface.js";
 import { packageVersion } from "../core/package-root.js";
+import { upgradeNoticeForClient } from "../core/version-check.js";
 import {
   buildElicit,
   dispatchCategoryCall,
   dispatchFlowCall,
   type CallExtra,
   type DispatchDeps,
+  type ToolResult,
 } from "../dispatch/server-dispatch.js";
 import type { Runtime } from "./runtime.js";
 
@@ -60,6 +62,14 @@ export function createMcpServer(rt: Runtime): RuntimeServer {
     client: () => server.server.getClientVersion(),
   };
 
+  // The upgrade notice leads this client's first tool response.
+  const takeNotice = upgradeNoticeForClient();
+  const withNotice = async (pending: Promise<ToolResult>): Promise<ToolResult> => {
+    const result = await pending;
+    const notice = takeNotice();
+    return notice ? { ...result, content: [{ type: "text", text: notice }, ...result.content] } : result;
+  };
+
   const registeredTools = new Map<string, ReturnType<typeof server.tool>>();
   // Tools registered as action + args. The flow tool is registered flat and stays flat.
   const envelopeTools = new Set<string>();
@@ -98,7 +108,7 @@ export function createMcpServer(rt: Runtime): RuntimeServer {
     const description = descriptionFor(tool);
     const callback = (callArgs: Record<string, unknown>, extra: CallExtra) => {
       claimElicit();
-      return dispatchCategoryCall(deps, tool, envelope, callArgs, extra);
+      return withNotice(dispatchCategoryCall(deps, tool, envelope, callArgs, extra));
     };
     const registration = envelope
       ? server.registerTool(tool.name, { description, inputSchema: envelopeInputSchema(tool) }, callback as never)
@@ -111,7 +121,7 @@ export function createMcpServer(rt: Runtime): RuntimeServer {
   const flowShape: Record<string, z.ZodType> = { ...flowTool.schema };
   const flowRegistration = server.tool(flowTool.name, flowTool.description, flowShape, (rawParams) => {
     claimElicit();
-    return dispatchFlowCall(deps, flowTool, rt.baseCtx, rawParams) as never;
+    return withNotice(dispatchFlowCall(deps, flowTool, rt.baseCtx, rawParams)) as never;
   });
   registeredTools.set(flowTool.name, flowRegistration);
 
