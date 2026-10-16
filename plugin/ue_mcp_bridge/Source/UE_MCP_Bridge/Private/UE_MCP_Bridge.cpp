@@ -116,6 +116,14 @@ namespace
 
 void FUE_MCP_BridgeModule::StartupModule()
 {
+	// A commandlet has no client and no Slate, and a startup warning there turns
+	// a passing commandlet into a nonzero exit code (#1273). Nothing starts.
+	if (IsRunningCommandlet())
+	{
+		UE_LOG(LogMCPBridge, Display, TEXT("[UE-MCP] Running a commandlet: the bridge server, status hooks and dialog hook are not started."));
+		return;
+	}
+
 	// Create and start bridge server. The base port is derived per-worktree
 	// from the project root path, unless something pins it: -MCPPort,
 	// UE_MCP_PORT, or `bridge.port` in the project's ue-mcp.yml layers, in the

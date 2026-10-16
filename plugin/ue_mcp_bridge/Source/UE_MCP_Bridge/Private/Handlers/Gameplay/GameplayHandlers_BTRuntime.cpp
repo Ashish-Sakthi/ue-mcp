@@ -1033,7 +1033,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::SetLiveBlackboard(const TSharedPtr<FJs
 			if (!Resolved)
 			{
 				return MCPError(FString::Printf(
-					TEXT("Could not resolve '%s' to a UClass for Class key '%s'. Tried the path as a class, the path with a '_C' suffix, a short native class name, and the Blueprint at that path. reflection(find_classes) lists the real class names."),
+					TEXT("Could not resolve '%s' to a UClass for Class key '%s'. Tried the path as a class, the path with a '_C' suffix, a short native class name, and the Blueprint at that path. reflection(list_classes) lists the real class names."),
 					*Spec, *KeyName));
 			}
 			BB->SetValueAsClass(Key, Resolved);

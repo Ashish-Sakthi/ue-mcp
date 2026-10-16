@@ -7,6 +7,7 @@
 #include "HandlerJsonProperty.h"
 #include "HandlerPropertyText.h"
 #include "HandlerAssetCreate.h"
+#include "Handlers/Dialog/DialogHandlers.h"
 #include "JsonSerializer.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -458,7 +459,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandlerWithTimeout(TEXT("fixup_redirectors"), &FixupRedirectors, 300.0f, {
 		MCPParam::Required(TEXT("paths"), EType::Array, TEXT("Redirector packages, or the folders holding them")).Items(EType::String),
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report the redirectors, referencers and packages it would load and save, and stop (default false)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference")),
 		MCPParam::Optional(TEXT("allowProjectWide"), EType::Boolean, TEXT("Permit a path naming a whole content root (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("create_data_asset"), &CreateDataAsset, {
@@ -2496,14 +2497,51 @@ TSharedPtr<FJsonValue> FAssetHandlers::RenameAsset(const TSharedPtr<FJsonObject>
 		return RenameWorldWithExternals(SourcePath, DestPath, bForce);
 	}
 
+	const int32 DialogSerialBefore = FDialogHandlers::GetAnsweredDialogSerial();
 	bool bOk = UEditorAssetLibrary::RenameAsset(SourcePath, DestPath);
 
 	auto Result = MCPSuccess();
-	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("sourcePath"), SourcePath);
 	Result->SetStringField(TEXT("destinationPath"), DestPath);
 	Result->SetBoolField(TEXT("success"), bOk);
 
+	if (!bOk)
+	{
+		// A cancelled confirmation is the usual cause, so the failure names the
+		// dialog and the answer it got (#1334).
+		const TArray<FDialogHandlers::FAnsweredDialog> Dialogs = FDialogHandlers::AnsweredDialogsSince(DialogSerialBefore);
+		TArray<TSharedPtr<FJsonValue>> DialogsJson;
+		for (const FDialogHandlers::FAnsweredDialog& Dialog : Dialogs)
+		{
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("title"), Dialog.Title);
+			Entry->SetStringField(TEXT("message"), Dialog.Message);
+			Entry->SetStringField(TEXT("answer"), Dialog.Answer);
+			Entry->SetStringField(TEXT("answeredBy"), Dialog.AnsweredBy);
+			DialogsJson.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		Result->SetArrayField(TEXT("dialogs"), DialogsJson);
+		if (Dialogs.Num() > 0)
+		{
+			const FDialogHandlers::FAnsweredDialog& Last = Dialogs.Last();
+			Result->SetStringField(TEXT("reason"), TEXT("dialog_declined"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor asked '%s' and it was answered '%s' by %s. ")
+				TEXT("To answer it differently, arm editor(set_dialog_policy) with that button before retrying."),
+				*SourcePath, *DestPath, *Last.Message.Left(400), *Last.Answer,
+				Last.AnsweredBy == TEXT("policy") ? TEXT("an armed dialog policy") : TEXT("a person or respond_to_dialog")));
+		}
+		else
+		{
+			Result->SetStringField(TEXT("reason"), TEXT("rename_failed"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor raised no dialog; the output log carries the reason."),
+				*SourcePath, *DestPath));
+		}
+		return MCPResult(Result);
+	}
+
+	MCPSetUpdated(Result);
 	if (bOk)
 	{
 		// Self-inverse: rename back.
@@ -3346,7 +3384,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateAssetByClass(const TSharedPtr<FJson
 	if (AssetClass->IsChildOf(AActor::StaticClass()) || AssetClass->IsChildOf(UActorComponent::StaticClass()))
 	{
 		return MCPClassUnusableError(ClassName, AssetClass, TEXT("not_an_asset"),
-			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component_to_actor)."));
+			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component)."));
 	}
 
 	const FString FullPath = FString::Printf(TEXT("%s/%s.%s"), *PackagePath, *Name, *Name);

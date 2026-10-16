@@ -165,6 +165,9 @@ export interface DispatchDeps {
   client: () => { name: string; version?: string } | undefined;
 }
 
+/** Window actions that can remove the window the dialog gate is holding (#1231). */
+const WINDOW_PRESS_TASKS = new Set(["editor.press_window_button", "editor.close_window"]);
+
 /** The button a respond_to_dialog call names: its label, its index into the dialog's buttons, or the dismissal. */
 function pressedLabel(params: Record<string, unknown>, dialog: { buttons: string[] } | null): string {
   if (typeof params.buttonLabel === "string" && params.buttonLabel !== "") return params.buttonLabel;
@@ -338,6 +341,9 @@ export async function dispatchCategoryCall(
       // applies the mode and could press a button on the next prompt unasked.
       if (effectiveTask === "editor.respond_to_dialog" && result.success) {
         guard.notePress(pressedLabel(subject.params, facing), facing);
+        await guard.refresh();
+      } else if (WINDOW_PRESS_TASKS.has(effectiveTask) && result.success) {
+        // The window pressed or closed may be the one the gate was holding.
         await guard.refresh();
       }
       const seen = guard.current;

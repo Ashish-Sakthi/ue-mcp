@@ -39,6 +39,7 @@ import {
 import { deploy, projectEngineVersion } from "./deployer.js";
 import { detectMcpClients, readUeMcpEntry, writeMcpConfig } from "../integrations/claude-code/mcp-client-config.js";
 import { readEnv } from "../core/env.js";
+import { removeLegacyPythonContent } from "./legacy-python.js";
 
 /** Minimal fetch, injected so the release lookups can be tested without a network. */
 export type ReleaseFetcher = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -331,6 +332,8 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
           result.state = "applied";
         } else if ((options.platform ?? process.platform) === "win32") {
           const oldFiles = swapInPlace(staged.staging, pluginDir);
+          // An in-place swap merges, so the retired Python bridge's files survive it (#1273).
+          removeLegacyPythonContent(pluginDir);
           writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles, at: new Date().toISOString() });
           result.state = "applied";
         } else {

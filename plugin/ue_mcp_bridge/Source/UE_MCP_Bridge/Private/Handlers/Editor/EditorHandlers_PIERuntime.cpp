@@ -424,7 +424,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunction(const TSharedPtr<FJ
 	}
 	Result->SetStringField(TEXT("rollbackNote"), bPure
 		? TEXT("A pure or const function writes nothing, so there is nothing to undo.")
-		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
+		: TEXT("A UFUNCTION call has no known inverse. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional, or undo the effect with whatever call your project treats as its opposite."));
 
 	return CallFunctionWithJsonArgs(Target, FunctionName, Params, ArgsMap, Result);
 }
@@ -577,7 +577,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeObjectFunctions(const TSharedPtr<F
 	// completedCalls says how far it got so a retry can resume.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("UFUNCTION calls have no known inverse, and the calls that completed before a failure stay applied. Wrap the sequence in editor(begin_editor_transaction) and roll back with editor(cancel_editor_transaction) when the effects are transactional; otherwise resume from completedCalls rather than replaying from the start."));
+		TEXT("UFUNCTION calls have no known inverse, and the calls that completed before a failure stay applied. Wrap the sequence in editor(begin_transaction) and roll back with editor(cancel_transaction) when the effects are transactional; otherwise resume from completedCalls rather than replaying from the start."));
 	return MCPResult(Result);
 }
 
