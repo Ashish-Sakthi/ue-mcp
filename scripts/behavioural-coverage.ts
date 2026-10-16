@@ -451,10 +451,14 @@ export function scanAutomationTests(
 // The inventory
 // ---------------------------------------------------------------------------
 
+/** bridge method -> the category it belongs to. A moved action's old address never names it. */
 function categoryOf(): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [category, actions] of bridgeActionMap()) {
-    for (const bridge of actions.values()) if (!out.has(bridge)) out.set(bridge, category);
+  for (const tool of ALL_TOOLS) {
+    for (const spec of Object.values(tool.actions)) {
+      const { bridge, movedTo } = spec as { bridge?: string; movedTo?: unknown };
+      if (bridge && !movedTo && !out.has(bridge)) out.set(bridge, tool.name);
+    }
   }
   return out;
 }

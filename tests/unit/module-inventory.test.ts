@@ -140,6 +140,7 @@ const SESSION_INDEPENDENT: Record<string, string> = {
   "daemon/ws-transport.ts": "MCP's transport over one WebSocket. No editor is involved.",
   "surface/action-class.ts": "The verb lexicon's reading of an action NAME, for the actions this package does not declare; the same answer in every editor.",
   "surface/action-verbs.ts": "The verb lists themselves. A leaf with no imports and no state.",
+  "surface/moved-action.ts": "Builds the deprecated old address of a moved action from its canonical spec; the same answer in every editor.",
   "surface/routing-params.ts": "The dispatcher's parameter names and the helper that strips `action`. A leaf with no imports and no state.",
   "surface/action-effects.ts": "Indexes whichever tool graph the caller hands it, one index per graph; an action's effect does not change with the editor it runs in.",
   "dispatch/lock-owner.ts": "The process-wide fallback lock owner id. A session mints its own through this and holds it itself.",
