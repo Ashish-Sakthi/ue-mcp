@@ -147,8 +147,15 @@ export async function tryExchangeDeviceCode(
     access_token?: string;
     token_type?: string;
     error?: string;
+    interval?: number;
   };
-  if (data.error === "authorization_pending" || data.error === "slow_down") {
+  if (data.error === "slow_down") {
+    // RFC 8628 3.5: every later poll waits longer, by the interval sent or by 5s.
+    pending.interval = typeof data.interval === "number" ? data.interval : pending.interval + 5;
+    await writePending(pending);
+    return { kind: "pending" };
+  }
+  if (data.error === "authorization_pending") {
     return { kind: "pending" };
   }
   if (data.error === "expired_token") {
