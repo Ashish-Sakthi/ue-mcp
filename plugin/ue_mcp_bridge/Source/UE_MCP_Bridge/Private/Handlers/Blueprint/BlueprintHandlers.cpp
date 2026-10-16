@@ -461,6 +461,15 @@ void FBlueprintHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("className"), EType::String, TEXT("C++ class name or path")),
 		MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Property names to read (omit for all)")).Items(EType::String),
 	});
+	Registry.RegisterHandler(TEXT("compare_class_defaults"), &CompareClassDefaults, {
+		MCPParam::Required(TEXT("className"), EType::String, TEXT("First class: native name or path, Blueprint asset path or generated class path")),
+		MCPParam::Required(TEXT("otherClassName"), EType::String, TEXT("Second class, compared against the first")),
+		MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these top-level properties (case-insensitive)")).Items(EType::String),
+		MCPParam::Optional(TEXT("propertyFilter"), EType::String, TEXT("Case-insensitive substring over the property path")),
+		MCPParam::Optional(TEXT("category"), EType::String, TEXT("Case-insensitive substring over the property's Category metadata")),
+		MCPParam::Optional(TEXT("includeTransient"), EType::Boolean, TEXT("Also compare transient properties (default false)")),
+		MCPParam::Optional(TEXT("subobjectDepth"), EType::Integer, TEXT("Compare default subobjects (components) field by field to this depth, 0-3 (default 1); 0 compares them whole")),
+	});
 
 	// issue #195: run construction script and inspect resulting components
 	Registry.RegisterHandler(TEXT("run_construction_script"), &RunConstructionScript, {
