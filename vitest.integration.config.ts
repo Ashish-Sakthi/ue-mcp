@@ -13,6 +13,8 @@ export default defineConfig({
     reporters: ["verbose"],
     fileParallelism: true,
     pool: "forks",
-    poolOptions: { forks: { singleFork: false } },
+    // Each file spawns its own servers and daemons, so a fork per file on a
+    // many-core machine starves the worker RPC; four at a time keeps it answering.
+    poolOptions: { forks: { singleFork: false, maxForks: 4, minForks: 1 } },
   },
 });
