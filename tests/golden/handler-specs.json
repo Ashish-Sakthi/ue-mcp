@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1081,
+  "handlerCount": 1082,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -5065,6 +5065,18 @@
           "type": "string",
           "required": false,
           "description": "Socket or bone on the resolved parent component"
+        },
+        {
+          "name": "relativeLocation",
+          "type": "vec3",
+          "required": false,
+          "description": "Relative location set after the attach, in the parent component or socket frame"
+        },
+        {
+          "name": "relativeRotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Relative rotation set after the attach, in the parent component or socket frame"
         }
       ]
     },
@@ -13023,7 +13035,25 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "Console command to run in the editor world"
+          "description": "Console command to run"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose console runs a PIE command (default 0)"
         }
       ],
       "contractExempt": "runs a console command"
@@ -22531,6 +22561,59 @@
         }
       ]
     },
+    "pose_debug_camera": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "required": false,
+          "description": "true (default) ejects the debug camera if needed and poses it; false returns control to the player"
+        },
+        {
+          "name": "location",
+          "type": "vec3",
+          "required": false,
+          "description": "Camera location; omit to keep the current one"
+        },
+        {
+          "name": "rotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Camera rotation; omit to keep the current one"
+        },
+        {
+          "name": "lookAtActorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Aim at this PIE actor's bounds center; wins over rotation"
+        },
+        {
+          "name": "lookAtActorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full path of the PIE actor to aim at. Wins over lookAtActorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose debug camera is used (default 0)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
     "preview_animation": {
       "category": "animation",
       "params": [
@@ -22680,7 +22763,7 @@
           "name": "fields",
           "type": "array",
           "required": false,
-          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics",
+          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment",
           "items": "string"
         },
         {

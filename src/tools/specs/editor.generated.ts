@@ -519,7 +519,25 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "command",
         "type": "string",
         "required": true,
-        "description": "Console command to run in the editor world"
+        "description": "Console command to run"
+      },
+      {
+        "name": "world",
+        "type": "string",
+        "required": false,
+        "description": "editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world"
+      },
+      {
+        "name": "pieInstance",
+        "type": "number",
+        "required": false,
+        "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+      },
+      {
+        "name": "playerIndex",
+        "type": "number",
+        "required": false,
+        "description": "Local player whose console runs a PIE command (default 0)"
       }
     ],
     "contractExempt": "runs a console command"
@@ -1582,6 +1600,59 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ],
     "contractExempt": "opens a sequence in Sequencer and drives its transport"
+  },
+  "pose_debug_camera": {
+    "category": "editor",
+    "params": [
+      {
+        "name": "enabled",
+        "type": "boolean",
+        "required": false,
+        "description": "true (default) ejects the debug camera if needed and poses it; false returns control to the player"
+      },
+      {
+        "name": "location",
+        "type": "vec3",
+        "required": false,
+        "description": "Camera location; omit to keep the current one"
+      },
+      {
+        "name": "rotation",
+        "type": "rotator",
+        "required": false,
+        "description": "Camera rotation; omit to keep the current one"
+      },
+      {
+        "name": "lookAtActorLabel",
+        "type": "string",
+        "required": false,
+        "description": "Aim at this PIE actor's bounds center; wins over rotation"
+      },
+      {
+        "name": "lookAtActorPath",
+        "type": "string",
+        "required": false,
+        "description": "Full path of the PIE actor to aim at. Wins over lookAtActorLabel"
+      },
+      {
+        "name": "playerIndex",
+        "type": "number",
+        "required": false,
+        "description": "Local player whose debug camera is used (default 0)"
+      },
+      {
+        "name": "world",
+        "type": "string",
+        "required": false,
+        "description": "World scope: editor | pie | auto. Each action names its own default"
+      },
+      {
+        "name": "pieInstance",
+        "type": "number",
+        "required": false,
+        "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+      }
+    ]
   },
   "purge_python_modules": {
     "category": "editor",
@@ -2982,7 +3053,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   describe_object: "Params: objectPath (or path, or assetPath), includeProperties?, includeValues?, propertyNames?",
   end_editor_transaction: "Params: none",
   end_profile_region: "Params: regionName",
-  execute_command: "Params: command",
+  execute_command: "Params: command, world?, pieInstance?, playerIndex?",
   find_object: "Params: at least one of objectPath/className/nameContains, outerPath?, exactClass?, includeDefaults?, world?, pieInstance?, cursor?, limit?",
   focus_viewport_on_actor: "Params: actorLabel?, actorPath?",
   get_build_status: "Params: none",
@@ -3028,6 +3099,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   pie_control: "Params: pieAction?, waitForAssetRegistry?, assetRegistryTimeoutSeconds?",
   pie_set_player_view: "Params: pitch?, yaw?, roll?",
   play_sequence: "Params: sequencePath? (or assetPath, or path), sequenceAction?",
+  pose_debug_camera: "Params: enabled?, location?, rotation?, lookAtActorLabel?, lookAtActorPath?, playerIndex?, world?, pieInstance?",
   purge_python_modules: "Params: prefix",
   read_bone_transforms: "Params: actorLabel?, actorPath?, componentName?, bones?, relativeTo?, space?, limit?, world?, pieInstance?",
   redo: "Params: none",
@@ -3106,7 +3178,7 @@ export const schema: Record<string, z.ZodType> = {
   className: z.string().optional().describe("Class to search for: a short name, a /Script path, a generated class name (WBP_Hud_C) or a Blueprint asset path (find_object). UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path (invoke_static_function)"),
   clientWindowHeight: z.number().optional().describe("Height of each additional multiplayer client window"),
   clientWindowWidth: z.number().optional().describe("Width of each additional multiplayer client window"),
-  command: z.string().optional().describe("Console command to run in the editor world (execute_command). Full console command; wins over name (run_stat_command)"),
+  command: z.string().optional().describe("Console command to run (execute_command). Full console command; wins over name (run_stat_command)"),
   commitDeletes: z.boolean().optional().describe("Use the editor's dirty-package save, which deletes the packages of deleted World Partition actors and reports written and deleted files (default false)"),
   component: z.string().optional().describe("Component subobject name to call the function on instead of the actor"),
   componentClasses: z.array(z.string()).optional().describe("Only SceneComponents of these classes; implies affectComponents"),
@@ -3126,7 +3198,7 @@ export const schema: Record<string, z.ZodType> = {
   disable: z.union([z.array(z.string()), z.string()]).optional().describe("Channels to turn off, as an array or a comma-separated string"),
   dryRun: z.boolean().optional().describe("Report the targets without touching them (default TRUE; pass false to apply)"),
   enable: z.union([z.array(z.string()), z.string()]).optional().describe("Channels to turn on, as an array or a comma-separated string"),
-  enabled: z.boolean().optional().describe("Hide editor-only overlays (default true); false shows them again (set_game_view). Realtime update on every level viewport (default true) (set_realtime)"),
+  enabled: z.boolean().optional().describe("true (default) ejects the debug camera if needed and poses it; false returns control to the player (pose_debug_camera). Hide editor-only overlays (default true); false shows them again (set_game_view). Realtime update on every level viewport (default true) (set_realtime)"),
   enabledOnly: z.boolean().optional().describe("Only channels that are currently on (default false)"),
   endFrame: z.number().optional().describe("Last display frame to render, inclusive. Not with endSeconds"),
   endSeconds: z.number().optional().describe("Section end in seconds (default one second after the start) (add_sequence_section). Range end in seconds, exclusive (render_sequence_frames). Range end in seconds (set_sequence_playback_range)"),
@@ -3178,8 +3250,10 @@ export const schema: Record<string, z.ZodType> = {
   level: z.string().optional().describe("Low | Medium | High | Epic | Cinematic (default Epic)"),
   levelPath: z.string().optional().describe("Long package path of the new level, e.g. /Game/Maps/MyLevel. Validated before the engine is asked"),
   limit: z.number().optional().describe("Objects on this page (default 50, max 1000) (find_object). Max rows for a pattern search (default 100, max 1000) (get_cvars). Max properties returned (default 200) (get_object_properties). Lines on this page (default 200, max 4096) (get_output_log). Crash folders on this page (default 50, max 500) (list_crashes). Max bones when bones is omitted (default 200) (read_bone_transforms). Matches on this page (default 100, max 4096) (search_log)"),
-  location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Camera location (capture_scene_png, set_viewport_camera). Fixed camera location, when no camera actor is given (render_sequence_frames). Destination; omit to keep the current location (teleport_runtime_actor)"),
+  location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Camera location (capture_scene_png, set_viewport_camera). Camera location; omit to keep the current one (pose_debug_camera). Fixed camera location, when no camera actor is given (render_sequence_frames). Destination; omit to keep the current location (teleport_runtime_actor)"),
   logName: z.string().optional().describe("Listing to read (MapCheck, AssetCheck, PIE, LoadErrors...); omit to list the registered ones"),
+  lookAtActorLabel: z.string().optional().describe("Aim at this PIE actor's bounds center; wins over rotation"),
+  lookAtActorPath: z.string().optional().describe("Full path of the PIE actor to aim at. Wins over lookAtActorLabel"),
   mapName: z.string().optional().describe("Map to open in the standalone process"),
   matchSubclasses: z.boolean().optional().describe("Match subclasses of actorClass and componentClasses (default true)"),
   maxDistance: z.number().optional().describe("Max ray length in cm (default 200000)"),
@@ -3217,7 +3291,7 @@ export const schema: Record<string, z.ZodType> = {
   pieInstance: z.number().optional().describe("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"),
   pitch: z.number().optional().describe("Control-rotation pitch"),
   platform: z.string().optional().describe("Target platform (default Windows)"),
-  playerIndex: z.number().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0) (get_object_properties, invoke_object_function, set_object_property). 0-based player index (default 0) (get_pie_pawn). Player whose view target is set (default 0) (set_pie_view_target)"),
+  playerIndex: z.number().optional().describe("Local player whose console runs a PIE command (default 0) (execute_command). Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0) (get_object_properties, invoke_object_function, set_object_property). 0-based player index (default 0) (get_pie_pawn). Local player whose debug camera is used (default 0) (pose_debug_camera). Player whose view target is set (default 0) (set_pie_view_target)"),
   postEditChange: z.boolean().optional().describe("Fire PostEditChangeProperty after the write (default false)"),
   prefix: z.string().optional().describe("Purge sys.modules entries starting with this prefix; must be non-empty"),
   projection: z.string().optional().describe("perspective | top | bottom | left | right | front | back | orthoFreelook. Switched before the pose is applied"),
@@ -3236,7 +3310,7 @@ export const schema: Record<string, z.ZodType> = {
   resY: z.number().optional().describe("Window height (default 720)"),
   roll: z.number().optional().describe("Control-rotation roll"),
   rollbackToken: z.string().optional().describe("Token from a non-dry-run set_runtime_visibility, valid for that PIE session only"),
-  rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Camera rotation (capture_scene_png, set_viewport_camera). Fixed camera rotation (render_sequence_frames). Destination rotation; omit to keep the current one (teleport_runtime_actor)"),
+  rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Camera rotation (capture_scene_png, set_viewport_camera). Camera rotation; omit to keep the current one (pose_debug_camera). Fixed camera rotation (render_sequence_frames). Destination rotation; omit to keep the current one (teleport_runtime_actor)"),
   runUnderOneProcess: z.boolean().optional().describe("Run every client in the editor process"),
   save: z.boolean().optional().describe("Save the package to disk after the write (default true; false leaves it dirty)"),
   seconds: z.number().optional().describe("Playhead position in seconds. Pass exactly one of seconds and frame"),
@@ -3269,7 +3343,7 @@ export const schema: Record<string, z.ZodType> = {
   waitForAssetRegistry: z.boolean().optional().describe("start only: block until the AssetRegistry initial scan completes, since PIE silently no-ops during it on a cold editor (default true)"),
   width: z.number().optional().describe("Capture width in pixels (default 1280) (capture_scene_png). Viewport width to read x against, when picking from a screenshot of another resolution (hit_test_viewport_pixel). Frame width in pixels (default 1280) (render_sequence_frames)"),
   windowed: z.boolean().optional().describe("Run windowed rather than fullscreen (default true)"),
-  world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_pie_paused, set_pie_view_target, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
+  world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world (execute_command). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, pose_debug_camera, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_pie_paused, set_pie_view_target, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
   worldContextParam: z.string().optional().describe("UObject* parameter to fill with the selected world; detected from WorldContext metadata and for WorldContextObject when omitted"),
   worldPath: z.string().optional().describe("Exact PIE UWorld path or name to capture"),
   x: z.number().optional().describe("Viewport pixel X"),

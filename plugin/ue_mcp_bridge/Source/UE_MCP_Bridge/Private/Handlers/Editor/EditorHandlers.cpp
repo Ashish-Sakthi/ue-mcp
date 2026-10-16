@@ -25,6 +25,7 @@
 #include "Editor.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/StringOutputDevice.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
@@ -315,7 +316,10 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	};
 
 	Registry.RegisterHandler(TEXT("execute_command"), &ExecuteCommand, {
-		MCPParam::Required(TEXT("command"), EType::String, TEXT("Console command to run in the editor world")),
+		MCPParam::Required(TEXT("command"), EType::String, TEXT("Console command to run")),
+		MCPParam::Optional(TEXT("world"), EType::String, TEXT("editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world")),
+		MCPParam::Optional(TEXT("pieInstance"), EType::Number, TEXT("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances")),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Local player whose console runs a PIE command (default 0)")),
 	}, MCPSpec::ContractExempt(TEXT("runs a console command")));
 	Registry.RegisterHandler(TEXT("execute_python"), &ExecutePython);
 	// `args` on run_python_file and the invoke_* handlers takes one of four
@@ -828,6 +832,17 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		WorldParam(),
 		PieInstanceParam(),
 	}, MCPSpec::AtLeastOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } }));
+	// #1250: eject and aim the PIE debug camera for verification shots.
+	Registry.RegisterHandler(TEXT("pose_debug_camera"), &PoseDebugCamera, {
+		MCPParam::Optional(TEXT("enabled"), EType::Boolean, TEXT("true (default) ejects the debug camera if needed and poses it; false returns control to the player")),
+		MCPParam::Optional(TEXT("location"), EType::Vec3, TEXT("Camera location; omit to keep the current one")),
+		MCPParam::Optional(TEXT("rotation"), EType::Rotator, TEXT("Camera rotation; omit to keep the current one")),
+		MCPParam::Optional(TEXT("lookAtActorLabel"), EType::String, TEXT("Aim at this PIE actor's bounds center; wins over rotation")),
+		MCPParam::Optional(TEXT("lookAtActorPath"), EType::String, TEXT("Full path of the PIE actor to aim at. Wins over lookAtActorLabel")),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Local player whose debug camera is used (default 0)")),
+		WorldParam(),
+		PieInstanceParam(),
+	});
 	Registry.RegisterHandler(TEXT("stage_game_input"), &StageGameInput, {
 		MCPParam::Optional(TEXT("inputMode"), EType::String, TEXT("gameOnly (default) | gameAndUI | uiOnly")),
 		MCPParam::Optional(TEXT("showMouseCursor"), EType::Boolean, TEXT("Show the mouse cursor (default false for gameOnly, true otherwise)")),
@@ -859,15 +874,64 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every parameter is read before anything can fail (#1057).
 	FString Command;
-	if (auto Err = RequireString(Params, TEXT("command"), Command)) return Err;
-
-	REQUIRE_EDITOR_WORLD(World);
-
-	UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
+	TSharedPtr<FJsonValue> CommandErr = RequireString(Params, TEXT("command"), Command);
+	const FString Scope = OptionalString(Params, TEXT("world"), TEXT("editor")).ToLower();
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	UWorld* Resolved = ResolveWorldFromParams(Params, TEXT("editor"));
+	if (CommandErr) return CommandErr;
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("command"), Command);
+
+	// #1250: world=pie runs the command as a PIE player, through its local
+	// player's console, so cheat-manager commands such as slomo reach that
+	// instance. Calling ExecuteConsoleCommand through invoke_object_function
+	// is the crash this route replaces.
+	const bool bWantsPlay = Scope == TEXT("pie") || Scope == TEXT("game")
+		|| (Scope == TEXT("auto") && Resolved && Resolved->IsPlayInEditor());
+	if (bWantsPlay)
+	{
+		if (!Resolved || !Resolved->IsPlayInEditor())
+		{
+			return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+		}
+		FString Output;
+		FString Route;
+		{
+			FMCPScopedPlayWorldContext PlayContext(Resolved);
+			if (APlayerController* PC = UGameplayStatics::GetPlayerController(Resolved, PlayerIndex))
+			{
+				Output = PC->ConsoleCommand(Command, false);
+				Route = TEXT("playerController");
+				Result->SetStringField(TEXT("playerController"), PC->GetPathName());
+			}
+			else if (GEngine)
+			{
+				// A dedicated server has no player: run it against that world.
+				FStringOutputDevice Captured;
+				GEngine->Exec(Resolved, *Command, Captured);
+				Output = Captured;
+				Route = TEXT("engine");
+			}
+		}
+		Result->SetStringField(TEXT("route"), Route);
+		Result->SetStringField(TEXT("world"), Resolved->GetPathName());
+		Result->SetStringField(TEXT("netMode"), DescribePIENetMode(Resolved));
+		if (const FWorldContext* Ctx = GEngine ? GEngine->GetWorldContextFromWorld(Resolved) : nullptr)
+		{
+			Result->SetNumberField(TEXT("pieInstance"), Ctx->PIEInstance);
+		}
+		Result->SetStringField(TEXT("output"), Output.Left(20000));
+	}
+	else
+	{
+		REQUIRE_EDITOR_WORLD(World);
+		UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
+		Result->SetStringField(TEXT("world"), World->GetPathName());
+	}
+
 	// The command was dispatched. Whether it changed anything is the command's
 	// business: the console reports nothing back that this handler could read.
 	Result->SetBoolField(TEXT("changed"), true);

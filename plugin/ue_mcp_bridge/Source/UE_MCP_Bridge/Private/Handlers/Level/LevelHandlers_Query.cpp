@@ -138,6 +138,7 @@ namespace
 		bool bDecal = false;
 		bool bHealth = false;
 		bool bPhysics = false;
+		bool bAttachment = false;
 	};
 
 	/** Every field name this action understands, so an unknown one is an error
@@ -155,6 +156,7 @@ namespace
 		if (Name == TEXT("mesh"))        { Fields.bMesh = true;        return true; }
 		if (Name == TEXT("decal"))       { Fields.bDecal = true;       return true; }
 		if (Name == TEXT("physics"))     { Fields.bPhysics = true;     return true; }
+		if (Name == TEXT("attachment"))  { Fields.bAttachment = true;  return true; }
 		if (Name == TEXT("health"))
 		{
 			// health is derived from the others, so asking for it turns on
@@ -307,7 +309,7 @@ namespace
 					if (!MCPQueryApplyFieldName(Name, Fields))
 					{
 						return MCPError(FString::Printf(
-							TEXT("Unknown 'fields' entry '%s'. Valid: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics"),
+							TEXT("Unknown 'fields' entry '%s'. Valid: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment"),
 							*Name));
 					}
 					bAnyFieldRequested = true;
@@ -721,6 +723,32 @@ namespace
 				: bEffectiveNav ? TEXT("navigation relevant")
 				: TEXT("no query collision and no custom navigable geometry"));
 			Row->SetObjectField(TEXT("navigation"), NavObject);
+		}
+
+		// ── #1250: attachment and owner visibility, for dual-mesh checks ─
+		if (SceneComponent && Fields.bAttachment)
+		{
+			TSharedPtr<FJsonObject> AttachObject = MakeShared<FJsonObject>();
+			USceneComponent* AttachParent = SceneComponent->GetAttachParent();
+			AttachObject->SetStringField(TEXT("parentComponent"), AttachParent ? AttachParent->GetName() : FString());
+			AActor* ParentOwner = AttachParent ? AttachParent->GetOwner() : nullptr;
+			AttachObject->SetStringField(TEXT("parentActor"), ParentOwner && ParentOwner != Actor ? ParentOwner->GetPathName() : FString());
+			const FName Socket = SceneComponent->GetAttachSocketName();
+			AttachObject->SetStringField(TEXT("socket"), Socket == NAME_None ? FString() : Socket.ToString());
+			AttachObject->SetObjectField(TEXT("relativeLocation"), MCPVec3ToJsonObject(SceneComponent->GetRelativeLocation()));
+			AttachObject->SetObjectField(TEXT("relativeRotation"), MCPRotatorToJsonObject(SceneComponent->GetRelativeRotation()));
+			AttachObject->SetBoolField(TEXT("isRoot"), SceneComponent == Actor->GetRootComponent());
+			if (Primitive)
+			{
+				AttachObject->SetBoolField(TEXT("onlyOwnerSee"), Primitive->bOnlyOwnerSee != 0);
+				AttachObject->SetBoolField(TEXT("ownerNoSee"), Primitive->bOwnerNoSee != 0);
+				// First-person rendering exists on newer engines only, so it is read by name.
+				if (const TSharedPtr<FJsonValue> FirstPerson = MCPQueryReflectProperty(Component, TEXT("FirstPersonPrimitiveType")))
+				{
+					AttachObject->SetField(TEXT("firstPersonPrimitiveType"), FirstPerson);
+				}
+			}
+			Row->SetObjectField(TEXT("attachment"), AttachObject);
 		}
 
 		// ── #1212: live rigid-body state, readable in world=pie ─────────

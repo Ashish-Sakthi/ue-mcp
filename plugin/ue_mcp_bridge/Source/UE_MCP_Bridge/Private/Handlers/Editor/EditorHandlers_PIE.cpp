@@ -40,6 +40,9 @@
 #include "GameFramework/WorldSettings.h"
 #include "GameFramework/PlayerState.h"
 #include "Camera/PlayerCameraManager.h"
+#include "Engine/DebugCameraController.h"
+#include "GameFramework/PawnMovementComponent.h"
+#include "GameFramework/SpectatorPawn.h"
 
 namespace
 {
@@ -2301,6 +2304,136 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetPieViewTarget(const TSharedPtr<FJsonO
 	{
 		MCPSetNoRollback(Result, TEXT("The player controller had no view target before this call, so there is nothing to restore."));
 	}
+	return MCPResult(Result);
+}
+
+// #1250: eject and aim the PIE debug camera. Moving the DebugCameraController
+// actor is overridden by its free camera, which follows the spectator pawn and
+// the control rotation, so those are what get posed.
+TSharedPtr<FJsonValue> FEditorHandlers::PoseDebugCamera(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	UWorld* World = ResolveWorldFromParams(Params, TEXT("pie"));
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	const bool bEnabled = OptionalBool(Params, TEXT("enabled"), true);
+	const bool bHasLocation = HasParam(Params, TEXT("location"));
+	const FVector RequestedLocation = bHasLocation ? OptionalVec3(Params, TEXT("location")) : FVector::ZeroVector;
+	const bool bHasRotation = HasParam(Params, TEXT("rotation"));
+	const FRotator RequestedRotation = bHasRotation ? OptionalRotator(Params, TEXT("rotation")) : FRotator::ZeroRotator;
+	const bool bHasLookAtLabel = HasParam(Params, TEXT("lookAtActorLabel"));
+	const bool bHasLookAtPath = HasParam(Params, TEXT("lookAtActorPath"));
+	const bool bHasLookAt = bHasLookAtLabel || bHasLookAtPath;
+
+	if (!World || !World->IsPlayInEditor())
+	{
+		return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+	}
+	UGameInstance* GI = World->GetGameInstance();
+	ULocalPlayer* LocalPlayer = GI ? GI->GetLocalPlayerByIndex(PlayerIndex) : nullptr;
+	if (!LocalPlayer || !LocalPlayer->PlayerController)
+	{
+		return MCPError(FString::Printf(TEXT("No local player controller at playerIndex %d in %s"), PlayerIndex, *World->GetName()));
+	}
+
+	auto ActiveDebugController = [LocalPlayer]() { return Cast<ADebugCameraController>(LocalPlayer->PlayerController); };
+	ADebugCameraController* Debug = ActiveDebugController();
+	const bool bWasActive = Debug != nullptr;
+	FVector PreviousLocation = FVector::ZeroVector;
+	FRotator PreviousRotation = FRotator::ZeroRotator;
+	if (Debug)
+	{
+		if (APawn* CameraPawn = Debug->GetPawnOrSpectator()) PreviousLocation = CameraPawn->GetActorLocation();
+		PreviousRotation = Debug->GetControlRotation();
+	}
+
+	if (bEnabled != bWasActive)
+	{
+		// ToggleDebugCamera is the cheat manager's own exec, routed through the
+		// local player so it runs as that player in its own instance.
+		FMCPScopedPlayWorldContext PlayContext(World);
+		LocalPlayer->PlayerController->ConsoleCommand(TEXT("ToggleDebugCamera"), false);
+		Debug = ActiveDebugController();
+		if (bEnabled && !Debug)
+		{
+			return MCPError(TEXT("ToggleDebugCamera did not activate a debug camera: the player controller has no cheat manager (cheats disabled), or the game replaces the debug camera."));
+		}
+		if (!bEnabled && Debug)
+		{
+			return MCPError(TEXT("ToggleDebugCamera did not return control to the player controller."));
+		}
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("world"), World->GetPathName());
+	Result->SetBoolField(TEXT("enabled"), Debug != nullptr);
+	Result->SetBoolField(TEXT("wasEnabled"), bWasActive);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetBoolField(TEXT("enabled"), bWasActive);
+	if (bWasActive)
+	{
+		Payload->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(PreviousLocation));
+		Payload->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(PreviousRotation));
+	}
+	Payload->SetNumberField(TEXT("playerIndex"), PlayerIndex);
+	if (HasParam(Params, TEXT("world"))) Payload->SetStringField(TEXT("world"), OptionalString(Params, TEXT("world")));
+	if (HasParam(Params, TEXT("pieInstance"))) Payload->SetNumberField(TEXT("pieInstance"), OptionalInt(Params, TEXT("pieInstance"), 0));
+
+	if (!bEnabled)
+	{
+		Result->SetBoolField(TEXT("changed"), bWasActive);
+		MCPSetRollback(Result, TEXT("pose_debug_camera"), Payload);
+		return MCPResult(Result);
+	}
+
+	APawn* CameraPawn = Debug->GetPawnOrSpectator();
+	const FVector Location = bHasLocation ? RequestedLocation : (CameraPawn ? CameraPawn->GetActorLocation() : Debug->GetActorLocation());
+	FRotator Rotation = bHasRotation ? RequestedRotation : Debug->GetControlRotation();
+	if (bHasLookAt)
+	{
+		FMCPActorSelector LookSel;
+		LookSel.LabelKey = TEXT("lookAtActorLabel");
+		LookSel.PathKey = TEXT("lookAtActorPath");
+		LookSel.Match = EMCPActorMatch::LabelNameOrPath;
+		LookSel.WorldLabel = TEXT("PIE");
+		TSharedPtr<FJsonValue> LookErr;
+		AActor* LookAt = MCPResolveActor(World, Params, LookErr, LookSel);
+		if (!LookAt) return LookErr;
+		FVector Origin, Extent;
+		LookAt->GetActorBounds(false, Origin, Extent);
+		Rotation = (Origin - Location).Rotation();
+		Result->SetStringField(TEXT("lookAtActorPath"), LookAt->GetPathName());
+	}
+
+	if (CameraPawn)
+	{
+		if (UPawnMovementComponent* Movement = CameraPawn->GetMovementComponent())
+		{
+			Movement->StopMovementImmediately();
+		}
+		CameraPawn->SetActorLocationAndRotation(Location, Rotation, false, nullptr, ETeleportType::TeleportPhysics);
+	}
+	else
+	{
+		Debug->SetActorLocation(Location);
+	}
+	Debug->SetControlRotation(Rotation);
+	if (Debug->PlayerCameraManager)
+	{
+		Debug->PlayerCameraManager->UpdateCamera(0.0f);
+		Result->SetObjectField(TEXT("cameraLocation"), MCPVec3ToJsonObject(Debug->PlayerCameraManager->GetCameraLocation()));
+		Result->SetObjectField(TEXT("cameraRotation"), MCPRotatorToJsonObject(Debug->PlayerCameraManager->GetCameraRotation()));
+	}
+	Result->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(CameraPawn ? CameraPawn->GetActorLocation() : Debug->GetActorLocation()));
+	Result->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(Debug->GetControlRotation()));
+	Result->SetBoolField(TEXT("changed"), true);
+	MCPSetUpdated(Result);
+
+	MCPSetRollback(Result, TEXT("pose_debug_camera"), Payload);
+	Result->SetBoolField(TEXT("rollbackLossy"), false);
+	Result->SetStringField(TEXT("rollbackNote"), bWasActive
+		? TEXT("Restores the debug camera pose it had before this call. It needs the same PIE session.")
+		: TEXT("Turns the debug camera off again, returning control to the player controller. It needs the same PIE session."));
 	return MCPResult(Result);
 }
 

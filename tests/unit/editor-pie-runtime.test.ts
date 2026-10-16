@@ -125,3 +125,44 @@ describe("struct read-modify-write (#1203)", () => {
     expect(editorTool.schema.modify.safeParse({ getter: "GetSettings" }).success).toBe(false);
   });
 });
+
+describe("PIE debug camera, console route and socket calibration (#1250)", () => {
+  it("forwards the pose to pose_debug_camera", async () => {
+    const { call, ctx } = mockContext();
+    await editorTool.handler(ctx, {
+      action: "pose_debug_camera",
+      location: { x: 100, y: 0, z: 200 },
+      lookAtActorLabel: "BP_Player_C_0",
+      playerIndex: 0,
+    });
+    const bag = forwarded(call, "pose_debug_camera");
+    expect(bag.location).toEqual({ x: 100, y: 0, z: 200 });
+    expect(bag.lookAtActorLabel).toBe("BP_Player_C_0");
+  });
+
+  it("routes execute_command to a PIE player with world, pieInstance and playerIndex", async () => {
+    const { call, ctx } = mockContext();
+    await editorTool.handler(ctx, { action: "execute_command", command: "slomo 0.25", world: "pie", pieInstance: 1, playerIndex: 0 });
+    const bag = forwarded(call, "execute_command");
+    expect(bag.command).toBe("slomo 0.25");
+    expect(bag.world).toBe("pie");
+    expect(bag.pieInstance).toBe(1);
+    expect(bag.playerIndex).toBe(0);
+  });
+
+  it("forwards a corrective relative transform with attach_component", async () => {
+    const { levelTool } = await import("../../src/tools/level.js");
+    const { call, ctx } = mockContext();
+    await levelTool.handler(ctx, {
+      action: "attach_component",
+      childLabel: "BP_Rod",
+      parentLabel: "BP_Fisher",
+      parentComponentName: "Mesh",
+      socketName: "hand_r",
+      relativeRotation: { pitch: 0, yaw: 90, roll: 0 },
+    });
+    const bag = forwarded(call, "attach_component");
+    expect(bag.relativeRotation).toEqual({ pitch: 0, yaw: 90, roll: 0 });
+    expect(bag.socketName).toBe("hand_r");
+  });
+});

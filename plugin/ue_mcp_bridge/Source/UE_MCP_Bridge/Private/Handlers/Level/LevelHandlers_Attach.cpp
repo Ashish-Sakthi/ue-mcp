@@ -145,7 +145,15 @@ TSharedPtr<FJsonValue> FLevelHandlers::AttachComponent(const TSharedPtr<FJsonObj
 	MCPReadParamsAhead(Params, {
 		TEXT("childLabel"), TEXT("childPath"), TEXT("parentLabel"), TEXT("parentPath"), TEXT("childComponentName"),
 		TEXT("parentComponentName"), TEXT("attachRule"), TEXT("weldSimulatedBodies"), TEXT("socketName"),
+		TEXT("relativeLocation"), TEXT("relativeRotation"),
 	});
+	// #1250: a corrective offset applied after the attach, relative to the
+	// parent component or socket (tool-in-hand calibration in one call).
+	const bool bHasRelativeLocation = HasParam(Params, TEXT("relativeLocation"));
+	const FVector RelativeLocation = bHasRelativeLocation ? OptionalVec3(Params, TEXT("relativeLocation")) : FVector::ZeroVector;
+	const bool bHasRelativeRotation = HasParam(Params, TEXT("relativeRotation"));
+	const FRotator RelativeRotation = bHasRelativeRotation ? OptionalRotator(Params, TEXT("relativeRotation")) : FRotator::ZeroRotator;
+	const bool bHasRelativeOffset = bHasRelativeLocation || bHasRelativeRotation;
 
 	REQUIRE_EDITOR_WORLD(World);
 	FString ChildLabel; if (auto E = RequireStringAlt(Params, TEXT("childLabel"), TEXT("childPath"), ChildLabel)) return E;
@@ -236,6 +244,15 @@ TSharedPtr<FJsonValue> FLevelHandlers::AttachComponent(const TSharedPtr<FJsonObj
 	AActor* PreviousParentActor = PreviousParent ? PreviousParent->GetOwner() : nullptr;
 	const bool bAlreadyAttached = PreviousParent == ParentComponent && PreviousSocket == Socket;
 
+	auto ApplyRelativeOffset = [&]()
+	{
+		if (!bHasRelativeOffset) return;
+		ChildComponent->Modify();
+		if (bHasRelativeLocation) ChildComponent->SetRelativeLocation(RelativeLocation);
+		if (bHasRelativeRotation) ChildComponent->SetRelativeRotation(RelativeRotation);
+		Child->MarkPackageDirty();
+	};
+
 	auto PopulateResult = [Child, Parent, ChildComponent, ParentComponent, Socket, &CanonicalRule, bWeldSimulatedBodies](TSharedPtr<FJsonObject> Result)
 	{
 		Result->SetStringField(TEXT("childLabel"), Child->GetActorLabel());
@@ -250,16 +267,36 @@ TSharedPtr<FJsonValue> FLevelHandlers::AttachComponent(const TSharedPtr<FJsonObj
 		Result->SetStringField(TEXT("attachRule"), CanonicalRule);
 		Result->SetBoolField(TEXT("weldSimulatedBodies"), bWeldSimulatedBodies);
 		Result->SetBoolField(TEXT("attached"), true);
+		Result->SetObjectField(TEXT("relativeLocation"), MCPVec3ToJsonObject(ChildComponent->GetRelativeLocation()));
+		Result->SetObjectField(TEXT("relativeRotation"), MCPRotatorToJsonObject(ChildComponent->GetRelativeRotation()));
 	};
 
 	if (bAlreadyAttached)
 	{
 		auto Result = MCPSuccess();
-		MCPSetExisted(Result);
+		const FVector PreviousRelativeLocation = ChildComponent->GetRelativeLocation();
+		const FRotator PreviousRelativeRotation = ChildComponent->GetRelativeRotation();
+		ApplyRelativeOffset();
+		const bool bOffsetChanged = !PreviousRelativeLocation.Equals(ChildComponent->GetRelativeLocation())
+			|| !PreviousRelativeRotation.Equals(ChildComponent->GetRelativeRotation());
+		if (bOffsetChanged) MCPSetUpdated(Result); else MCPSetExisted(Result);
 		PopulateResult(Result);
 		Result->SetBoolField(TEXT("alreadyAttached"), true);
 		Result->SetBoolField(TEXT("attachmentChanged"), false);
 		Result->SetBoolField(TEXT("attachmentRulesApplied"), false);
+		Result->SetBoolField(TEXT("relativeOffsetChanged"), bOffsetChanged);
+		if (bOffsetChanged)
+		{
+			TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+			Payload->SetStringField(TEXT("childPath"), Child->GetPathName());
+			Payload->SetStringField(TEXT("childComponentName"), ChildComponent->GetName());
+			Payload->SetStringField(TEXT("parentPath"), Parent->GetPathName());
+			Payload->SetStringField(TEXT("parentComponentName"), ParentComponent->GetName());
+			if (Socket != NAME_None) Payload->SetStringField(TEXT("socketName"), Socket.ToString());
+			Payload->SetObjectField(TEXT("relativeLocation"), MCPVec3ToJsonObject(PreviousRelativeLocation));
+			Payload->SetObjectField(TEXT("relativeRotation"), MCPRotatorToJsonObject(PreviousRelativeRotation));
+			MCPSetRollback(Result, TEXT("attach_component"), Payload);
+		}
 		return MCPResult(Result);
 	}
 
@@ -357,6 +394,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::AttachComponent(const TSharedPtr<FJsonObj
 			*SocketSuffix));
 	}
 	Child->MarkPackageDirty();
+	ApplyRelativeOffset();
 
 	auto Result = MCPSuccess();
 	MCPSetUpdated(Result);
@@ -372,7 +410,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::AttachComponent(const TSharedPtr<FJsonObj
 	// Detach is an exact inverse only for a previously-unattached component
 	// whose world transform was preserved and whose physics bodies were not
 	// welded. Do not advertise a lossy rollback for reparent/snap operations.
-	if (!PreviousParent && Rule == EAttachmentRule::KeepWorld && !bWeldSimulatedBodies)
+	if (!PreviousParent && Rule == EAttachmentRule::KeepWorld && !bWeldSimulatedBodies && !bHasRelativeOffset)
 	{
 		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetStringField(TEXT("childLabel"), Child->GetActorLabel());

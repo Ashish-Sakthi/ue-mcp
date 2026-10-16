@@ -389,6 +389,18 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "Socket or bone on the resolved parent component"
+      },
+      {
+        "name": "relativeLocation",
+        "type": "vec3",
+        "required": false,
+        "description": "Relative location set after the attach, in the parent component or socket frame"
+      },
+      {
+        "name": "relativeRotation",
+        "type": "rotator",
+        "required": false,
+        "description": "Relative rotation set after the attach, in the parent component or socket frame"
       }
     ]
   },
@@ -2290,7 +2302,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "fields",
         "type": "array",
         "required": false,
-        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics",
+        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment",
         "items": "string"
       },
       {
@@ -4959,7 +4971,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   add_streaming_sublevel: "Params: levelPath, streamingClass?, location?, initiallyLoaded?, initiallyVisible?",
   aim_actor_at: "Params: actorLabel?, actorPath?, targetPoint?, targetActor?, targetActorPath?, roll?, world?, pieInstance?",
   attach_actor: "Params: childLabel?, childPath?, parentLabel?, parentPath?, attachRule?, socketName?",
-  attach_component: "Params: childLabel?, childPath?, parentLabel?, parentPath?, childComponentName?, parentComponentName?, attachRule?, weldSimulatedBodies?, socketName?",
+  attach_component: "Params: childLabel?, childPath?, parentLabel?, parentPath?, childComponentName?, parentComponentName?, attachRule?, weldSimulatedBodies?, socketName?, relativeLocation?, relativeRotation?",
   batch_set_actor_properties: "Params: properties, actorLabels?, labelPrefix?, labelContains?, tag?, classFilter?, folderPath?, folderPathPrefix?, matchSubclasses?, dryRun?, force?, transactionLabel?",
   batch_translate: "Params: offset, at least one of actorLabels/actorPaths/tag",
   bulk_line_trace: "Params: traces, world?, pieInstance?",
@@ -5124,7 +5136,7 @@ export const schema: Record<string, z.ZodType> = {
   exactClass: z.boolean().optional().describe("Require classFilter to be the exact class (default true) (convert_brushes_to_static_mesh). Require classFilter to be the exact class name (get_world_outliner)"),
   exposure: z.number().optional().describe("Fixed adaptation brightness, written to both min and max"),
   extent: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Query extent (default 100, 100, 100) (nav_project_point). Half extent of the cube brush (default 100, 100, 100) (spawn_volume)"),
-  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics"),
+  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment"),
   filePath: z.string().optional().describe("Alias for outputPath"),
   filter: z.string().optional().describe("Case-insensitive substring over label, name, class and path"),
   floorOffset: z.number().optional().describe("Vertical offset added to the impact Z"),
@@ -5225,6 +5237,8 @@ export const schema: Record<string, z.ZodType> = {
   reference: z.string().optional().describe("Alias for referenceLabel"),
   referenceLabel: z.string().optional().describe("Reference actor label; pass referenceLabel or referencePath"),
   referencePath: z.string().optional().describe("Reference actor object path"),
+  relativeLocation: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Relative location set after the attach, in the parent component or socket frame"),
+  relativeRotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Relative rotation set after the attach, in the parent component or socket frame"),
   relativeTransform: z.object({ location: z.object({ x: z.number(), y: z.number(), z: z.number() }).describe("Relative location"), quaternion: z.record(z.unknown()).describe("Relative rotation {x, y, z, w}; this is what is applied"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).describe("Relative scale"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("The same rotation as a rotator, for reading only") }).optional().describe("The relative transform to put back, as nudge_component's rollback records it"),
   restoreOriginalLevel: z.boolean().optional().describe("Reopen the map that was open before the call (default true)"),
   roll: z.number().optional().describe("Roll in degrees (default 0)"),

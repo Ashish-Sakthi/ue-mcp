@@ -254,6 +254,7 @@ private:
 	// #671: PIE player view + input staging.
 	static TSharedPtr<FJsonValue> PieSetPlayerView(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetPieViewTarget(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PoseDebugCamera(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> StageGameInput(const TSharedPtr<FJsonObject>& Params);
 	// #583: repeatedly invoke a parameterless UFUNCTION on an actor at an interval.
 	// #455: discover BlueprintFunctionLibrary classes (GeometryScript,
