@@ -11,7 +11,7 @@ export const pcgTool: ToolDef = categoryTool(
   {
     list_graphs:          specBp("read", "List PCG graphs, sorted by object path. Lists the whole project; page through it with cursor/limit.", "list_pcg_graphs"),
     read_graph:           specBp("read", "Read graph structure.", "read_pcg_graph"),
-    read_node_settings:   specBp("read", "Read node settings.", "read_pcg_node_settings"),
+    read_node_settings:   specBp("read", "Read node settings. An instanced subobject (a spawner's MeshSelectorParameters or InstanceDataPackerParameters) is expanded under instanced {class, properties}, and a weighted mesh selector also lists meshEntries [{mesh, weight, materialOverrides}] (#1303).", "read_pcg_node_settings"),
     get_components:       specBp("read", "List PCG components in level.", "get_pcg_components"),
     get_component_details: specBp("read", "Inspect PCG component (#983). Reports isGenerating, isCleaningUp, generated, partitioned (with local component counts) and lastRun {id, state generating|generated|cancelled|cleaned|not_started, startedUtc, finishedUtc}; to wait for a run, use wait_for_generation or wait=true on execute.", "get_pcg_component_details"),
     create_graph:         specBp("mutate", "Create graph in packagePath (or path), default /Game/PCG. Idempotent by path: an existing graph is reported rather than replaced.", "create_pcg_graph"),

@@ -2100,6 +2100,36 @@ TSharedPtr<FJsonValue> FPCGHandlers::ReadPCGNodeSettings(const TSharedPtr<FJsonO
 		PropObj->SetStringField(TEXT("value"), PropertyValue);
 		PropObj->SetStringField(TEXT("type"), Property->GetCPPType());
 		PropObj->SetField(TEXT("structured"), SerializeProp(Property, PropertyAddr));
+		// An instanced subobject (a spawner's mesh selector or packer) is expanded, not left as a path (#1303).
+		const FObjectPropertyBase* ObjProp = CastField<FObjectPropertyBase>(Property);
+		if (const UObject* Instanced = (ObjProp && IsInstancedObjectProp(Property)) ? ObjProp->GetObjectPropertyValue(PropertyAddr) : nullptr)
+		{
+			TSharedPtr<FJsonObject> InstancedObj = MakeShared<FJsonObject>();
+			InstancedObj->SetStringField(TEXT("class"), Instanced->GetClass()->GetName());
+			TSharedPtr<FJsonObject> InstancedProps = MakeShared<FJsonObject>();
+			for (TFieldIterator<FProperty> It(Instanced->GetClass()); It; ++It)
+			{
+				if (!It->HasAnyPropertyFlags(CPF_Edit)) continue;
+				InstancedProps->SetField(It->GetName(), SerializeProp(*It, It->ContainerPtrToValuePtr<void>(Instanced)));
+			}
+			InstancedObj->SetObjectField(TEXT("properties"), InstancedProps);
+			if (const UPCGMeshSelectorWeighted* Weighted = Cast<UPCGMeshSelectorWeighted>(Instanced))
+			{
+				TArray<TSharedPtr<FJsonValue>> Entries;
+				for (const FPCGMeshSelectorWeightedEntry& Entry : Weighted->MeshEntries)
+				{
+					TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+					Row->SetStringField(TEXT("mesh"), Entry.Descriptor.StaticMesh.ToString());
+					Row->SetNumberField(TEXT("weight"), Entry.Weight);
+					TArray<TSharedPtr<FJsonValue>> Materials;
+					for (const auto& Material : Entry.Descriptor.OverrideMaterials) Materials.Add(MakeShared<FJsonValueString>(Material.ToString()));
+					Row->SetArrayField(TEXT("materialOverrides"), Materials);
+					Entries.Add(MakeShared<FJsonValueObject>(Row));
+				}
+				InstancedObj->SetArrayField(TEXT("meshEntries"), Entries);
+			}
+			PropObj->SetObjectField(TEXT("instanced"), InstancedObj);
+		}
 		PropertiesObj->SetObjectField(PropertyName, PropObj);
 	}
 

@@ -536,4 +536,45 @@ bool FMCPPCGGraphParametersTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGReadMeshSelectorTest,
+	"UE.MCP.PCG.Authoring.ReadExpandsMeshSelector",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGReadMeshSelectorTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	const FString Spawner = GraphPath.IsEmpty() ? FString() : AddNode(Registry, GraphPath, TEXT("PCGStaticMeshSpawnerSettings"));
+	if (!TestFalse(TEXT("a spawner is added"), Spawner.IsEmpty())) return false;
+
+	auto Entry = MakeShared<FJsonObject>();
+	Entry->SetStringField(TEXT("mesh"), TEXT("/Engine/BasicShapes/Cube.Cube"));
+	Entry->SetNumberField(TEXT("weight"), 3);
+	auto Meshes = MakeShared<FJsonObject>();
+	Meshes->SetStringField(TEXT("assetPath"), GraphPath);
+	Meshes->SetStringField(TEXT("nodeName"), Spawner);
+	Meshes->SetArrayField(TEXT("entries"), { MakeShared<FJsonValueObject>(Entry) });
+	if (!TestTrue(TEXT("a weighted entry is written"), Ok(Invoke(Registry, TEXT("set_static_mesh_spawner_meshes"), Meshes)))) return false;
+
+	auto Read = MakeShared<FJsonObject>();
+	Read->SetStringField(TEXT("assetPath"), GraphPath);
+	Read->SetStringField(TEXT("nodeName"), Spawner);
+	const TSharedPtr<FJsonObject> Settings = Invoke(Registry, TEXT("read_pcg_node_settings"), Read);
+	const TSharedPtr<FJsonObject>* All = nullptr;
+	const TSharedPtr<FJsonObject>* Selector = nullptr;
+	const TSharedPtr<FJsonObject>* Instanced = nullptr;
+	const TArray<TSharedPtr<FJsonValue>>* Entries = nullptr;
+	const bool bExpanded = Settings->TryGetObjectField(TEXT("settings"), All) && (*All)->TryGetObjectField(TEXT("MeshSelectorParameters"), Selector)
+		&& (*Selector)->TryGetObjectField(TEXT("instanced"), Instanced) && (*Instanced)->TryGetArrayField(TEXT("meshEntries"), Entries);
+	if (!TestTrue(TEXT("the selector is expanded with its entries"), bExpanded && Entries->Num() == 1)) return false;
+	TestTrue(TEXT("the entry names its mesh"), (*Entries)[0]->AsObject()->GetStringField(TEXT("mesh")).Contains(TEXT("Cube")));
+	TestEqual(TEXT("the entry carries its weight"), (*Entries)[0]->AsObject()->GetIntegerField(TEXT("weight")), 3);
+	TestTrue(TEXT("the selector's own properties are listed"), (*Instanced)->HasField(TEXT("properties")));
+	return true;
+}
+
 #endif
