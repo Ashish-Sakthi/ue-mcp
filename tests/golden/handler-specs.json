@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1080,
+  "handlerCount": 1083,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -10662,6 +10662,41 @@
       ],
       "contractExempt": "Creates and saves a graph under the contract values; nothing it reads fails first"
     },
+    "create_pcg_graph_instance": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Graph instance asset name"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph or PCGGraphInstance the instance runs"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the new instance (default /Game/PCG)"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "{parameterName: value} overrides to set on the new instance"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the asset exists: skip (default, report it) | error"
+        }
+      ]
+    },
     "create_player_controller": {
       "category": "gameplay",
       "params": [
@@ -17482,7 +17517,7 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "[{name, class, posX?, posY?, settings?}]",
+          "description": "[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]",
           "items": "object"
         },
         {
@@ -33122,6 +33157,93 @@
           "type": "boolean",
           "required": false,
           "description": "bOnlyRelevantToOwner (default false)"
+        }
+      ]
+    },
+    "set_pcg_graph_instance_overrides": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraphInstance asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": true,
+          "description": "{parameterName: value}; null clears that override"
+        }
+      ]
+    },
+    "set_pcg_graph_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "graphParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameters to add or change, by name",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one"
+            },
+            {
+              "name": "typeObject",
+              "type": "string",
+              "required": false,
+              "description": "Class for object/class (default Object), the enum for enum, the struct for struct"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "Default value, JSON or UE export text"
+            }
+          ]
+        },
+        {
+          "name": "removeParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter names to remove",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "graphParameters"
+            ],
+            [
+              "removeParameters"
+            ]
+          ]
         }
       ]
     },

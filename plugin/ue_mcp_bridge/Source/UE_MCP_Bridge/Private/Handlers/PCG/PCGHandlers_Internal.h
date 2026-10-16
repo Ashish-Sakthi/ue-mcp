@@ -9,6 +9,7 @@
 #include "PCGPin.h"
 #include "PCGEdge.h"
 #include "PCGSettings.h"
+#include "HandlerJsonProperty.h"
 
 namespace MCPPCG
 {
@@ -145,5 +146,114 @@ namespace MCPPCG
 			if (Pin) Out.Add(MakeShared<FJsonValueString>(Pin->Properties.Label.ToString()));
 		}
 		return Out;
+	}
+	/** A user-parameter value as JSON: bool and numbers natively, anything else (enums included) as export text. */
+	inline TSharedPtr<FJsonValue> ParamValueJson(const FProperty* Property, const void* ValueAddr)
+	{
+		if (const FBoolProperty* Bool = CastField<FBoolProperty>(Property)) return MakeShared<FJsonValueBoolean>(Bool->GetPropertyValue(ValueAddr));
+		if (const FNumericProperty* Number = CastField<FNumericProperty>(Property))
+		{
+			if (!Number->IsEnum())
+			{
+				return MakeShared<FJsonValueNumber>(Number->IsFloatingPoint()
+					? Number->GetFloatingPointPropertyValue(ValueAddr)
+					: static_cast<double>(Number->GetSignedIntPropertyValue(ValueAddr)));
+			}
+		}
+		FString Text;
+		Property->ExportTextItem_Direct(Text, ValueAddr, nullptr, nullptr, PPF_None);
+		return MakeShared<FJsonValueString>(Text);
+	}
+
+	/** Each parameter of a bag: name, type, value. Instance, when given, adds whether it overrides the parameter. */
+	inline TArray<TSharedPtr<FJsonValue>> DescribeParameterBag(const FInstancedPropertyBag* Bag, const UPCGGraphInstance* Instance = nullptr)
+	{
+		TArray<TSharedPtr<FJsonValue>> Out;
+		const UPropertyBag* BagStruct = Bag ? Bag->GetPropertyBagStruct() : nullptr;
+		const void* Memory = Bag ? Bag->GetValue().GetMemory() : nullptr;
+		if (!BagStruct || !Memory) return Out;
+		for (const FPropertyBagPropertyDesc& Desc : BagStruct->GetPropertyDescs())
+		{
+			if (!Desc.CachedProperty) continue;
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("name"), Desc.Name.ToString());
+			Entry->SetStringField(TEXT("type"), Desc.CachedProperty->GetCPPType());
+			Entry->SetField(TEXT("value"), ParamValueJson(Desc.CachedProperty, Desc.CachedProperty->ContainerPtrToValuePtr<void>(Memory)));
+			if (Instance) Entry->SetBoolField(TEXT("overridden"), Instance->IsPropertyOverridden(Desc.CachedProperty));
+			Out.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		return Out;
+	}
+
+	/**
+	 * Sets Values ({name: value}, null clears an override) on a graph instance's parameter overrides. Every value is
+	 * checked on a scratch copy first, so one bad entry refuses the call with nothing changed. ToModify are Modify()'d
+	 * before the write; PreviousValues gets each touched override as it was (null when it was not overridden).
+	 */
+	inline bool ApplyInstanceOverrides(UPCGGraphInstance* Instance, const TSharedPtr<FJsonObject>& Values,
+		const TArray<UObject*>& ToModify, TSharedPtr<FJsonObject>& PreviousValues, FString& Error)
+	{
+		// The mutable accessor is protected; the instance owns this bag, and UpdatePropertyOverride is its notification.
+		FInstancedPropertyBag* Bag = Instance ? const_cast<FInstancedPropertyBag*>(Instance->GetUserParametersStruct()) : nullptr;
+		const UPropertyBag* BagStruct = Bag ? Bag->GetPropertyBagStruct() : nullptr;
+		if (!BagStruct)
+		{
+			Error = TEXT("The graph instance has no user parameters: its graph declares none, or it has no graph.");
+			return false;
+		}
+		FInstancedPropertyBag Scratch = *Bag;
+		TArray<FString> Problems;
+		struct FWrite { const FPropertyBagPropertyDesc* Desc; bool bClear; };
+		TArray<FWrite> Writes;
+		for (const auto& Pair : Values->Values)
+		{
+			const FString Name(*Pair.Key);
+			const FPropertyBagPropertyDesc* Desc = BagStruct->FindPropertyDescByName(FName(*Name));
+			if (!Desc || !Desc->CachedProperty)
+			{
+				Problems.Add(FString::Printf(TEXT("%s is not a parameter of this graph"), *Name));
+				continue;
+			}
+			const bool bClear = !Pair.Value.IsValid() || Pair.Value->IsNull();
+			if (!bClear)
+			{
+				FString ValueError;
+				void* Addr = Desc->CachedProperty->ContainerPtrToValuePtr<void>(Scratch.GetMutableValue().GetMemory());
+				if (!MCPJsonProperty::SetJsonOnProperty(const_cast<FProperty*>(Desc->CachedProperty), Addr, Pair.Value, ValueError))
+				{
+					Problems.Add(FString::Printf(TEXT("%s: %s"), *Name, *ValueError));
+					continue;
+				}
+			}
+			Writes.Add({ Desc, bClear });
+		}
+		if (Problems.Num() > 0)
+		{
+			Error = FString::Printf(TEXT("Nothing was changed: %s."), *FString::Join(Problems, TEXT("; ")));
+			return false;
+		}
+
+		PreviousValues = MakeShared<FJsonObject>();
+		for (UObject* Obj : ToModify) if (Obj) Obj->Modify();
+		Instance->Modify();
+		const void* Live = Bag->GetValue().GetMemory();
+		for (const FWrite& W : Writes)
+		{
+			const FProperty* Prop = W.Desc->CachedProperty;
+			PreviousValues->SetField(W.Desc->Name.ToString(), Instance->IsPropertyOverridden(Prop)
+				? ParamValueJson(Prop, Prop->ContainerPtrToValuePtr<void>(Live))
+				: MakeShared<FJsonValueNull>());
+		}
+		for (const FWrite& W : Writes)
+		{
+			const FProperty* Prop = W.Desc->CachedProperty;
+			if (!W.bClear)
+			{
+				Prop->CopyCompleteValue(Prop->ContainerPtrToValuePtr<void>(Bag->GetMutableValue().GetMemory()),
+					Prop->ContainerPtrToValuePtr<void>(Scratch.GetValue().GetMemory()));
+			}
+			Instance->UpdatePropertyOverride(Prop, !W.bClear);
+		}
+		return true;
 	}
 }

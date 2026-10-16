@@ -13,6 +13,7 @@
 #include "PCGPin.h"
 #include "PCGSettings.h"
 #include "Metadata/PCGAttributePropertySelector.h"
+#include "StructUtils/PropertyBag.h"
 
 namespace PCGGraphAuthoringTests
 {
@@ -437,6 +438,101 @@ bool FMCPPCGImportMinimalRollbackTest::RunTest(const FString& Parameters)
 	const UPCGNode* Dist = FindNode(Graph, TEXT("Dist"));
 	const FDoubleProperty* MaxProp = Dist ? CastField<FDoubleProperty>(Dist->GetSettings()->GetClass()->FindPropertyByName(TEXT("MaximumDistance"))) : nullptr;
 	TestTrue(TEXT("the overwritten value is back"), MaxProp && MaxProp->GetPropertyValue_InContainer(Dist->GetSettings()) != 777.0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGGraphParametersTest,
+	"UE.MCP.PCG.Authoring.GraphParametersAndInstances",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGGraphParametersTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	UPCGGraph* Graph = GraphPath.IsEmpty() ? nullptr : LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	if (!TestNotNull(TEXT("the graph loads"), Graph)) return false;
+
+	auto Param = [](const TCHAR* Name, const TCHAR* Type, const TSharedPtr<FJsonValue>& Default)
+	{
+		auto Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("name"), Name);
+		if (Type) Obj->SetStringField(TEXT("type"), Type);
+		if (Default) Obj->SetField(TEXT("default"), Default);
+		return MakeShared<FJsonValueObject>(Obj);
+	};
+	auto SetParams = [&](const TArray<TSharedPtr<FJsonValue>>& Entries, const TArray<TSharedPtr<FJsonValue>>& Remove)
+	{
+		auto P = MakeShared<FJsonObject>();
+		P->SetStringField(TEXT("assetPath"), GraphPath);
+		if (Entries.Num() > 0) P->SetArrayField(TEXT("graphParameters"), Entries);
+		if (Remove.Num() > 0) P->SetArrayField(TEXT("removeParameters"), Remove);
+		return Invoke(Registry, TEXT("set_pcg_graph_parameters"), P);
+	};
+	auto HasParam = [Graph](const TCHAR* Name)
+	{
+		const UPropertyBag* Bag = Graph->GetUserParametersStruct()->GetPropertyBagStruct();
+		return Bag && Bag->FindPropertyDescByName(Name) != nullptr;
+	};
+
+	const TSharedPtr<FJsonObject> Added = SetParams({ Param(TEXT("Spacing"), TEXT("double"), MakeShared<FJsonValueNumber>(250.0)), Param(TEXT("Count"), TEXT("int32"), nullptr) }, {});
+	TestTrue(TEXT("parameters are added"), Ok(Added));
+	TestTrue(TEXT("the graph declares Spacing"), HasParam(TEXT("Spacing")));
+	TestTrue(TEXT("a rollback is offered"), Added->HasField(TEXT("rollback")));
+	TestFalse(TEXT("a new name without a type is refused"), Ok(SetParams({ Param(TEXT("Untyped"), nullptr, nullptr) }, {})));
+	TestFalse(TEXT("a bad default refuses everything"), Ok(SetParams({ Param(TEXT("Other"), TEXT("int32"), nullptr), Param(TEXT("Spacing"), nullptr, MakeShared<FJsonValueArray>(TArray<TSharedPtr<FJsonValue>>{ MakeShared<FJsonValueNumber>(1.0), MakeShared<FJsonValueNumber>(2.0) })) }, {})));
+	TestFalse(TEXT("nothing from the refused call landed"), HasParam(TEXT("Other")));
+
+	// A Get Graph Parameter node bound by name through import, and exported the same way.
+	auto Node = MakeShared<FJsonObject>();
+	Node->SetStringField(TEXT("name"), TEXT("GetSpacing"));
+	Node->SetStringField(TEXT("class"), TEXT("PCGUserParameterGetSettings"));
+	Node->SetStringField(TEXT("parameter"), TEXT("Spacing"));
+	TestTrue(TEXT("a Get Graph Parameter node imports by name"), Ok(ImportGraph(Registry, GraphPath, { MakeShared<FJsonValueObject>(Node) })));
+	const UPCGNode* Get = FindNode(Graph, TEXT("GetSpacing"));
+	TestTrue(TEXT("it has an output pin for the parameter"), Get && Get->GetOutputPins().Num() > 0);
+	auto ExportParams = MakeShared<FJsonObject>();
+	ExportParams->SetStringField(TEXT("assetPath"), GraphPath);
+	FString ExportedParameter;
+	for (const TSharedPtr<FJsonValue>& N : Invoke(Registry, TEXT("export_pcg_graph"), ExportParams)->GetArrayField(TEXT("nodes")))
+	{
+		if (N->AsObject()->GetStringField(TEXT("name")) == TEXT("GetSpacing")) N->AsObject()->TryGetStringField(TEXT("parameter"), ExportedParameter);
+	}
+	TestEqual(TEXT("export names the parameter"), ExportedParameter, FString(TEXT("Spacing")));
+
+	// A graph instance asset with an override, then the override changed and cleared.
+	auto Overrides = MakeShared<FJsonObject>();
+	Overrides->SetNumberField(TEXT("Spacing"), 500.0);
+	auto Create = MakeShared<FJsonObject>();
+	Create->SetStringField(TEXT("name"), TEXT("GI_") + FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	Create->SetStringField(TEXT("packagePath"), FString(Root) + TEXT("Instances"));
+	Create->SetStringField(TEXT("graphPath"), GraphPath);
+	Create->SetObjectField(TEXT("overrides"), Overrides);
+	const TSharedPtr<FJsonObject> Instance = Invoke(Registry, TEXT("create_pcg_graph_instance"), Create);
+	if (!TestTrue(TEXT("the instance is created with its override"), Ok(Instance))) return false;
+	UPCGGraphInstance* Asset = LoadObject<UPCGGraphInstance>(nullptr, *Instance->GetStringField(TEXT("path")));
+	if (!TestNotNull(TEXT("the instance loads"), Asset)) return false;
+	TestTrue(TEXT("it runs the graph"), Asset->GetGraph() == Graph);
+	const FPropertyBagPropertyDesc* Spacing = Asset->GetUserParametersStruct()->GetPropertyBagStruct()->FindPropertyDescByName(TEXT("Spacing"));
+	TestTrue(TEXT("Spacing is overridden"), Spacing && Asset->IsPropertyOverridden(Spacing->CachedProperty));
+
+	auto Clear = MakeShared<FJsonObject>();
+	Clear->SetField(TEXT("Spacing"), MakeShared<FJsonValueNull>());
+	auto SetOverrides = MakeShared<FJsonObject>();
+	SetOverrides->SetStringField(TEXT("assetPath"), Asset->GetPathName());
+	SetOverrides->SetObjectField(TEXT("overrides"), Clear);
+	TestTrue(TEXT("null clears the override"), Ok(Invoke(Registry, TEXT("set_pcg_graph_instance_overrides"), SetOverrides)));
+	TestFalse(TEXT("Spacing is no longer overridden"), Spacing && Asset->IsPropertyOverridden(Spacing->CachedProperty));
+	auto Unknown = MakeShared<FJsonObject>();
+	Unknown->SetNumberField(TEXT("Nope"), 1.0);
+	SetOverrides->SetObjectField(TEXT("overrides"), Unknown);
+	TestFalse(TEXT("an undeclared name is refused"), Ok(Invoke(Registry, TEXT("set_pcg_graph_instance_overrides"), SetOverrides)));
+
+	TestTrue(TEXT("a parameter is removed"), Ok(SetParams({}, { MakeShared<FJsonValueString>(TEXT("Count")) })));
+	TestFalse(TEXT("Count is gone"), HasParam(TEXT("Count")));
 	return true;
 }
 

@@ -731,7 +731,7 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	// #213: bulk JSON-driven graph authoring (mirrors material.import_graph).
 	Registry.RegisterHandler(TEXT("import_pcg_graph"), &ImportGraph, {
 		GraphPath(),
-		MCPParam::Required(TEXT("nodes"), EType::Array, TEXT("[{name, class, posX?, posY?, settings?}]")).Items(EType::Object),
+		MCPParam::Required(TEXT("nodes"), EType::Array, TEXT("[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]")).Items(EType::Object),
 		MCPParam::Optional(TEXT("connections"), EType::Array, TEXT("[{from, fromPin?, to, toPin?}]")).Items(EType::Object),
 		MCPParam::Optional(TEXT("replace"), EType::Boolean, TEXT("Wipe existing user nodes first (default false)")),
 		MCPParam::Optional(TEXT("removeNodes"), EType::Array, TEXT("Without replace: node names to remove before importing; a missing name is skipped")).Items(EType::String),
@@ -768,6 +768,28 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		GraphPath(),
 		MCPParam::Required(TEXT("nodeName"), EType::String, TEXT("Engine name of the Subgraph node")),
 		MCPParam::Required(TEXT("parameters"), EType::Object, TEXT("{parameterName: value}; null clears that override")),
+	});
+	// #1264: graph user parameters and graph instance assets.
+	Registry.RegisterHandler(TEXT("set_pcg_graph_parameters"), &SetGraphParameters, {
+		GraphPath(),
+		MCPParam::Optional(TEXT("graphParameters"), EType::Array, TEXT("Parameters to add or change, by name")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("name"), EType::String, TEXT("Parameter name")),
+			MCPParam::OptionalField(TEXT("type"), EType::String, TEXT("bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one")),
+			MCPParam::OptionalField(TEXT("typeObject"), EType::String, TEXT("Class for object/class (default Object), the enum for enum, the struct for struct")),
+			MCPParam::OptionalField(TEXT("default"), EType::Any, TEXT("Default value, JSON or UE export text")),
+		}),
+		MCPParam::Optional(TEXT("removeParameters"), EType::Array, TEXT("Parameter names to remove")).Items(EType::String),
+	}, MCPSpec::AtLeastOne({ { TEXT("graphParameters") }, { TEXT("removeParameters") } }));
+	Registry.RegisterHandler(TEXT("create_pcg_graph_instance"), &CreateGraphInstance, {
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("Graph instance asset name")),
+		MCPParam::Required(TEXT("graphPath"), EType::String, TEXT("PCGGraph or PCGGraphInstance the instance runs")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Folder for the new instance (default /Game/PCG)")),
+		MCPParam::Optional(TEXT("overrides"), EType::Object, TEXT("{parameterName: value} overrides to set on the new instance")),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the asset exists: skip (default, report it) | error")),
+	});
+	Registry.RegisterHandler(TEXT("set_pcg_graph_instance_overrides"), &SetGraphInstanceOverrides, {
+		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("PCGGraphInstance asset path")).Alias(TEXT("path")),
+		MCPParam::Required(TEXT("overrides"), EType::Object, TEXT("{parameterName: value}; null clears that override")),
 	});
 	// #1318: the graph's own pins, on its input or output node.
 	Registry.RegisterHandler(TEXT("set_pcg_graph_pins"), &SetGraphPins, {
@@ -2942,6 +2964,12 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			++ImportFailures;
 			Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': %s"), *LocalName, *SubgraphError)));
 		}
+		FString ParameterError;
+		if (!ImportUserParameterNode(NodeSettings, *NodeObj, ParameterError))
+		{
+			++ImportFailures;
+			Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("node '%s': %s"), *LocalName, *ParameterError)));
+		}
 
 		Node->PostEditChange();
 
@@ -3214,6 +3242,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ExportGraph(const TSharedPtr<FJsonObject>& 
 			if (bIncludeSettings)
 			{
 				ExportSubgraphSettings(Settings, NodeObj);
+				ExportUserParameterNode(Settings, NodeObj);
 				TSharedPtr<FJsonObject> SettingsOut = MakeShared<FJsonObject>();
 				TArray<TSharedPtr<FJsonValue>> OmittedInstanced;
 				for (TFieldIterator<FProperty> It(Settings->GetClass()); It; ++It)

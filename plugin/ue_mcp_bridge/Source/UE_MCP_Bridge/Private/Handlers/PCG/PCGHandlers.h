@@ -49,6 +49,13 @@ private:
 	// issue #1318 - a graph's own input or output pins.
 	static TSharedPtr<FJsonValue> SetGraphPins(const TSharedPtr<FJsonObject>& Params);
 
+	// issue #1264 - graph user parameters, graph instance assets and overrides, Get Graph Parameter nodes by name.
+	static TSharedPtr<FJsonValue> SetGraphParameters(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CreateGraphInstance(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetGraphInstanceOverrides(const TSharedPtr<FJsonObject>& Params);
+	static void ExportUserParameterNode(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
+	static bool ImportUserParameterNode(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
+
 	static void ExportSubgraphSettings(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
 	static bool ImportSubgraphSettings(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
 };
