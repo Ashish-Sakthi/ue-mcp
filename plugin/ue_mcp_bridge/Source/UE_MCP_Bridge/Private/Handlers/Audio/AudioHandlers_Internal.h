@@ -8,6 +8,7 @@
 #include "AssetRegistry/IAssetRegistry.h"
 #include "Modules/ModuleManager.h"
 #include "Sound/SoundNode.h"
+#include "Sound/SoundClass.h"
 #include "EdGraph/EdGraphNode.h"
 #include "EdGraph/EdGraphPin.h"
 
@@ -67,6 +68,28 @@ namespace MCPAudio
 			FString::Printf(TEXT("audio(%s)"), Action), TEXT("5.5"),
 			TEXT("The MetaSound document model it drives (graph pages and the document builder registry) does not exist in 5.4."));
 	}
+	/** Reparent a sound class on both ends. SetParentClass only drops the class
+	 *  from the old parent's ChildClasses; the new parent's list is ours to fill. */
+	inline void SetSoundClassParent(USoundClass* Class, USoundClass* NewParent)
+	{
+		USoundClass* OldParent = Class->ParentClass;
+		if (OldParent && OldParent != NewParent)
+		{
+			OldParent->Modify();
+			OldParent->ChildClasses.Remove(Class);
+		}
+#if WITH_EDITOR
+		Class->SetParentClass(NewParent);
+#else
+		Class->ParentClass = NewParent;
+#endif
+		if (NewParent)
+		{
+			NewParent->Modify();
+			NewParent->ChildClasses.AddUnique(Class);
+		}
+	}
+
 	/** Single-input cue nodes (delay, looping, attenuation, modulator) read
 	 *  ChildNodes[0] unguarded, so they must always keep their one slot. */
 	inline void EnsureSingleSlot(USoundNode* Node)
