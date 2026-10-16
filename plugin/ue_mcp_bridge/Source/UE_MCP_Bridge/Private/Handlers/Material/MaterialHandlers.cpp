@@ -206,6 +206,7 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	};
 	const FMCPSpecRules ActorChoice = MCPSpec::ExactlyOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } });
 	const FMCPSpecRules AssetOrActorChoice = MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("actorLabel") }, { TEXT("actorPath") } });
+	const FMCPSpecRules InstanceReadChoice = MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("assetPaths") }, { TEXT("actorLabel") }, { TEXT("actorPath") } });
 	// #1131 Material Designer selectors.
 	const FMCPParamSpec SpecDesignerAssetPath = MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("A DynamicMaterialInstance, a DynamicMaterialModel, or an object path inside one"));
 	const FMCPParamSpec SpecDesignerSlot = MCPParam::Optional(TEXT("designerSlot"), EType::Number, TEXT("Material Designer slot: index, or the material property it serves (BaseColor, or its short name Base)")).Or(EType::String);
@@ -293,13 +294,15 @@ void FMaterialHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	// including a transient MaterialInstanceDynamic in PIE.
 	Registry.RegisterHandler(TEXT("read_material_instance"), &ReadMaterialInstance, {
 		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("MaterialInstance asset path")).Alias(TEXT("path")).Alias(TEXT("materialPath")),
+		MCPParam::Optional(TEXT("assetPaths"), EType::Array, TEXT("Several MaterialInstance asset paths, read in one call into instances[] (#1183)")).Items(EType::String),
+		MCPParam::Optional(TEXT("overridesOnly"), EType::Boolean, TEXT("Return the parent chain, overrides and static switches without the effective value of every parameter (default false)")),
 		SpecActorLabel, SpecActorPath,
 		SpecComponentName,
 		SpecSlotIndex,
 		SpecSlotName,
 		SpecWorld(TEXT("World holding the actor: editor | pie | auto (default auto: PIE when running, else editor)")),
 		SpecPieInstance,
-	}, AssetOrActorChoice);
+	}, InstanceReadChoice);
 	Registry.RegisterHandler(TEXT("read_material_parameter_collection"), &ReadMaterialParameterCollection, {
 		SpecAssetPath(TEXT("MaterialParameterCollection asset path")),
 		MCPParam::Optional(TEXT("world"), EType::String, TEXT("World whose live collection instance to read: editor, pie or auto. Omit for the stored defaults only")),
@@ -1272,7 +1275,7 @@ namespace
 	}
 
 	/** Everything read_material_instance reports about one material, asset or runtime. */
-	void WriteMaterialInstanceRead(TSharedPtr<FJsonObject> Result, UMaterialInterface* Material)
+	void WriteMaterialInstanceRead(TSharedPtr<FJsonObject> Result, UMaterialInterface* Material, bool bEffectiveValues = true)
 	{
 		UMaterialInstance* Instance = Cast<UMaterialInstance>(Material);
 		if (UMaterialInstanceConstant* Constant = Cast<UMaterialInstanceConstant>(Material))
@@ -1321,7 +1324,7 @@ namespace
 		Result->SetArrayField(TEXT("textureOverrides"), TextureOverrides);
 		Result->SetArrayField(TEXT("staticSwitches"), MaterialStaticSwitchesToJson(Material));
 		// Effective values: what the material renders with, override or inherited.
-		AddMaterialInterfaceParameters(Result, Material);
+		if (bEffectiveValues) AddMaterialInterfaceParameters(Result, Material);
 	}
 }
 
@@ -2780,9 +2783,59 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ReadMaterialInstance(const TSharedPtr<
 {
 	// 'path' and 'materialPath' are the spec's aliases, renamed to assetPath before this runs.
 	const FString AssetPath = OptionalString(Params, TEXT("assetPath"));
+	const bool bOverridesOnly = OptionalBool(Params, TEXT("overridesOnly"), false);
 	// Read by the component path, after the actor lookup.
 	MCPReadParamsAhead(Params, { TEXT("actorLabel"), TEXT("actorPath"), TEXT("world"), TEXT("pieInstance"),
 		TEXT("componentName"), TEXT("slotIndex"), TEXT("slotName") });
+
+	// #1183: several instances in one call, each with its parent chain and overrides.
+	const TArray<TSharedPtr<FJsonValue>>* AssetPaths = nullptr;
+	if (TryGetArrayParam(Params, TEXT("assetPaths"), AssetPaths) && AssetPaths)
+	{
+		if (AssetPaths->Num() == 0) return MCPError(TEXT("assetPaths is empty"));
+		TArray<TSharedPtr<FJsonValue>> Rows;
+		TArray<FString> Failed;
+		for (const TSharedPtr<FJsonValue>& PathValue : *AssetPaths)
+		{
+			FString Path;
+			TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+			if (!PathValue.IsValid() || !PathValue->TryGetString(Path) || Path.IsEmpty())
+			{
+				Row->SetBoolField(TEXT("success"), false);
+				Row->SetStringField(TEXT("error"), TEXT("assetPaths entries must be asset path strings"));
+				Failed.Add(TEXT("(not a string)"));
+				Rows.Add(MakeShared<FJsonValueObject>(Row));
+				continue;
+			}
+			UMaterialInterface* Material = LoadAssetByPath<UMaterialInterface>(Path);
+			if (!Cast<UMaterialInstance>(Material))
+			{
+				Row->SetStringField(TEXT("requestedPath"), Path);
+				Row->SetBoolField(TEXT("success"), false);
+				Row->SetStringField(TEXT("error"), Material
+					? FString::Printf(TEXT("'%s' is a %s, not a MaterialInstance"), *Path, *Material->GetClass()->GetName())
+					: FString::Printf(TEXT("No MaterialInstance at '%s'"), *Path));
+				Failed.Add(Path);
+				Rows.Add(MakeShared<FJsonValueObject>(Row));
+				continue;
+			}
+			Row->SetStringField(TEXT("requestedPath"), Path);
+			Row->SetBoolField(TEXT("success"), true);
+			WriteMaterialInstanceRead(Row, Material, !bOverridesOnly);
+			Rows.Add(MakeShared<FJsonValueObject>(Row));
+		}
+		auto Result = MCPSuccess();
+		Result->SetArrayField(TEXT("instances"), Rows);
+		Result->SetNumberField(TEXT("count"), Rows.Num());
+		Result->SetNumberField(TEXT("failedCount"), Failed.Num());
+		if (Failed.Num() > 0)
+		{
+			Result->SetBoolField(TEXT("success"), false);
+			Result->SetStringField(TEXT("error"), FString::Printf(TEXT("%d of %d path(s) did not load as a MaterialInstance: %s. The rest are read under instances."),
+				Failed.Num(), Rows.Num(), *FString::Join(Failed, TEXT(", "))));
+		}
+		return MCPResult(Result);
+	}
 
 	// #1114: a material on a placed component, including a transient
 	// MaterialInstanceDynamic created at runtime in PIE.
@@ -2802,7 +2855,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ReadMaterialInstance(const TSharedPtr<
 	}
 
 	auto Result = MCPSuccess();
-	WriteMaterialInstanceRead(Result, Material);
+	WriteMaterialInstanceRead(Result, Material, !bOverridesOnly);
 	return MCPResult(Result);
 }
 

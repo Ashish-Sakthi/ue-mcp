@@ -24363,6 +24363,19 @@
           ]
         },
         {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Several MaterialInstance asset paths, read in one call into instances[] (#1183)",
+          "items": "string"
+        },
+        {
+          "name": "overridesOnly",
+          "type": "boolean",
+          "required": false,
+          "description": "Return the parent chain, overrides and static switches without the effective value of every parameter (default false)"
+        },
+        {
           "name": "actorLabel",
           "type": "string",
           "required": false,
@@ -24411,6 +24424,9 @@
           "branches": [
             [
               "assetPath"
+            ],
+            [
+              "assetPaths"
             ],
             [
               "actorLabel"
