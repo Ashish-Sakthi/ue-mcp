@@ -64,7 +64,7 @@ export const levelTool: ToolDef = categoryTool(
 
 ### Advertised surface and context strategy
 
-What a client is handed at startup is decided by the [context strategy](configuration.md#context-strategy-full-lean-micro). `micro`, the default, advertises one `tools` gateway (<!-- tax:micro -->~2.1k<!-- /tax --> tokens with the instructions); `lean` advertises the category tools with a summary each (<!-- tax:lean -->~19k<!-- /tax -->); `full` adds one signature line per action (<!-- tax:full -->~51k<!-- /tax -->). `scripts/context-tax.mjs` measures these and the release gate holds each to its budget.
+What a client is handed at startup is decided by the [context strategy](configuration.md#context-strategy-full-lean-micro). `micro`, the default, advertises one `tools` gateway (<!-- tax:micro -->~2.2k<!-- /tax --> tokens with the instructions); `lean` advertises the category tools with a summary each (<!-- tax:lean -->~19k<!-- /tax -->); `full` adds one signature line per action (<!-- tax:full -->~51k<!-- /tax -->). `scripts/context-tax.mjs` measures these and the release gate holds each to its budget.
 
 A category tool is advertised as `action` (the enum of its actions) plus `args` (an object). The flat zod shape `categoryTool()` builds is not advertised any more, but it is still the contract: `index.ts` unwraps `args` and validates the result against that shape with the same zod object the MCP SDK used to build from it, so a refusal carries the SDK's text. The micro gateway checks `call` against the target category's shape the same way.
 
