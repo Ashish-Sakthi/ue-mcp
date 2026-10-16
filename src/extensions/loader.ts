@@ -27,6 +27,7 @@ import { mergeInjectionsIntoTool, type InjectionPlan } from "./injection.js";
 import { buildProvidedTool, type ProvisionPlan } from "./provision.js";
 import { readDeployedBridgeApiVersion } from "./bridge-api.js";
 import { resolveServerImportsToSelf } from "./self-resolve.js";
+import { requiredFieldNames, requiringParams } from "./manifest-params.js";
 import {
   partitionFlowsByGroup,
   runtimeConfigFor,
@@ -226,7 +227,7 @@ export async function loadPlugins(
         const ctor = taskCtors.get(pluginTaskName);
         if (!ctor) continue; // skipped task - collision logged elsewhere
         const dispatchName = `${category}.${manifest.actionPrefix}_${bareName}`;
-        taskRegistrations.push({ name: dispatchName, ctor });
+        taskRegistrations.push({ name: dispatchName, ctor: requiringParams(ctor, dispatchName, requiredFieldNames(injectSpec.schema)) });
       }
     }
 
@@ -282,7 +283,7 @@ export async function loadPlugins(
         const ctor = taskCtors.get(actionSpec.task);
         if (!ctor) continue;
         const dispatchName = `${category}.${actionName}`;
-        taskRegistrations.push({ name: dispatchName, ctor });
+        taskRegistrations.push({ name: dispatchName, ctor: requiringParams(ctor, dispatchName, requiredFieldNames(actionSpec.schema)) });
       }
 
       record.record.provided[category] = Object.keys(providedSpec.actions);
@@ -597,17 +598,6 @@ export function nativeHandlerSurface(
   const cat = native.category;
   const taskRegistrations: TaskReg[] = [];
 
-  // One flat schema backs every action in a category, so a schema-level
-  // required param would be forced onto unrelated actions. Native handlers
-  // validate their own params (RequireString), so force every surfaced param
-  // optional regardless of what the manifest declares.
-  const optionalSchema = (schema: ManifestInjectAction["schema"]) =>
-    schema
-      ? Object.fromEntries(
-          Object.entries(schema).map(([k, f]) => [k, { ...f, required: false }]),
-        )
-      : undefined;
-
   const timeoutMs = (seconds?: number) =>
     seconds ? seconds * 1000 : undefined;
 
@@ -620,7 +610,8 @@ export function nativeHandlerSurface(
   const surfaced = (hName: string, hSpec: { description?: string; schema?: ManifestInjectAction["schema"] }):
     { description?: string; schema?: ManifestInjectAction["schema"] } & NativeContractExtras => {
     const spec = specs?.[hName];
-    if (!spec) return { description: hSpec.description, schema: optionalSchema(hSpec.schema) };
+    // Injection and provisioning lift every key optional; the action keeps its required flags.
+    if (!spec) return { description: hSpec.description, schema: hSpec.schema };
     return {
       description: [hSpec.description, paramsClause(spec)].filter(Boolean).join(" "),
       contract: { method: hName, spec },

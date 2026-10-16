@@ -114,7 +114,7 @@ The key under each category is the **bare** action name. The loader prepends you
 
 `knowledge:` and `flows:` are optional - omit them when you have nothing to attach. A plugin can ship a single action and nothing else.
 
-Param schemas under `schema:` accept these types: `string`, `number`, `boolean`, `object`, `array`. Non-required params become optional at the top level of the host category tool's schema. A native C++ handler declares its parameters in C++ instead, with required names, integers, enums, ranges and nested fields, and every call is checked against them; see [Typed contracts](plugins-native-modules.md#typed-contracts).
+Param schemas under `schema:` accept these types: `string`, `number`, `boolean`, `object`, `array`. Every param is optional at the top level of the host category tool's schema, because one schema serves all of that category's actions. `required: true` holds on the action itself: `describe_action` and the action's signature report it as required, and a call to that action without it is refused before your task runs. A native C++ handler declares its parameters in C++ instead, with required names, integers, enums, ranges and nested fields, and every call is checked against them; see [Typed contracts](plugins-native-modules.md#typed-contracts).
 
 `type` is optional. Omit it for a param that genuinely has no single type, and the param accepts any JSON value:
 

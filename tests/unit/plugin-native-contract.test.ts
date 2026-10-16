@@ -136,7 +136,7 @@ describe("a native handler with a recorded contract", () => {
     );
     if (surface?.kind !== "provide") throw new Error("expected a provided category");
     expect(surface.plan.spec.actions.legacy.contract).toBeUndefined();
-    expect(surface.plan.spec.actions.legacy.schema).toEqual({ x: { type: "number", required: false } });
+    expect(surface.plan.spec.actions.legacy.schema).toEqual({ x: { type: "number", required: true } });
   });
 });
 

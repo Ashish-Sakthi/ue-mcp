@@ -205,6 +205,7 @@ const SESSION_INDEPENDENT: Record<string, string> = {
   "extensions/manifest.ts": "Parses and validates a plugin manifest file.",
   "extensions/injection.ts": "Builds an injection plan from a manifest.",
   "extensions/provision.ts": "Builds a provided category from a manifest.",
+  "extensions/manifest-params.ts": "Maps a manifest schema onto per-action specs and required checks.",
   "extensions/native-contract.ts": "Maps a native handler's recorded contract onto its action.",
   "extensions/self-resolve.ts": "Registers the process-wide resolve hook for ue-mcp imports; no editor.",
   "extensions/self-resolve-hooks.ts": "Module resolution hooks run in the loader thread; no editor.",
