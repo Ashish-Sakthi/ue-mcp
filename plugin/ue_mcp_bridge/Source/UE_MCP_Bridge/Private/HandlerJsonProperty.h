@@ -511,7 +511,7 @@ namespace MCPJsonProperty
 			{
 				for (const auto& Pair : (*SubObj)->Values)
 				{
-					FProperty* SubProp = FindMemberProperty(StructProp->Struct, Pair.Key);
+					FProperty* SubProp = FindMemberProperty(StructProp->Struct, FString(*Pair.Key));
 					if (!SubProp)
 					{
 						TArray<FString> Fields;
