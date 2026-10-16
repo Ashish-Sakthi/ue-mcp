@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1082,
+  "handlerCount": 1084,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -9996,6 +9996,43 @@
         }
       ]
     },
+    "create_font": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Font asset name"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the font (default /Game/Fonts)"
+        },
+        {
+          "name": "fontFaces",
+          "type": "array",
+          "required": true,
+          "description": "FontFace asset paths, one typeface entry each",
+          "items": "string"
+        },
+        {
+          "name": "typefaceNames",
+          "type": "array",
+          "required": false,
+          "description": "Typeface entry names in fontFaces order, e.g. Regular, Bold, Italic (default: Default, then each face's asset name)",
+          "items": "string"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the font exists: skip (default, report it) | error | update (rewrite its default typeface)"
+        }
+      ]
+    },
     "create_function": {
       "category": "blueprint",
       "params": [
@@ -17706,6 +17743,62 @@
           "type": "boolean",
           "required": false,
           "description": "Suppress interactive dialogs (default true)"
+        }
+      ]
+    },
+    "import_font": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Font file on disk: .ttf, .otf, .ttc or .otc",
+          "aliases": [
+            "filename"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "FontFace asset name (default: the file name)",
+          "aliases": [
+            "assetName"
+          ]
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default /Game/Fonts)",
+          "aliases": [
+            "destinationPath"
+          ]
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the face exists: skip (default, report it) | error | replace (reimport its bytes)"
+        },
+        {
+          "name": "hinting",
+          "type": "string",
+          "required": false,
+          "description": "Default (default) | Auto | AutoLight | Monochrome | None"
+        },
+        {
+          "name": "loadingPolicy",
+          "type": "string",
+          "required": false,
+          "description": "LazyLoad (default) | Stream | Inline"
+        },
+        {
+          "name": "createFont",
+          "type": "boolean",
+          "required": false,
+          "description": "Also create <name>_Font, a runtime Font whose Default typeface is this face (default false)"
         }
       ]
     },

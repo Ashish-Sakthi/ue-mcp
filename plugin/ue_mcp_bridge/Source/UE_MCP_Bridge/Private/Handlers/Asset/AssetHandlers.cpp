@@ -617,6 +617,22 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 
 	// Texture handlers
+	Registry.RegisterHandler(TEXT("import_font"), &ImportFont, {
+		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Font file on disk: .ttf, .otf, .ttc or .otc")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("FontFace asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Fonts)")).Alias(TEXT("destinationPath")),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the face exists: skip (default, report it) | error | replace (reimport its bytes)")),
+		MCPParam::Optional(TEXT("hinting"), EType::String, TEXT("Default (default) | Auto | AutoLight | Monochrome | None")),
+		MCPParam::Optional(TEXT("loadingPolicy"), EType::String, TEXT("LazyLoad (default) | Stream | Inline")),
+		MCPParam::Optional(TEXT("createFont"), EType::Boolean, TEXT("Also create <name>_Font, a runtime Font whose Default typeface is this face (default false)")),
+	});
+	Registry.RegisterHandler(TEXT("create_font"), &CreateCompositeFont, {
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("Font asset name")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Folder for the font (default /Game/Fonts)")),
+		MCPParam::Required(TEXT("fontFaces"), EType::Array, TEXT("FontFace asset paths, one typeface entry each")).Items(EType::String),
+		MCPParam::Optional(TEXT("typefaceNames"), EType::Array, TEXT("Typeface entry names in fontFaces order, e.g. Regular, Bold, Italic (default: Default, then each face's asset name)")).Items(EType::String),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the font exists: skip (default, report it) | error | update (rewrite its default typeface)")),
+	});
 	Registry.RegisterHandler(TEXT("import_texture"), &ImportTexture, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
