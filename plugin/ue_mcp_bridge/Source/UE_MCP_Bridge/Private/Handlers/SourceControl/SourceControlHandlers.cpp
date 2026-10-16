@@ -730,8 +730,8 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Checkout(const TSharedPtr<FJsonOb
 		const FString& File = State->GetFilename();
 		const FString Input = InputOf.FindRef(File);
 		FString Who;
-		if (State->IsCheckedOut() || State->IsAdded()) Already.Add(File);
-		else if (!Provider->UsesCheckout()) NotRequired.Add(File);
+		if (!Provider->UsesCheckout()) NotRequired.Add(File);
+		else if (State->IsCheckedOut() || State->IsAdded()) Already.Add(File);
 		else if (!State->IsSourceControlled()) Failed.Add(Failure(Input, File, TEXT("not under source control; use add")));
 		else if (State->IsCheckedOutOther(&Who) && !State->CanCheckout()) Failed.Add(Failure(Input, File, FString::Printf(TEXT("locked by %s"), *Who)));
 		else if (!State->IsCurrent()) Failed.Add(Failure(Input, File, TEXT("not at the latest revision; sync it first")));
