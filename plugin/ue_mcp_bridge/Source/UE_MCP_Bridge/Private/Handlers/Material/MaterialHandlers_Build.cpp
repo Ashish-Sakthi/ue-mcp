@@ -298,7 +298,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::BuildMaterial(const TSharedPtr<FJsonOb
 		|| (GraphPropertyConnections && GraphPropertyConnections->Num() > 0);
 	if ((*TexturesObj)->Values.Num() == 0 && (!ParameterSpecs || ParameterSpecs->Num() == 0) && !bHasGraph)
 	{
-		return MCPError(TEXT("Nothing to build: pass textures {baseColor: '/Game/T_Body_D', orm: '/Game/T_Body_ORM'}, parameters [{name, type, default}], or nodes/connections/propertyConnections"));
+		return MCPError(TEXT("Nothing to build: the texture set is empty and no parameters or nodes were given. Pass textures {baseColor: '/Game/T_Body_D', orm: '/Game/T_Body_ORM'}, parameters [{name, type, default}], or nodes/connections/propertyConnections"));
 	}
 
 	// textureParameters: true makes every sample a TextureSampleParameter2D named
