@@ -1,13 +1,15 @@
 import type { TaskResult } from "@db-lyon/flowkit";
-import type { ActionSpec, CategoryOptions } from "../core/types.js";
+import type { ActionSpec, BridgeActionSpec, CategoryOptions } from "../core/types.js";
 import { stripAction } from "../surface/routing-params.js";
-import { prepareCall, finishCall, forwardToBridge, type CallPreparation } from "../dispatch/call-pipeline.js";
+import { prepareCall, finishCall, forwardToBridge, withLiveContract, type CallPreparation } from "../dispatch/call-pipeline.js";
 import { McpError, ErrorCode } from "../core/errors.js";
 import type { FlowContext } from "./context.js";
 import { liftRollback } from "./rollback.js";
 import { applyHandlerOutcome } from "./handler-outcome.js";
 import { ensureGuard } from "../editor/dialog-guard.js";
 import { paramMapperOf } from "../surface/epic-input.js";
+import { actionAccepts } from "../surface/action-schema.js";
+import type { IBridge } from "../bridge/bridge.js";
 
 /**
  * Refuse a handler-backed call while a modal is up, through the one guard.
@@ -57,6 +59,7 @@ export function actionPreparation(
     paramContract: spec.paramSpec
       ? { params: spec.paramSpec, choices: spec.paramChoices, strict: spec.strictParams }
       : undefined,
+    accepts: actionAccepts(spec),
   };
 }
 
@@ -76,7 +79,7 @@ export async function runAction(
   options: Record<string, unknown>,
   prep?: CallPreparation,
 ): Promise<TaskResult> {
-  if (spec.kind === "bridge") return runBridge(ctx, name, spec.bridge, paramMapperOf(spec), spec.timeoutMs, options, prep);
+  if (spec.kind === "bridge") return runBridge(ctx, name, spec.bridge, paramMapperOf(spec), spec.timeoutMs, options, prep, spec.followUp);
   if (spec.kind === "handler") return runHandler(ctx, name, spec.handler, options, prep);
   throw new McpError(ErrorCode.NO_HANDLER, `Action '${name}' has no handler or bridge method`);
 }
@@ -89,17 +92,19 @@ export async function runBridge(
   timeoutMs: number | undefined,
   rawOptions: Record<string, unknown>,
   prep?: CallPreparation,
+  followUp?: BridgeActionSpec["followUp"],
 ): Promise<TaskResult> {
   // `action` is the dispatcher's, not a bridge parameter. Stripped before the
   // mapper, since a mapper that forwards its input verbatim would carry it.
   const options = stripAction(rawOptions);
   // The routing parameters come off, the paths are repaired, and the category
   // folds its accepted spellings into the canonical ones.
-  const pipeline = prepareCall(options, prep);
+  const pipeline = prepareCall(options, withLiveContract(prep, ctx.bridge.capabilities?.pluginHandlerSpecs));
   const params = forwardToBridge(pipeline, pipeline.params, mapParams, name);
   // The caller's budget wins over the action's authored one: an action that
   // declares 120s is stating a floor it needs, not a ceiling.
-  const answered = await ctx.bridge.call(method, params, pipeline.timeoutMs ?? timeoutMs);
+  const sent = await ctx.bridge.call(method, params, pipeline.timeoutMs ?? timeoutMs);
+  const answered = followUp ? await followUp(ctx, params, sent) : sent;
   const raw = finishCall(answered, pipeline);
   if (typeof raw !== "object" || raw === null) {
     return applyHandlerOutcome(ctx, answered, { success: true, data: { result: raw } });
@@ -122,6 +127,23 @@ export async function runBridge(
   return applyHandlerOutcome(ctx, answered, result);
 }
 
+/**
+ * The bridge as an in-process handler sees it: a call that names no budget of
+ * its own gets the caller's, so every handler honours timeoutMs (#1339).
+ */
+export function withCallTimeout<B extends { call: IBridge["call"] }>(bridge: B, timeoutMs: number): B {
+  if (!bridge) return bridge;
+  return new Proxy(bridge, {
+    get(target, key) {
+      if (key === "call") {
+        return (method: string, params?: Record<string, unknown>, ms?: number) => target.call(method, params, ms ?? timeoutMs);
+      }
+      const value = Reflect.get(target, key, target);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
 export async function runHandler(
   ctx: FlowContext,
   name: string,
@@ -132,7 +154,9 @@ export async function runHandler(
   const pipeline = prepareCall(options, prep);
   // The budget travels on the context, not in the parameters: a handler that
   // forwards its params to the bridge must not turn it into a bridge argument.
-  const callCtx = pipeline.timeoutMs === undefined ? ctx : { ...ctx, callTimeoutMs: pipeline.timeoutMs };
+  const callCtx = pipeline.timeoutMs === undefined
+    ? ctx
+    : { ...ctx, callTimeoutMs: pipeline.timeoutMs, bridge: withCallTimeout(ctx.bridge, pipeline.timeoutMs) };
   // A flow is a minutes-long run and a modal can appear at any point in it, so
   // the gate is checked per call, not once before the run.
   const refusal = await refuseIfBlocked(ctx, name);

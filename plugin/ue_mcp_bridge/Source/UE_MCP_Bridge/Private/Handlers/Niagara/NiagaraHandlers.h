@@ -71,4 +71,8 @@ private:
 	// a script the translator accepts: get_niagara_compiled_hlsl returns
 	// success without compiling anything on a CPU-sim emitter.
 	static TSharedPtr<FJsonValue> CompileSystem(const TSharedPtr<FJsonObject>& Params);
+
+	// Per-frame particle attribute readback, in NiagaraHandlers_SimCache.cpp (#1394).
+	static TSharedPtr<FJsonValue> CaptureNiagaraSimCache(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ReadNiagaraSimCache(const TSharedPtr<FJsonObject>& Params);
 };

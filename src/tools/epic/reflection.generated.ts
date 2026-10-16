@@ -14,9 +14,9 @@ import type { ActionSpec } from "../../core/types.js";
 import { bp } from "../../surface/category-tool.js";
 
 const S_epic_get_class = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}}},"required":["instance"]} as const;
-const S_epic_get_properties = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}},"properties":{"type":"array"}},"required":["instance","properties"]} as const;
+const S_epic_get_properties = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}},"properties":{"type":"array","items":{"type":"string"}}},"required":["instance","properties"]} as const;
 const S_epic_list_properties = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}}},"required":["instance"]} as const;
-const S_epic_reset_properties = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}},"properties":{"type":"array"}},"required":["instance","properties"]} as const;
+const S_epic_reset_properties = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}},"properties":{"type":"array","items":{"type":"string"}}},"required":["instance","properties"]} as const;
 const S_epic_search_subclasses = {"properties":{"base_class":{"type":"object","properties":{"refPath":{}}},"class_name":{"type":"string"}},"required":["base_class","class_name"]} as const;
 const S_epic_set_properties = {"properties":{"instance":{"type":"object","properties":{"refPath":{}}},"values":{"type":"string"}},"required":["instance","values"]} as const;
 

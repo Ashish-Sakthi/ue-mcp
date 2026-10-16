@@ -791,7 +791,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::RemoveComponentsByClass(const TSharedPtr<
 	// is the inverse of this and even the per-actor replay is not a restore.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("results[].components names every component removed, per actor, and componentClass names the class, so level(add_component_to_actor) can put an empty one back on each. Their property values, transforms and attachments were not captured and do not come back. dryRun=true, which is the default here, is the preflight."));
+		TEXT("results[].components names every component removed, per actor, and componentClass names the class, so level(add_component) can put an empty one back on each. Their property values, transforms and attachments were not captured and do not come back. dryRun=true, which is the default here, is the preflight."));
 
 	return MCPResult(Result);
 }
@@ -1787,6 +1787,10 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActorsBatch(const TSharedPtr<FJsonOb
 	int32 Spawned = 0, FailedMesh = 0, FailedSpawn = 0;
 	TArray<TSharedPtr<FJsonValue>> Labels;
 	TArray<TSharedPtr<FJsonValue>> Errors;
+	// Attached after every spawn, so a parent may come later in the same batch (#1263).
+	struct FPendingAttach { int32 Index; AStaticMeshActor* Child; FString ParentLabel; };
+	TArray<FPendingAttach> PendingAttaches;
+	TMultiMap<FString, AActor*> BatchByLabel;
 
 	for (int32 i = 0; i < ActorsArr->Num(); i++)
 	{
@@ -1837,8 +1841,89 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActorsBatch(const TSharedPtr<FJsonOb
 		{
 			SMA->SetActorLabel(Label);
 		}
+		const TArray<TSharedPtr<FJsonValue>>* TagValues = nullptr;
+		if (Row->TryGetArrayField(TEXT("tags"), TagValues) && TagValues)
+		{
+			for (const TSharedPtr<FJsonValue>& TagValue : *TagValues)
+			{
+				FString Tag;
+				if (TagValue.IsValid() && TagValue->TryGetString(Tag) && !Tag.IsEmpty()) SMA->Tags.AddUnique(FName(*Tag));
+			}
+		}
+		FString ParentLabel;
+		if (Row->TryGetStringField(TEXT("parentLabel"), ParentLabel) && !ParentLabel.IsEmpty())
+		{
+			PendingAttaches.Add({ i, SMA, ParentLabel });
+		}
+		BatchByLabel.Add(SMA->GetActorLabel(), SMA);
 		Labels.Add(MakeShared<FJsonValueString>(SMA->GetActorLabel()));
 		Spawned++;
+	}
+
+	// A parent spawned in this batch wins over a namesake already in the level; a label naming
+	// several candidates is refused rather than picked (#983).
+	int32 Attached = 0, FailedAttach = 0;
+	TArray<TSharedPtr<FJsonValue>> Attachments;
+	for (const FPendingAttach& Pending : PendingAttaches)
+	{
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetNumberField(TEXT("index"), Pending.Index);
+		Row->SetStringField(TEXT("label"), Pending.Child->GetActorLabel());
+		Row->SetStringField(TEXT("parentLabel"), Pending.ParentLabel);
+		FString Reason;
+		AActor* Parent = nullptr;
+		TArray<AActor*> InBatch;
+		BatchByLabel.MultiFind(Pending.ParentLabel, InBatch);
+		if (InBatch.Num() > 1)
+		{
+			Reason = FString::Printf(TEXT("%d actors in this batch are labelled '%s'; give the parent a unique label."), InBatch.Num(), *Pending.ParentLabel);
+		}
+		else if (InBatch.Num() == 1)
+		{
+			Parent = InBatch[0];
+		}
+		else
+		{
+			TSharedPtr<FJsonObject> Selector = MakeShared<FJsonObject>();
+			Selector->SetStringField(TEXT("actorLabel"), Pending.ParentLabel);
+			TSharedPtr<FJsonValue> ParentErr;
+			Parent = MCPResolveActor(World, Selector, ParentErr);
+			if (!Parent)
+			{
+				const TSharedPtr<FJsonObject>* ErrObj = nullptr;
+				FString ErrText;
+				if (ParentErr.IsValid() && ParentErr->TryGetObject(ErrObj) && ErrObj) (*ErrObj)->TryGetStringField(TEXT("error"), ErrText);
+				Reason = ErrText.IsEmpty() ? FString::Printf(TEXT("No actor labelled '%s'."), *Pending.ParentLabel) : ErrText;
+			}
+		}
+		if (Parent == Pending.Child)
+		{
+			Parent = nullptr;
+			Reason = TEXT("An actor cannot be its own parent.");
+		}
+		if (Parent && !Parent->GetRootComponent())
+		{
+			Reason = FString::Printf(TEXT("'%s' has no root component to attach to."), *Pending.ParentLabel);
+			Parent = nullptr;
+		}
+		if (Parent)
+		{
+			Pending.Child->Modify();
+			if (Pending.Child->AttachToActor(Parent, FAttachmentTransformRules::KeepWorldTransform))
+			{
+				Pending.Child->MarkPackageDirty();
+				Row->SetStringField(TEXT("parentPath"), Parent->GetPathName());
+				Row->SetBoolField(TEXT("attached"), true);
+				Attachments.Add(MakeShared<FJsonValueObject>(Row));
+				++Attached;
+				continue;
+			}
+			Reason = TEXT("The engine refused the attach (a cycle); the output log names the cause.");
+		}
+		Row->SetBoolField(TEXT("attached"), false);
+		Row->SetStringField(TEXT("reason"), Reason);
+		Attachments.Add(MakeShared<FJsonValueObject>(Row));
+		++FailedAttach;
 	}
 
 	auto Result = MCPSuccess();
@@ -1848,6 +1933,12 @@ TSharedPtr<FJsonValue> FLevelHandlers::PlaceActorsBatch(const TSharedPtr<FJsonOb
 	Result->SetNumberField(TEXT("failedMesh"), FailedMesh);
 	Result->SetNumberField(TEXT("failedSpawn"), FailedSpawn);
 	Result->SetArrayField(TEXT("labels"), Labels);
+	if (Attachments.Num() > 0)
+	{
+		Result->SetNumberField(TEXT("attached"), Attached);
+		Result->SetNumberField(TEXT("failedAttach"), FailedAttach);
+		Result->SetArrayField(TEXT("attachments"), Attachments);
+	}
 	if (Errors.Num() > 0) Result->SetArrayField(TEXT("errors"), Errors);
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),

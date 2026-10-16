@@ -1122,8 +1122,43 @@ TSharedPtr<FJsonValue> FReflectionHandlers::CreateGameplayTag(const TSharedPtr<F
 		"Config/DefaultGameplayTags.ini, and undoing it means deleting that line from the file by hand or "
 		"through the Gameplay Tags editor.");
 
-	// Preferred path: the Gameplay Tags editor writes the same ini and rebuilds
-	// the tag tree, so the tag is usable immediately with no restart.
+	// Preferred path: the minimal edit built above, one inserted line, so the
+	// ini keeps its comments, order and values (#1322). The live tag tree is
+	// then rebuilt from the in-memory settings, which is what the editor module
+	// does after its own wholesale rewrite of the file.
+	if (FFileHelper::SaveStringToFile(FileContent, *TagFile))
+	{
+		UGameplayTagsSettings* Settings = GetMutableDefault<UGameplayTagsSettings>();
+		const FName TagName(*Tag);
+		if (Settings && !Settings->GameplayTagList.ContainsByPredicate(
+				[&TagName](const FGameplayTagTableRow& Row) { return Row.Tag == TagName; }))
+		{
+			Settings->GameplayTagList.Add(FGameplayTagTableRow(TagName, Comment));
+		}
+		const bool bImportsFromIni = Settings && Settings->ImportTagsFromConfig;
+		if (bImportsFromIni)
+		{
+			UGameplayTagsManager::Get().EditorRefreshGameplayTagTree();
+		}
+		const bool bRegistered =
+			UGameplayTagsManager::Get().RequestGameplayTag(TagName, /*ErrorIfNotFound*/ false).IsValid();
+		MCPSetCreated(Result);
+		Result->SetBoolField(TEXT("unchanged"), false);
+		Result->SetStringField(TEXT("method"), TEXT("ini_append"));
+		Result->SetBoolField(TEXT("registeredLive"), bRegistered);
+		Result->SetStringField(TEXT("note"), bRegistered
+			? TEXT("One GameplayTagList line was added to the ini and the tag is registered live; no editor restart needed.")
+			: bImportsFromIni
+				? TEXT("One GameplayTagList line was added to the ini, but the tag manager does not report the tag yet. Restart the editor to pick it up.")
+				: TEXT("One GameplayTagList line was added to the ini, but this project does not import tags from config (ImportTagsFromConfig is off), so the tag manager will not read it."));
+		Result->SetBoolField(TEXT("rollbackPossible"), false);
+		Result->SetStringField(TEXT("rollbackNote"), NoInverseNote);
+		return MCPResult(Result);
+	}
+
+	// Fallback for a file this process cannot write, such as one under source
+	// control: the Gameplay Tags editor can check it out, at the cost of
+	// rewriting the whole file.
 	FString LiveOutcome;
 	if (IGameplayTagsEditorModule::IsAvailable())
 	{
@@ -1136,33 +1171,17 @@ TSharedPtr<FJsonValue> FReflectionHandlers::CreateGameplayTag(const TSharedPtr<F
 			Result->SetBoolField(TEXT("unchanged"), false);
 			Result->SetStringField(TEXT("method"), TEXT("gameplay_tags_editor"));
 			Result->SetBoolField(TEXT("registeredLive"), bRegistered);
-			Result->SetStringField(TEXT("note"), bRegistered
-				? TEXT("Registered live; no editor restart needed.")
-				: TEXT("Written to the ini, but the tag manager does not report it yet. Restart the editor to pick it up."));
+			Result->SetStringField(TEXT("note"),
+				TEXT("The ini could not be written directly, so the Gameplay Tags editor added the tag, which rewrites the whole file."));
 			Result->SetBoolField(TEXT("rollbackPossible"), false);
 			Result->SetStringField(TEXT("rollbackNote"), NoInverseNote);
 			return MCPResult(Result);
 		}
-		LiveOutcome = TEXT("IGameplayTagsEditorModule::AddNewGameplayTagToINI refused it (the project may not import tags ")
-			TEXT("from ini, or the file could not be saved; the editor log names which)");
+		LiveOutcome = TEXT("IGameplayTagsEditorModule::AddNewGameplayTagToINI refused it as well (the editor log names why)");
 	}
 	else
 	{
-		LiveOutcome = TEXT("the GameplayTagsEditor module is not loaded, so the tag could not be registered live");
-	}
-
-	// Fallback: append to the ini directly. The tag appears after a restart.
-	if (FFileHelper::SaveStringToFile(FileContent, *TagFile))
-	{
-		MCPSetCreated(Result);
-		Result->SetBoolField(TEXT("unchanged"), false);
-		Result->SetStringField(TEXT("method"), TEXT("ini_append"));
-		Result->SetBoolField(TEXT("registeredLive"), false);
-		Result->SetStringField(TEXT("liveRegistration"), LiveOutcome);
-		Result->SetStringField(TEXT("note"), TEXT("Restart editor to pick up new tag"));
-		Result->SetBoolField(TEXT("rollbackPossible"), false);
-		Result->SetStringField(TEXT("rollbackNote"), NoInverseNote);
-		return MCPResult(Result);
+		LiveOutcome = TEXT("the GameplayTagsEditor module is not loaded, so it could not be added through the editor either");
 	}
 
 	// Name the file and the reason, so the caller knows whether to check the
@@ -1186,8 +1205,8 @@ TSharedPtr<FJsonValue> FReflectionHandlers::CreateGameplayTag(const TSharedPtr<F
 	}
 
 	TSharedPtr<FJsonValue> Error = MCPError(FString::Printf(
-		TEXT("Could not add gameplay tag '%s'. Live registration: %s. Writing %s: %s."),
-		*Tag, *LiveOutcome, *FullTagFile, *Cause));
+		TEXT("Could not add gameplay tag '%s'. Writing %s: %s. Fallback: %s."),
+		*Tag, *FullTagFile, *Cause, *LiveOutcome));
 	Error->AsObject()->SetStringField(TEXT("iniPath"), FullTagFile);
 	Error->AsObject()->SetBoolField(TEXT("iniReadOnly"), bIniReadOnly);
 	Error->AsObject()->SetStringField(TEXT("liveRegistration"), LiveOutcome);

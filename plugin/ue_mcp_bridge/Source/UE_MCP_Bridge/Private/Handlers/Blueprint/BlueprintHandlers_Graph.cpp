@@ -77,6 +77,8 @@ namespace
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -724,13 +726,17 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 	TargetGraph->NotifyGraphChanged();
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 
-	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	// Compile and save; deferCompile leaves the compile to blueprint(compile).
+	if (!bDeferCompile)
+	{
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	}
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 	auto Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);
@@ -1004,6 +1010,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprintGraph(const TSharedPtr<F
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::ConnectPins(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -1205,13 +1213,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ConnectPins(const TSharedPtr<FJsonObj
 			}
 		}
 
-		// Compile and save
-		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+		// Compile and save; deferCompile leaves the compile to blueprint(compile).
+		if (bDeferCompile)
+		{
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+		}
+		else
+		{
+			FKismetEditorUtilities::CompileBlueprint(Blueprint);
+		}
 		FString SaveError;
 		const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 		auto Result = MCPSuccess();
 		MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 		if (bAlreadyLinked)
 		{
 			MCPSetUpdated(Result);
@@ -1301,6 +1317,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ConnectPins(const TSharedPtr<FJsonObj
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::DeleteNode(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -1535,12 +1553,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::DeleteNode(const TSharedPtr<FJsonObje
 		FBlueprintEditorUtils::RemoveNode(Blueprint, NodeToDelete, /*bDontRecompile*/ true);
 	}
 
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	// deferCompile leaves the compile to blueprint(compile).
+	if (bDeferCompile)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+	}
+	else
+	{
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	}
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 	auto Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);
 	Result->SetStringField(TEXT("nodeId"), NodeId);
@@ -1952,6 +1979,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::DisconnectPins(const TSharedPtr<FJson
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -2119,13 +2148,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJso
 			*PinName, *FString::Join(PinNames, TEXT(", ")), *FString::Join(PropNames, TEXT(", "))));
 	}
 
-	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	// Compile and save; deferCompile leaves the compile to blueprint(compile).
+	if (bDeferCompile)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+	}
+	else
+	{
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	}
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 	auto Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);

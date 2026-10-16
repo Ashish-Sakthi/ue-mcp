@@ -10,7 +10,7 @@ describe("material runtime reads (#1114/#1116)", () => {
     expect(spec.params.map((p) => p.name)).toEqual(expect.arrayContaining([
       "actorLabel", "actorPath", "componentName", "slotIndex", "slotName", "world", "pieInstance",
     ]));
-    expect(spec.choices?.[0].branches).toEqual([["assetPath"], ["actorLabel"], ["actorPath"]]);
+    expect(spec.choices?.[0].branches).toEqual([["assetPath"], ["assetPaths"], ["actorLabel"], ["actorPath"]]);
 
     // The asset form is unchanged, including the materialPath alias.
     expect(spec.params.find((p) => p.name === "assetPath")?.aliases).toEqual(["path", "materialPath"]);

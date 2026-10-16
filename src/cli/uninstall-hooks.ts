@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { uninstallAllRegisteredHooks } from "../integrations/claude-code/hook-installer.js";
 import { BOLD, CYAN, DIM, GREEN, RED, RESET, fail, info, ok, warn } from "./ui/ansi.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
+import type { CliUsage } from "./cli-main.js";
 import { projectDirOf } from "../config/uproject-path.js";
 
 function resolveProjectDir(argv: string[]): string | null {
@@ -72,6 +73,13 @@ function main(argv: string[]): void {
   console.log(`  ${BOLD}${GREEN}Done.${RESET}`);
   console.log("");
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp uninstall-hooks [project] [flags]",
+  summary: "Remove the hooks ue-mcp installed in a project.",
+  strict: true,
+  flags: [{ name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" }],
+};
 
 /** Entry point for `ue-mcp uninstall-hooks [project] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {

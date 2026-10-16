@@ -66,7 +66,10 @@ const BASELINE = {
   // 131: blueprint(export_batch) writes files, which nothing can delete (#1166).
   // 132: pcg(update_level_assets) overwrites assets with a fresh export and has no inverse (#1244).
   // 133: asset(generate_skeletal_mesh_lods) replaces LOD geometry, and no action removes LODs (#1372).
-  mutationsWithoutRollback: 133,
+  // 135: editor(press_window_button) and editor(close_window) act on a live window, which has no inverse (#1231).
+  // 136: niagara(capture_sim_cache) advances the simulation, which cannot be rewound (#1394).
+  // 137: material(delete_orphans) deletes unreachable nodes and keeps no copy to restore (#1403).
+  mutationsWithoutRollback: 137,
   // Zero, and held there by a flat assertion. Every mutation with no inverse
   // now says so in its own result body with the reason, which is the half a
   // caller can act on.

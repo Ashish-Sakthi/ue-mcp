@@ -2924,7 +2924,7 @@ TSharedPtr<FJsonValue> FAnimationHandlers::RemoveAnimNotify(const TSharedPtr<FJs
 			TEXT("The add action re-creates the entry of the same class at the same time (and, for a notify state, over the same duration) with DEFAULT property values, ")
 			TEXT("so anything configured on the notify or notify-state object itself is not restored. ")
 			TEXT("This call removed %d entr(ies), %d of them notify states, and the rollback replays only the first. ")
-			TEXT("The rest are listed in removedNotifies, each with a 'kind' saying which action puts it back: animation(add_anim_notify) for 'notify', animation(add_anim_notify_state) for 'notifyState'."),
+			TEXT("The rest are listed in removedNotifies, each with a 'kind' saying which action puts it back: animation(add_notify) for 'notify', animation(add_notify_state) for 'notifyState'."),
 			RemovedTimes.Num(), RemovedStateCount));
 	}
 	return MCPResult(Result);
