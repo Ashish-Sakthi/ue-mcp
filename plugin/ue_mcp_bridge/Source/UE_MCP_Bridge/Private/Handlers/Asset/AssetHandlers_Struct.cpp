@@ -17,6 +17,11 @@
 #include "HandlerUtils.h"
 #include "MCPEngineCompat.h"
 #include "Kismet2/StructureEditorUtils.h"
+#include "EdGraph/EdGraphPin.h"
+#include "Engine/Blueprint.h"
+#include "Kismet2/BlueprintEditorUtils.h"
+#include "Kismet2/KismetEditorUtilities.h"
+#include "UObject/UObjectIterator.h"
 #include "UserDefinedStructure/UserDefinedStructEditorData.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorAssetLibrary.h"
@@ -51,6 +56,9 @@ static TSharedPtr<FJsonObject> StructFieldToJson(const FStructVariableDescriptio
 	V->SetStringField(TEXT("friendlyName"), Desc.FriendlyName);
 	V->SetStringField(TEXT("guid"), Desc.VarGuid.ToString());
 	V->SetStringField(TEXT("type"), StructFieldTypeLabel(Desc));
+	// The same field in the vocabulary add_field and set_field_type accept.
+	bool bRoundTrips = true;
+	V->SetStringField(TEXT("typeSpec"), FBlueprintHandlers::PinTypeSpec(Desc.ToPinType(), bRoundTrips));
 	return V;
 }
 
@@ -77,6 +85,80 @@ static bool ResolveStructFieldGuid(const TSharedPtr<FJsonObject>& Params, UUserD
 	return false;
 }
 
+// True when a value of this property holds Target anywhere: directly, in a
+// container, or inside another struct.
+static bool StructEditPropertyHolds(const FProperty* Prop, const UScriptStruct* Target, int32 Depth = 0)
+{
+	if (!Prop || Depth > 12) return false;
+	if (const FStructProperty* SP = CastField<FStructProperty>(Prop))
+	{
+		if (SP->Struct == Target) return true;
+		for (TFieldIterator<FProperty> It(SP->Struct); It; ++It)
+		{
+			if (StructEditPropertyHolds(*It, Target, Depth + 1)) return true;
+		}
+		return false;
+	}
+	if (const FArrayProperty* AP = CastField<FArrayProperty>(Prop)) return StructEditPropertyHolds(AP->Inner, Target, Depth + 1);
+	if (const FSetProperty* SetP = CastField<FSetProperty>(Prop)) return StructEditPropertyHolds(SetP->ElementProp, Target, Depth + 1);
+	if (const FMapProperty* MP = CastField<FMapProperty>(Prop))
+	{
+		return StructEditPropertyHolds(MP->KeyProp, Target, Depth + 1) || StructEditPropertyHolds(MP->ValueProp, Target, Depth + 1);
+	}
+	return false;
+}
+
+// Recompile every loaded Blueprint whose class holds the struct, so the
+// compiler reinstances its live instances onto the new layout. Unloaded
+// Blueprints pick the layout up when they load.
+static void RecompileStructDependents(UUserDefinedStruct* Struct, TSharedPtr<FJsonObject> Res)
+{
+	// The struct edit has already pointed the generated classes' properties at a
+	// STRUCT_REINST_ duplicate, so those no longer name Struct. A Blueprint's own
+	// variable types still do, and they are what decides its layout.
+	auto PinTypeHolds = [Struct](const FEdGraphPinType& Type)
+	{
+		for (const UObject* Obj : { Type.PinSubCategoryObject.Get(), Type.PinValueType.TerminalSubCategoryObject.Get() })
+		{
+			if (Obj == Struct) return true;
+			if (const UScriptStruct* Inner = Cast<UScriptStruct>(Obj))
+			{
+				for (TFieldIterator<FProperty> It(Inner); It; ++It)
+				{
+					if (StructEditPropertyHolds(*It, Struct)) return true;
+				}
+			}
+		}
+		return false;
+	};
+
+	TArray<UBlueprint*> Dependents;
+	for (TObjectIterator<UBlueprint> It; It; ++It)
+	{
+		UBlueprint* BP = *It;
+		if (!BP || !BP->GeneratedClass || BP->HasAnyFlags(RF_ClassDefaultObject | RF_Transient)) continue;
+		bool bHolds = false;
+		for (const FBPVariableDescription& Var : BP->NewVariables)
+		{
+			if (PinTypeHolds(Var.VarType)) { bHolds = true; break; }
+		}
+		for (TFieldIterator<FProperty> P(BP->GeneratedClass, EFieldIteratorFlags::IncludeSuper); P && !bHolds; ++P)
+		{
+			bHolds = StructEditPropertyHolds(*P, Struct);
+		}
+		if (bHolds) Dependents.Add(BP);
+	}
+
+	TArray<TSharedPtr<FJsonValue>> Done;
+	for (UBlueprint* BP : Dependents)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(BP);
+		FKismetEditorUtilities::CompileBlueprint(BP);
+		Done.Add(MakeShared<FJsonValueString>(BP->GetPathName()));
+	}
+	Res->SetArrayField(TEXT("dependentsRecompiled"), Done);
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::CreateUserDefinedStruct(const TSharedPtr<FJsonObject>& Params)
 {
 	FString Name;
@@ -87,6 +169,28 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateUserDefinedStruct(const TSharedPtr<
 	if (auto Existing = MCPCheckAssetExists(PackagePath, Name, OnConflict, TEXT("UserDefinedStruct")))
 	{
 		return Existing;
+	}
+
+	// Every member type is resolved before the package exists, so a bad type
+	// fails the call instead of landing as a None member.
+	const TArray<TSharedPtr<FJsonValue>>* Fields = nullptr;
+	TArray<TPair<FString, FEdGraphPinType>> Planned;
+	if (TryGetArrayParam(Params, TEXT("structFields"), Fields) && Fields)
+	{
+		for (const TSharedPtr<FJsonValue>& Entry : *Fields)
+		{
+			const TSharedPtr<FJsonObject>* Obj = nullptr;
+			if (!Entry->TryGetObject(Obj) || !Obj) continue;
+			const FString FieldName = OptionalString(*Obj, TEXT("name"));
+			if (FieldName.IsEmpty()) continue;
+			FEdGraphPinType PinType;
+			FString TypeError;
+			if (!FBlueprintHandlers::ParsePinTypeSpec(OptionalString(*Obj, TEXT("type"), TEXT("bool")), PinType, TypeError))
+			{
+				return MCPError(FString::Printf(TEXT("structFields '%s': %s"), *FieldName, *TypeError));
+			}
+			Planned.Emplace(FieldName, PinType);
+		}
 	}
 
 	UPackage* Package = CreatePackage(*(PackagePath + TEXT("/") + Name));
@@ -104,32 +208,27 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateUserDefinedStruct(const TSharedPtr<
 		SeedGuids.Add(Desc.VarGuid);
 	}
 
-	const TArray<TSharedPtr<FJsonValue>>* Fields = nullptr;
 	int32 AddedCount = 0;
-	if (TryGetArrayParam(Params, TEXT("structFields"), Fields) && Fields)
+	TArray<FString> FailedFields;
+	for (const TPair<FString, FEdGraphPinType>& Field : Planned)
 	{
-		for (const TSharedPtr<FJsonValue>& Entry : *Fields)
+		// Snapshot GUIDs so we can identify the member AddVariable appends.
+		TSet<FGuid> Before;
+		for (const FStructVariableDescription& D : FStructureEditorUtils::GetVarDesc(Struct)) Before.Add(D.VarGuid);
+
+		if (!FStructureEditorUtils::AddVariable(Struct, Field.Value))
 		{
-			const TSharedPtr<FJsonObject>* Obj = nullptr;
-			if (!Entry->TryGetObject(Obj) || !Obj) continue;
-			const FString FieldName = OptionalString(*Obj, TEXT("name"));
-			const FString FieldType = OptionalString(*Obj, TEXT("type"), TEXT("bool"));
-			if (FieldName.IsEmpty()) continue;
+			FailedFields.Add(Field.Key);
+			continue;
+		}
 
-			// Snapshot GUIDs so we can identify the member AddVariable appends.
-			TSet<FGuid> Before;
-			for (const FStructVariableDescription& D : FStructureEditorUtils::GetVarDesc(Struct)) Before.Add(D.VarGuid);
-
-			if (!FStructureEditorUtils::AddVariable(Struct, FBlueprintHandlers::MakePinType(FieldType))) continue;
-
-			for (const FStructVariableDescription& D : FStructureEditorUtils::GetVarDesc(Struct))
+		for (const FStructVariableDescription& D : FStructureEditorUtils::GetVarDesc(Struct))
+		{
+			if (!Before.Contains(D.VarGuid))
 			{
-				if (!Before.Contains(D.VarGuid))
-				{
-					FStructureEditorUtils::RenameVariable(Struct, D.VarGuid, FieldName);
-					++AddedCount;
-					break;
-				}
+				FStructureEditorUtils::RenameVariable(Struct, D.VarGuid, Field.Key);
+				++AddedCount;
+				break;
 			}
 		}
 	}
@@ -161,6 +260,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateUserDefinedStruct(const TSharedPtr<
 	}
 	Res->SetArrayField(TEXT("fields"), FieldList);
 	Res->SetNumberField(TEXT("count"), FieldList.Num());
+	if (FailedFields.Num() > 0)
+	{
+		Res->SetStringField(TEXT("warning"), FString::Printf(TEXT("The struct editor refused these members: %s"), *FString::Join(FailedFields, TEXT(", "))));
+	}
 	MCPSetDeleteAssetRollback(Res, Struct->GetPathName());
 	return MCPResult(Res);
 }
@@ -229,10 +332,14 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		FString FieldName = OptionalString(Params, TEXT("fieldName"));
 		if (FieldName.IsEmpty()) FieldName = OptionalString(Params, TEXT("newDisplayName"));
 
+		FEdGraphPinType PinType;
+		FString TypeError;
+		if (!FBlueprintHandlers::ParsePinTypeSpec(FieldType, PinType, TypeError)) return MCPError(TypeError);
+
 		TSet<FGuid> Before;
 		for (const FStructVariableDescription& D : FStructureEditorUtils::GetVarDesc(Struct)) Before.Add(D.VarGuid);
 
-		if (!FStructureEditorUtils::AddVariable(Struct, FBlueprintHandlers::MakePinType(FieldType)))
+		if (!FStructureEditorUtils::AddVariable(Struct, PinType))
 		{
 			return MCPError(FString::Printf(TEXT("Failed to add field of type '%s'"), *FieldType));
 		}
@@ -251,6 +358,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		const bool bSaved = SaveAssetPackageChecked(Struct, SaveReason);
 		MCPSetUpdated(Res);
 		MCPNoteSaveOutcome(Res, AssetPath, bSaved, SaveReason);
+		RecompileStructDependents(Struct, Res);
 		if (const FStructVariableDescription* Desc = FStructureEditorUtils::GetVarDescByGuid(Struct, NewGuid))
 		{
 			Res->SetObjectField(TEXT("field"), StructFieldToJson(*Desc, INDEX_NONE));
@@ -308,7 +416,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		if (!ResolveStructFieldGuid(Params, Struct, Guid))
 			return MCPError(TEXT("Could not resolve field (pass 'fieldGuid', or 'fieldName' matching a friendly or internal name)"));
 
-		if (!FStructureEditorUtils::ChangeVariableType(Struct, Guid, FBlueprintHandlers::MakePinType(FieldType)))
+		FEdGraphPinType PinType;
+		FString TypeError;
+		if (!FBlueprintHandlers::ParsePinTypeSpec(FieldType, PinType, TypeError)) return MCPError(TypeError);
+
+		if (!FStructureEditorUtils::ChangeVariableType(Struct, Guid, PinType))
 		{
 			return MCPError(FString::Printf(TEXT("Failed to change field type to '%s'"), *FieldType));
 		}
@@ -317,6 +429,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		const bool bSaved = SaveAssetPackageChecked(Struct, SaveReason);
 		MCPSetUpdated(Res);
 		MCPNoteSaveOutcome(Res, AssetPath, bSaved, SaveReason);
+		RecompileStructDependents(Struct, Res);
 		if (const FStructVariableDescription* After = FStructureEditorUtils::GetVarDescByGuid(Struct, Guid))
 		{
 			Res->SetObjectField(TEXT("field"), StructFieldToJson(*After, INDEX_NONE));
@@ -345,6 +458,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::EditUserDefinedStructImpl(const TSharedPt
 		const bool bSaved = SaveAssetPackageChecked(Struct, SaveReason);
 		MCPSetUpdated(Res);
 		MCPNoteSaveOutcome(Res, AssetPath, bSaved, SaveReason);
+		RecompileStructDependents(Struct, Res);
 		if (Removed.IsValid()) Res->SetObjectField(TEXT("removed"), Removed);
 		Res->SetNumberField(TEXT("count"), FStructureEditorUtils::GetVarDesc(Struct).Num());
 		return MCPResult(Res);

@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // The `ue-mcp-init` package bin. The command itself is cli/init.ts.
 import { isMainModule, runCli } from "./cli/cli-main.js";
-import { run } from "./cli/init.js";
+import { run, usage } from "./cli/init.js";
 
-export { run };
+export { run, usage };
 
-if (isMainModule(import.meta.url)) void runCli(run, process.argv.slice(2));
+if (isMainModule(import.meta.url)) void runCli(run, process.argv.slice(2), usage);

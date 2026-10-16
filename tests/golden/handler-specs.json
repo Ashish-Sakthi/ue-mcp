@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1088,
+  "handlerCount": 1114,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -1726,6 +1726,12 @@
           "type": "object",
           "required": false,
           "description": "Node-specific settings, such as functionName and className for a CallFunction node"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -1758,6 +1764,12 @@
           "type": "number",
           "required": false,
           "description": "Graph editor Y position for the new node"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused"
         }
       ]
     },
@@ -3207,6 +3219,24 @@
           "type": "string",
           "required": false,
           "description": "skip (default) reports the existing entry; error refuses"
+        },
+        {
+          "name": "category",
+          "type": "string",
+          "required": false,
+          "description": "Category shown in My Blueprint and the details panel"
+        },
+        {
+          "name": "tooltip",
+          "type": "string",
+          "required": false,
+          "description": "Tooltip"
+        },
+        {
+          "name": "instanceEditable",
+          "type": "boolean",
+          "required": false,
+          "description": "true: EditAnywhere; false: EditDefaultsOnly. Omitted leaves the editor default"
         }
       ]
     },
@@ -3230,6 +3260,12 @@
           "type": "string",
           "required": true,
           "description": "Bone the virtual bone points at"
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "Name for the virtual bone; the engine's 'VB ' prefix is added when missing (default the engine-generated name)"
         }
       ]
     },
@@ -5065,6 +5101,18 @@
           "type": "string",
           "required": false,
           "description": "Socket or bone on the resolved parent component"
+        },
+        {
+          "name": "relativeLocation",
+          "type": "vec3",
+          "required": false,
+          "description": "Relative location set after the attach, in the parent component or socket frame"
+        },
+        {
+          "name": "relativeRotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Relative rotation set after the attach, in the parent component or socket frame"
         }
       ]
     },
@@ -6288,8 +6336,204 @@
         {
           "name": "textures",
           "type": "object",
-          "required": true,
-          "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946)"
+          "required": false,
+          "description": "{materialProperty: textureAssetPath}: baseColor, normal, roughness, metallic, specular, emissive, opacity, opacityMask, ambientOcclusion, plus packed orm (R=AO,G=Roughness,B=Metallic) and rma (#946). Each sample's description is its key, so connections can name it"
+        },
+        {
+          "name": "textureParameters",
+          "type": "boolean",
+          "required": false,
+          "description": "true makes every sample a TextureSampleParameter2D named after its key; an object {key: parameterName} names them",
+          "orTypes": [
+            "object"
+          ]
+        },
+        {
+          "name": "parameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter nodes to create, reused by name when present",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name; connections can name it too"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": true,
+              "description": "scalar | vector | texture"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "A number (scalar), a colour {r,g,b,a} or [r,g,b,a] (vector), or a texture asset path (texture)"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            }
+          ]
+        },
+        {
+          "name": "nodes",
+          "type": "array",
+          "required": false,
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
+        },
+        {
+          "name": "propertyConnections",
+          "type": "array",
+          "required": false,
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
+        },
+        {
+          "name": "instances",
+          "type": "array",
+          "required": false,
+          "description": "MaterialInstanceConstants to create under the built material, one per piece: [{name, packagePath?, parameters?: {parameterName: number | colour | texturePath}, assignToMesh?, slotName? or meshSlots?}]. An existing instance at that path is reparented and updated",
+          "items": "object"
         },
         {
           "name": "samplerTypes",
@@ -6349,15 +6593,148 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "Graph spec: [{name,class,posX,posY,...}]",
-          "items": "object"
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
         },
         {
           "name": "propertyConnections",
           "type": "array",
           "required": false,
-          "description": "[{property,from,outputIndex}]",
-          "items": "object"
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
         }
       ]
     },
@@ -6378,6 +6755,32 @@
           "type": "boolean",
           "required": false,
           "description": "Block until the build resolves (default true)"
+        }
+      ]
+    },
+    "build_tree": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "tree",
+          "type": "object",
+          "required": true,
+          "description": "One subtree root {widgetClass, widgetName?, properties?, children?}; children nest the same shape. properties take set_widget_property names (slot.* included) with JSON values"
+        },
+        {
+          "name": "parentWidgetName",
+          "type": "string",
+          "required": false,
+          "description": "Panel to build under (default: the root panel, or the tree root when there is none)"
         }
       ]
     },
@@ -6602,8 +7005,40 @@
           "name": "renames",
           "type": "array",
           "required": true,
-          "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-          "items": "object"
+          "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourcePath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+            },
+            {
+              "name": "destinationPath",
+              "type": "string",
+              "required": false,
+              "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+            },
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to rename in place, with newName"
+            },
+            {
+              "name": "newPackagePath",
+              "type": "string",
+              "required": false,
+              "description": "Destination folder, with sourcePath and newName"
+            },
+            {
+              "name": "newName",
+              "type": "string",
+              "required": false,
+              "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+            }
+          ]
         }
       ]
     },
@@ -6894,6 +7329,85 @@
         }
       ]
     },
+    "capture_niagara_sim_cache": {
+      "category": "niagara",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the NiagaraComponent; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "NiagaraComponent instance name when the actor holds several (default: the first)"
+        },
+        {
+          "name": "frames",
+          "type": "integer",
+          "required": false,
+          "description": "Frames to record, 1..120 (default 1). Every frame after the first advances the simulation by tickDelta"
+        },
+        {
+          "name": "advanceSimulation",
+          "type": "boolean",
+          "required": false,
+          "description": "Advance one tick before the first frame too (default false)"
+        },
+        {
+          "name": "tickDelta",
+          "type": "number",
+          "required": false,
+          "description": "Seconds per advanced tick (default 1/60)"
+        },
+        {
+          "name": "attributeCaptureMode",
+          "type": "string",
+          "required": false,
+          "description": "All (default) | RenderingOnly | ExplicitAttributes"
+        },
+        {
+          "name": "explicitAttributes",
+          "type": "array",
+          "required": false,
+          "description": "With ExplicitAttributes: names written Emitter.Particles.Attribute",
+          "items": "string"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor (default) | pie"
+        },
+        {
+          "name": "pieInstance",
+          "type": "integer",
+          "required": false,
+          "description": "Which PIE world when world is pie: 0 = server or primary, 1..N = clients"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
+    },
     "capture_scene_png": {
       "category": "editor",
       "params": [
@@ -7094,6 +7608,20 @@
           "type": "number",
           "required": false,
           "description": "Raster resolution for the overlap estimate (default 512)"
+        }
+      ]
+    },
+    "check_widget_structure": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
         }
       ]
     },
@@ -7603,6 +8131,18 @@
       "params": [],
       "contractExempt": "closes the open Sequencer"
     },
+    "close_window": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to close, by the id list_windows reported"
+        }
+      ],
+      "contractExempt": "closes an open editor window"
+    },
     "commit_skeleton_edit": {
       "category": "animation",
       "params": [
@@ -7784,6 +8324,134 @@
           "type": "string",
           "required": true,
           "description": "StateTree asset path, e.g. /Game/Path/To/ST_Asset"
+        }
+      ]
+    },
+    "compose_pose_sequence": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "New AnimSequence name"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default the first source's folder)"
+        },
+        {
+          "name": "sources",
+          "type": "array",
+          "required": true,
+          "description": "Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton",
+          "items": "object",
+          "fields": [
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": true,
+              "description": "AnimSequence to sample"
+            },
+            {
+              "name": "frame",
+              "type": "integer",
+              "required": false,
+              "description": "Frame to sample (default 0); exclusive with time"
+            },
+            {
+              "name": "time",
+              "type": "number",
+              "required": false,
+              "description": "Time in seconds to sample; exclusive with frame"
+            }
+          ]
+        },
+        {
+          "name": "layers",
+          "type": "array",
+          "required": false,
+          "description": "Per-bone blends over the base pose, applied in order, at most 64",
+          "items": "object",
+          "fields": [
+            {
+              "name": "source",
+              "type": "integer",
+              "required": true,
+              "description": "Index into sources to blend toward"
+            },
+            {
+              "name": "weight",
+              "type": "number",
+              "required": false,
+              "description": "0 to 1 (default 1): rotation slerps, translation and scale lerp"
+            },
+            {
+              "name": "bones",
+              "type": "array",
+              "required": false,
+              "description": "Bones by exact name",
+              "items": "string"
+            },
+            {
+              "name": "nameContains",
+              "type": "array",
+              "required": false,
+              "description": "Bones whose name contains any of these, case-insensitive",
+              "items": "string"
+            },
+            {
+              "name": "excludeContains",
+              "type": "array",
+              "required": false,
+              "description": "Drop matched bones whose name contains any of these",
+              "items": "string"
+            },
+            {
+              "name": "includeDescendants",
+              "type": "boolean",
+              "required": false,
+              "description": "Also match every descendant of a matched bone (default false)"
+            },
+            {
+              "name": "rotationOnly",
+              "type": "boolean",
+              "required": false,
+              "description": "Blend rotation only, keeping translation and scale (default false)"
+            }
+          ]
+        },
+        {
+          "name": "numFrames",
+          "type": "number",
+          "required": false,
+          "description": "Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys"
+        },
+        {
+          "name": "frameRate",
+          "type": "number",
+          "required": false,
+          "description": "Frames per second (default 30)"
+        },
+        {
+          "name": "easeToSource",
+          "type": "integer",
+          "required": false,
+          "description": "Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame"
+        },
+        {
+          "name": "easeCurve",
+          "type": "string",
+          "required": false,
+          "description": "linear (default) | smooth"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "skip (default) returns an existing asset untouched, error refuses; it never overwrites"
         }
       ]
     },
@@ -8213,6 +8881,44 @@
           "type": "number",
           "required": false,
           "description": "Play-in-New-Window height"
+        },
+        {
+          "name": "clientWindowWidth",
+          "type": "number",
+          "required": false,
+          "description": "Width of each additional multiplayer client window"
+        },
+        {
+          "name": "clientWindowHeight",
+          "type": "number",
+          "required": false,
+          "description": "Height of each additional multiplayer client window"
+        },
+        {
+          "name": "newWindowPosition",
+          "type": "object",
+          "required": false,
+          "description": "Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed",
+          "fields": [
+            {
+              "name": "x",
+              "type": "number",
+              "required": true,
+              "description": "Screen X in pixels"
+            },
+            {
+              "name": "y",
+              "type": "number",
+              "required": true,
+              "description": "Screen Y in pixels"
+            }
+          ]
+        },
+        {
+          "name": "centerNewWindow",
+          "type": "boolean",
+          "required": false,
+          "description": "Center new PIE windows; false places them at newWindowPosition"
         }
       ],
       "contractExempt": "writes the editor's Play settings"
@@ -8489,6 +9195,12 @@
           "type": "boolean",
           "required": false,
           "description": "Break every existing link on the target pin first"
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -9588,6 +10300,43 @@
         }
       ]
     },
+    "create_font": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Font asset name"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the font (default /Game/Fonts)"
+        },
+        {
+          "name": "fontFaces",
+          "type": "array",
+          "required": true,
+          "description": "FontFace asset paths, one typeface entry each",
+          "items": "string"
+        },
+        {
+          "name": "typefaceNames",
+          "type": "array",
+          "required": false,
+          "description": "Typeface entry names in fontFaces order, e.g. Regular, Bold, Italic (default: Default, then each face's asset name)",
+          "items": "string"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the font exists: skip (default, report it) | error | update (rewrite its default typeface)"
+        }
+      ]
+    },
     "create_function": {
       "category": "blueprint",
       "params": [
@@ -10455,6 +11204,12 @@
           "type": "string",
           "required": false,
           "description": "When the level exists: skip (default) returns it untouched, error refuses"
+        },
+        {
+          "name": "worldPartition",
+          "type": "boolean",
+          "required": false,
+          "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
         }
       ],
       "contractExempt": "creates and opens a level"
@@ -10655,6 +11410,41 @@
         }
       ],
       "contractExempt": "Creates and saves a graph under the contract values; nothing it reads fails first"
+    },
+    "create_pcg_graph_instance": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "Graph instance asset name"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph or PCGGraphInstance the instance runs"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Folder for the new instance (default /Game/PCG)"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "{parameterName: value} overrides to set on the new instance"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the asset exists: skip (default, report it) | error"
+        }
+      ]
     },
     "create_player_controller": {
       "category": "gameplay",
@@ -11451,7 +12241,7 @@
               "name": "type",
               "type": "string",
               "required": false,
-              "description": "MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor"
+              "description": "Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>"
             }
           ]
         },
@@ -11927,6 +12717,32 @@
           "aliases": [
             "nodeName"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
+        }
+      ]
+    },
+    "delete_orphan_expressions": {
+      "category": "material",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Material asset path",
+          "aliases": [
+            "materialPath"
+          ]
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "List the orphans without deleting them (default false)"
         }
       ]
     },
@@ -12695,7 +13511,7 @@
           "name": "edits",
           "type": "array",
           "required": true,
-          "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}",
+          "description": "Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?} | {op:'normalize_scale',bone}, which sets scale 1 on the bone and every descendant while keeping each one's component-space location and rotation",
           "items": "object"
         },
         {
@@ -12811,7 +13627,7 @@
           "name": "type",
           "type": "string",
           "required": false,
-          "description": "MakePinType string for add_field (default bool) and set_field_type"
+          "description": "Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips"
         }
       ]
     },
@@ -12985,7 +13801,25 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "Console command to run in the editor world"
+          "description": "Console command to run"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose console runs a PIE command (default 0)"
         }
       ],
       "contractExempt": "runs a console command"
@@ -13010,6 +13844,18 @@
           "type": "integer",
           "required": false,
           "description": "Write the component's Seed before generating; the old one is reported as previousSeed"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -13225,7 +14071,7 @@
           "name": "assetPath",
           "type": "string",
           "required": false,
-          "description": "Content folder for the PCG data asset (default: the level's folder)"
+          "description": "The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder)"
         },
         {
           "name": "assetName",
@@ -13831,7 +14677,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless"
+          "description": "Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference"
         },
         {
           "name": "allowProjectWide",
@@ -13900,6 +14746,18 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "wait",
+          "type": "boolean",
+          "required": false,
+          "description": "Return only once this run finishes (default false); the result gains wait {state, durationMs}"
+        },
+        {
+          "name": "timeoutSeconds",
+          "type": "number",
+          "required": false,
+          "description": "Longest wait in seconds (default 600)"
         }
       ],
       "choices": [
@@ -14148,6 +15006,89 @@
       "category": "project",
       "params": [],
       "contractExempt": "runs the project file generator"
+    },
+    "generate_skeletal_mesh_lods": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": false,
+          "description": "One SkeletalMesh"
+        },
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "SkeletalMeshes, at most 500",
+          "items": "string"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Every SkeletalMesh in this folder"
+        },
+        {
+          "name": "recursive",
+          "type": "boolean",
+          "required": false,
+          "description": "With directory, include subfolders (default true)"
+        },
+        {
+          "name": "lodCount",
+          "type": "integer",
+          "required": true,
+          "description": "Total LODs including LOD 0, 1 to 8"
+        },
+        {
+          "name": "trianglePercentages",
+          "type": "array",
+          "required": false,
+          "description": "Triangle percentage of LOD 0 for each LOD after it, lodCount - 1 values above 0 and at most 100 (default the engine's reduction settings)",
+          "items": "number"
+        },
+        {
+          "name": "regenerateImported",
+          "type": "boolean",
+          "required": false,
+          "description": "Also regenerate LODs that were imported rather than generated (default false)"
+        },
+        {
+          "name": "skipExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip a mesh already at lodCount (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Report each mesh's LODs and what would happen without changing anything"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save each changed mesh (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ],
+            [
+              "directory"
+            ]
+          ]
+        }
+      ]
     },
     "get_action_value": {
       "category": "gameplay",
@@ -14679,7 +15620,13 @@
           "name": "name",
           "type": "string",
           "required": true,
-          "description": "Variable name"
+          "description": "Variable name, or a dotted path such as CharacterMovement.MaxWalkSpeed into the CDO's structs and subobjects"
+        },
+        {
+          "name": "includeChildren",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read the same path off every Blueprint subclass, loading them, with overridden against each one's parent (default false)"
         }
       ]
     },
@@ -16101,19 +17048,25 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "propertyNames",
           "type": "array",
           "required": false,
-          "description": "Only these properties. The Details-panel spelling is accepted",
+          "description": "Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components",
           "items": "string"
         },
         {
@@ -16153,7 +17106,7 @@
           "name": "maxLines",
           "type": "integer",
           "required": false,
-          "description": "How far back into the ring buffer to read (default 100)"
+          "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
         },
         {
           "name": "filter",
@@ -16214,6 +17167,42 @@
     "get_pcg_components": {
       "category": "pcg",
       "params": []
+    },
+    "get_pcg_generation_state": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "This PCG component (default: the actor's first, the one execute regenerates)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
     },
     "get_perceived_actors": {
       "category": "gameplay",
@@ -16633,7 +17622,7 @@
           "name": "assetPath",
           "type": "string",
           "required": true,
-          "description": "SkeletalMesh asset path",
+          "description": "SkeletalMesh, or a Skeleton, asset path",
           "aliases": [
             "path"
           ]
@@ -17077,17 +18066,24 @@
         {
           "name": "filePath",
           "type": "string",
-          "required": true,
-          "description": "Source file on disk",
+          "required": false,
+          "description": "Source FBX on disk; exclusive with filePaths",
           "aliases": [
             "filename"
           ]
         },
         {
+          "name": "filePaths",
+          "type": "array",
+          "required": false,
+          "description": "Batch: up to 200 FBX files imported into one folder with the same settings",
+          "items": "string"
+        },
+        {
           "name": "name",
           "type": "string",
           "required": false,
-          "description": "Asset name (default: the file name)",
+          "description": "Asset name for a single filePath (default: the file name)",
           "aliases": [
             "assetName"
           ]
@@ -17124,6 +18120,19 @@
           "type": "object",
           "required": false,
           "description": "FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "filePath"
+            ],
+            [
+              "filePaths"
+            ]
+          ]
         }
       ]
     },
@@ -17271,13 +18280,69 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported assets (default false)"
+          "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
         },
         {
           "name": "automated",
           "type": "boolean",
           "required": false,
           "description": "Suppress interactive dialogs (default true)"
+        }
+      ]
+    },
+    "import_font": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "filePath",
+          "type": "string",
+          "required": true,
+          "description": "Font file on disk: .ttf, .otf, .ttc or .otc",
+          "aliases": [
+            "filename"
+          ]
+        },
+        {
+          "name": "name",
+          "type": "string",
+          "required": false,
+          "description": "FontFace asset name (default: the file name)",
+          "aliases": [
+            "assetName"
+          ]
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default /Game/Fonts)",
+          "aliases": [
+            "destinationPath"
+          ]
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "When the face exists: skip (default, report it) | error | replace (reimport its bytes)"
+        },
+        {
+          "name": "hinting",
+          "type": "string",
+          "required": false,
+          "description": "Default (default) | Auto | AutoLight | Monochrome | None"
+        },
+        {
+          "name": "loadingPolicy",
+          "type": "string",
+          "required": false,
+          "description": "LazyLoad (default) | Stream | Inline"
+        },
+        {
+          "name": "createFont",
+          "type": "boolean",
+          "required": false,
+          "description": "Also create <name>_Font, a runtime Font whose Default typeface is this face (default false)"
         }
       ]
     },
@@ -17407,15 +18472,148 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "Graph spec: [{name,class,posX,posY,...}]",
-          "items": "object"
+          "description": "Nodes to create. Every node is created or none is",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Your name for the node; connections refer to it, and it becomes the node description"
+            },
+            {
+              "name": "class",
+              "type": "string",
+              "required": true,
+              "description": "Expression class: Multiply, LinearInterpolate, ScalarParameter, TextureSampleParameter2D, MaterialExpressionSine and so on"
+            },
+            {
+              "name": "posX",
+              "type": "number",
+              "required": false,
+              "description": "Graph X position"
+            },
+            {
+              "name": "posY",
+              "type": "number",
+              "required": false,
+              "description": "Graph Y position"
+            },
+            {
+              "name": "parameterName",
+              "type": "string",
+              "required": false,
+              "description": "Parameter name on a parameter node"
+            },
+            {
+              "name": "group",
+              "type": "string",
+              "required": false,
+              "description": "Parameter group"
+            },
+            {
+              "name": "sortPriority",
+              "type": "number",
+              "required": false,
+              "description": "Sort priority within the group"
+            },
+            {
+              "name": "defaultValue",
+              "type": "any",
+              "required": false,
+              "description": "ScalarParameter number, or VectorParameter colour {r,g,b,a} or [r,g,b,a]"
+            },
+            {
+              "name": "value",
+              "type": "any",
+              "required": false,
+              "description": "Constant number, Constant2Vector {x,y}, Constant3Vector/Constant4Vector colour"
+            },
+            {
+              "name": "channels",
+              "type": "object",
+              "required": false,
+              "description": "ComponentMask channels {r,g,b,a} as booleans"
+            },
+            {
+              "name": "texturePath",
+              "type": "string",
+              "required": false,
+              "description": "Texture on a TextureSample, TextureSampleParameter2D or TextureObject node"
+            },
+            {
+              "name": "properties",
+              "type": "object",
+              "required": false,
+              "description": "Any other UPROPERTY on the node by name, e.g. {SamplerType: 'Masks', ConstA: 1}"
+            }
+          ]
+        },
+        {
+          "name": "connections",
+          "type": "array",
+          "required": false,
+          "description": "Node-to-node wires",
+          "items": "object",
+          "fields": [
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node: a name from nodes, or an expression already in the material"
+            },
+            {
+              "name": "fromOutput",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name (RGB, R, G) or index (default 0)"
+            },
+            {
+              "name": "to",
+              "type": "string",
+              "required": true,
+              "description": "Target node, named the same way"
+            },
+            {
+              "name": "toInput",
+              "type": "any",
+              "required": false,
+              "description": "Target input by name (A, B, Alpha, UVs) or index (default 0). A single-input node such as Sine or ComponentMask takes Input or 0"
+            }
+          ]
         },
         {
           "name": "propertyConnections",
           "type": "array",
           "required": false,
-          "description": "[{property,from,outputIndex}]",
-          "items": "object"
+          "description": "Wires into the material's outputs",
+          "items": "object",
+          "fields": [
+            {
+              "name": "property",
+              "type": "string",
+              "required": true,
+              "description": "BaseColor, Metallic, Specular, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest"
+            },
+            {
+              "name": "from",
+              "type": "string",
+              "required": true,
+              "description": "Source node, named as in connections"
+            },
+            {
+              "name": "output",
+              "type": "any",
+              "required": false,
+              "description": "Source output by name or index (default 0)"
+            },
+            {
+              "name": "outputIndex",
+              "type": "integer",
+              "required": false,
+              "description": "Source output index, instead of output"
+            }
+          ]
         }
       ]
     },
@@ -17476,7 +18674,7 @@
           "name": "nodes",
           "type": "array",
           "required": true,
-          "description": "[{name, class, posX?, posY?, settings?}]",
+          "description": "[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]",
           "items": "object"
         },
         {
@@ -17491,6 +18689,20 @@
           "type": "boolean",
           "required": false,
           "description": "Wipe existing user nodes first (default false)"
+        },
+        {
+          "name": "removeNodes",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: node names to remove before importing; a missing name is skipped",
+          "items": "string"
+        },
+        {
+          "name": "removeConnections",
+          "type": "array",
+          "required": false,
+          "description": "Without replace: edges [{from, fromPin, to, toPin}] to cut before importing",
+          "items": "object"
         }
       ]
     },
@@ -18060,13 +19272,19 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "args",
@@ -18078,6 +19296,32 @@
             "stringList",
             "argEntryList",
             "string"
+          ]
+        },
+        {
+          "name": "modify",
+          "type": "object",
+          "required": false,
+          "description": "Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument",
+          "fields": [
+            {
+              "name": "argument",
+              "type": "string",
+              "required": true,
+              "description": "Struct parameter of functionName to fill"
+            },
+            {
+              "name": "getter",
+              "type": "string",
+              "required": true,
+              "description": "Zero-argument UFUNCTION on the same object that returns that struct"
+            },
+            {
+              "name": "patch",
+              "type": "object",
+              "required": false,
+              "description": "Field name or dotted path to structured JSON value, applied to the struct the getter returned"
+            }
           ]
         },
         {
@@ -18133,13 +19377,19 @@
               "name": "subsystemClass",
               "type": "string",
               "required": false,
-              "description": "Subsystem class name or /Script path, with target=subsystem"
+              "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
             },
             {
               "name": "playerIndex",
               "type": "integer",
               "required": false,
-              "description": "Player index for target=playercontroller or playerpawn (default 0)"
+              "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+            },
+            {
+              "name": "propertyPath",
+              "type": "string",
+              "required": false,
+              "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
             },
             {
               "name": "args",
@@ -19837,6 +21087,24 @@
           "type": "boolean",
           "required": false,
           "description": "Include rest-pose transforms (default true)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Bones per page (default every bone)"
+        },
+        {
+          "name": "offset",
+          "type": "number",
+          "required": false,
+          "description": "First bone index of the page (default 0)"
+        },
+        {
+          "name": "includeBones",
+          "type": "boolean",
+          "required": false,
+          "description": "false returns only scaleSummary and boneCount, with no bones (default true)"
         }
       ]
     },
@@ -20116,6 +21384,35 @@
         }
       ]
     },
+    "list_subclasses": {
+      "category": "blueprint",
+      "params": [
+        {
+          "name": "className",
+          "type": "string",
+          "required": true,
+          "description": "Base class: a native name or path such as Character, or a Blueprint asset path"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Only report Blueprints under this content path (default /Game; / for every mount). Parent chains are still followed outside it"
+        },
+        {
+          "name": "includeTransitive",
+          "type": "boolean",
+          "required": false,
+          "description": "Include indirect subclasses (default true); false lists direct children only"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Rows to return (default 2000, max 20000); count stays complete"
+        }
+      ]
+    },
     "list_textures": {
       "category": "asset",
       "params": [
@@ -20301,6 +21598,35 @@
         }
       ]
     },
+    "list_windows": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": false,
+          "description": "Describe only this window, by the id list_windows or list_dialogs reported"
+        },
+        {
+          "name": "maxTexts",
+          "type": "integer",
+          "required": false,
+          "description": "Texts reported per window (default 200)"
+        },
+        {
+          "name": "maxTextChars",
+          "type": "integer",
+          "required": false,
+          "description": "Characters kept per text (default 2000)"
+        },
+        {
+          "name": "maxButtons",
+          "type": "integer",
+          "required": false,
+          "description": "Buttons reported per window (default 200)"
+        }
+      ]
+    },
     "live_coding_compile": {
       "category": "project",
       "params": [
@@ -20385,6 +21711,21 @@
           "type": "string",
           "required": true,
           "description": "Map package to open"
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the open map and its dirty external actor packages before switching (default false)",
+          "aliases": [
+            "saveCurrent"
+          ]
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ],
       "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -21839,6 +23180,18 @@
           "aliases": [
             "path"
           ]
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: save the open map's unsaved packages before switching (default false)"
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ]
     },
@@ -22151,6 +23504,19 @@
               "type": "string",
               "required": false,
               "description": "Actor label"
+            },
+            {
+              "name": "tags",
+              "type": "array",
+              "required": false,
+              "description": "Actor tags to add",
+              "items": "string"
+            },
+            {
+              "name": "parentLabel",
+              "type": "string",
+              "required": false,
+              "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
             }
           ]
         }
@@ -22449,6 +23815,96 @@
         }
       ]
     },
+    "pose_debug_camera": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "required": false,
+          "description": "true (default) ejects the debug camera if needed and poses it; false returns control to the player"
+        },
+        {
+          "name": "location",
+          "type": "vec3",
+          "required": false,
+          "description": "Camera location; omit to keep the current one"
+        },
+        {
+          "name": "rotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Camera rotation; omit to keep the current one"
+        },
+        {
+          "name": "lookAtActorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Aim at this PIE actor's bounds center; wins over rotation"
+        },
+        {
+          "name": "lookAtActorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full path of the PIE actor to aim at. Wins over lookAtActorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose debug camera is used (default 0)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
+    "press_window_button": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "windowId",
+          "type": "integer",
+          "required": true,
+          "description": "Window to press a button on, by the id list_windows reported"
+        },
+        {
+          "name": "buttonLabel",
+          "type": "string",
+          "required": false,
+          "description": "Label of the button to press, matched exactly first, then as a substring; refused when ambiguous"
+        },
+        {
+          "name": "buttonIndex",
+          "type": "number",
+          "required": false,
+          "description": "Index of the button to press, in the order list_windows reports"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "buttonLabel"
+            ],
+            [
+              "buttonIndex"
+            ]
+          ]
+        }
+      ],
+      "contractExempt": "presses a button on an open editor window"
+    },
     "preview_animation": {
       "category": "animation",
       "params": [
@@ -22598,7 +24054,7 @@
           "name": "fields",
           "type": "array",
           "required": false,
-          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health",
+          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData",
           "items": "string"
         },
         {
@@ -22606,6 +24062,13 @@
           "type": "array",
           "required": false,
           "description": "Component UPROPERTY names projected under props.*, at most 32",
+          "items": "string"
+        },
+        {
+          "name": "actorPropertyNames",
+          "type": "array",
+          "required": false,
+          "description": "Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32",
           "items": "string"
         },
         {
@@ -23150,6 +24613,36 @@
           "description": "Graph name or the selector list_graphs reports (default EventGraph)"
         },
         {
+          "name": "transitionGuid",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: read this transition's rule graph, by the guid read_state_machine and add_transition report. Wins over graphName"
+        },
+        {
+          "name": "fromState",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: with toState, read the rule graph of the transition between these states; refused when more than one matches"
+        },
+        {
+          "name": "toState",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: the transition's destination state, with fromState"
+        },
+        {
+          "name": "stateMachineName",
+          "type": "string",
+          "required": false,
+          "description": "AnimBP: narrow fromState and toState to one state machine"
+        },
+        {
+          "name": "includeLinks",
+          "type": "boolean",
+          "required": false,
+          "description": "List what each pin is wired to, as {nodeId, pin} (default false)"
+        },
+        {
           "name": "offset",
           "type": "integer",
           "required": false,
@@ -23258,6 +24751,18 @@
           "required": false,
           "description": "Frames to sample (default: first, middle and last)",
           "items": "number"
+        },
+        {
+          "name": "rotationFormat",
+          "type": "string",
+          "required": false,
+          "description": "euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat"
+        },
+        {
+          "name": "space",
+          "type": "string",
+          "required": false,
+          "description": "local (default) | component, which composes the parent chain"
         }
       ]
     },
@@ -23802,6 +25307,19 @@
           ]
         },
         {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Several MaterialInstance asset paths, read in one call into instances[] (#1183)",
+          "items": "string"
+        },
+        {
+          "name": "overridesOnly",
+          "type": "boolean",
+          "required": false,
+          "description": "Return the parent chain, overrides and static switches without the effective value of every parameter (default false)"
+        },
+        {
           "name": "actorLabel",
           "type": "string",
           "required": false,
@@ -23850,6 +25368,9 @@
           "branches": [
             [
               "assetPath"
+            ],
+            [
+              "assetPaths"
             ],
             [
               "actorLabel"
@@ -23901,6 +25422,48 @@
         }
       ]
     },
+    "read_niagara_sim_cache": {
+      "category": "niagara",
+      "params": [
+        {
+          "name": "simCachePath",
+          "type": "string",
+          "required": true,
+          "description": "simCachePath from capture_niagara_sim_cache, or a NiagaraSimCache asset path"
+        },
+        {
+          "name": "emitterName",
+          "type": "string",
+          "required": false,
+          "description": "Emitter to read (default: the only emitter; required when there are several)"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Attribute names to read. Bare (Position) or qualified (Particles.Position). Omit to list the layout only",
+          "items": "string"
+        },
+        {
+          "name": "frameIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Frame to read (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Values returned per attribute (default 16); min/max/avg always cover every instance"
+        },
+        {
+          "name": "summarize",
+          "type": "boolean",
+          "required": false,
+          "description": "Include per-component min/max/avg (default true)"
+        }
+      ]
+    },
     "read_node_property": {
       "category": "blueprint",
       "params": [
@@ -23935,6 +25498,85 @@
           "description": "Pin or reflected node property name",
           "aliases": [
             "pinName"
+          ]
+        }
+      ]
+    },
+    "read_pcg_generated_output": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "Only this PCG component (default: every PCG component on the actor)"
+        },
+        {
+          "name": "pin",
+          "type": "string",
+          "required": false,
+          "description": "Only data on this output pin"
+        },
+        {
+          "name": "attributes",
+          "type": "array",
+          "required": false,
+          "description": "Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)",
+          "items": "string"
+        },
+        {
+          "name": "offset",
+          "type": "integer",
+          "required": false,
+          "description": "First entry to return (default 0)"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Entries to return per data (default 100, max 10000)"
+        },
+        {
+          "name": "nodeName",
+          "type": "string",
+          "required": false,
+          "description": "Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+)"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": false,
+          "description": "Graph holding nodeName, for a node in a subgraph (default: the component's graph)"
+        },
+        {
+          "name": "includeLocalComponents",
+          "type": "boolean",
+          "required": false,
+          "description": "Also read a partitioned component's local components (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
           ]
         }
       ]
@@ -26043,6 +27685,32 @@
         }
       ]
     },
+    "remove_retarget_pose": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "retargeterPath",
+          "type": "string",
+          "required": true,
+          "description": "Existing IKRetargeter to edit",
+          "aliases": [
+            "assetPath"
+          ]
+        },
+        {
+          "name": "poseName",
+          "type": "string",
+          "required": true,
+          "description": "Retarget pose to remove; the default pose is refused"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "description": "source | target (default target)"
+        }
+      ]
+    },
     "remove_sense": {
       "category": "gameplay",
       "params": [
@@ -26777,6 +28445,38 @@
           "type": "string",
           "required": true,
           "description": "New name"
+        }
+      ]
+    },
+    "rename_retarget_pose": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "retargeterPath",
+          "type": "string",
+          "required": true,
+          "description": "Existing IKRetargeter to edit",
+          "aliases": [
+            "assetPath"
+          ]
+        },
+        {
+          "name": "poseName",
+          "type": "string",
+          "required": true,
+          "description": "Retarget pose to rename; the default pose is refused"
+        },
+        {
+          "name": "newName",
+          "type": "string",
+          "required": true,
+          "description": "New pose name, not already taken on that side"
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": false,
+          "description": "source | target (default target)"
         }
       ]
     },
@@ -27840,7 +29540,19 @@
           "name": "entryPoint",
           "type": "string",
           "required": false,
-          "description": "Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result"
+          "description": "Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result"
+        },
+        {
+          "name": "runName",
+          "type": "string",
+          "required": false,
+          "description": "Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire"
+        },
+        {
+          "name": "asMain",
+          "type": "boolean",
+          "required": false,
+          "description": "Shorthand for runName __main__ (default false)"
         },
         {
           "name": "args",
@@ -28051,6 +29763,12 @@
               "description": "Third axis value (default 0)"
             }
           ]
+        },
+        {
+          "name": "rotationFormat",
+          "type": "string",
+          "required": false,
+          "description": "euler (default) | quaternion | both, which adds rotationQuat"
         }
       ]
     },
@@ -29899,7 +31617,7 @@
           "name": "propertyName",
           "type": "string",
           "required": true,
-          "description": "Property name"
+          "description": "Property, or a dotted path into the CDO's structs, array elements and own subobjects, e.g. CharacterMovement.bUseRVOAvoidance or CollisionCylinder.CapsuleRadius"
         },
         {
           "name": "value",
@@ -30384,6 +32102,26 @@
         }
       ],
       "contractExempt": "writes an INI file under the project's Config folder"
+    },
+    "set_control_rig_preview_mesh": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Control Rig Blueprint asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "skeletalMeshPath",
+          "type": "string",
+          "required": true,
+          "description": "SkeletalMesh to preview the rig on"
+        }
+      ]
     },
     "set_current_edit_level": {
       "category": "level",
@@ -33026,6 +34764,12 @@
           "aliases": [
             "defaultValue"
           ]
+        },
+        {
+          "name": "deferCompile",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
         }
       ]
     },
@@ -33060,13 +34804,19 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "postEditChange",
@@ -33102,6 +34852,158 @@
           "type": "boolean",
           "required": false,
           "description": "bOnlyRelevantToOwner (default false)"
+        }
+      ]
+    },
+    "set_pcg_graph_instance_overrides": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraphInstance asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": true,
+          "description": "{parameterName: value}; null clears that override"
+        }
+      ]
+    },
+    "set_pcg_graph_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "graphParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameters to add or change, by name",
+          "items": "object",
+          "fields": [
+            {
+              "name": "name",
+              "type": "string",
+              "required": true,
+              "description": "Parameter name"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one"
+            },
+            {
+              "name": "typeObject",
+              "type": "string",
+              "required": false,
+              "description": "Class for object/class (default Object), the enum for enum, the struct for struct"
+            },
+            {
+              "name": "default",
+              "type": "any",
+              "required": false,
+              "description": "Default value, JSON or UE export text"
+            }
+          ]
+        },
+        {
+          "name": "removeParameters",
+          "type": "array",
+          "required": false,
+          "description": "Parameter names to remove",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "graphParameters"
+            ],
+            [
+              "removeParameters"
+            ]
+          ]
+        }
+      ]
+    },
+    "set_pcg_graph_pins": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "side",
+          "type": "string",
+          "required": true,
+          "description": "input | output: the graph node whose pins change"
+        },
+        {
+          "name": "pins",
+          "type": "array",
+          "required": true,
+          "description": "Pins matched by label",
+          "items": "object",
+          "fields": [
+            {
+              "name": "label",
+              "type": "string",
+              "required": true,
+              "description": "Pin label; edges are wired by it"
+            },
+            {
+              "name": "type",
+              "type": "string",
+              "required": false,
+              "description": "EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"
+            },
+            {
+              "name": "tooltip",
+              "type": "string",
+              "required": false,
+              "description": "Pin tooltip"
+            },
+            {
+              "name": "allowMultipleData",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one data (default true)"
+            },
+            {
+              "name": "allowMultipleConnections",
+              "type": "boolean",
+              "required": false,
+              "description": "Accept more than one edge (default true)"
+            }
+          ]
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"
         }
       ]
     },
@@ -33263,6 +35165,41 @@
         }
       ]
     },
+    "set_pie_paused": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "paused",
+          "type": "boolean",
+          "required": true,
+          "description": "true pauses, false resumes"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "required": false,
+          "description": "game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
     "set_pie_time_scale": {
       "category": "editor",
       "params": [
@@ -33271,6 +35208,60 @@
           "type": "number",
           "required": true,
           "description": "Time-scale factor, greater than 0 (e.g. 500)"
+        }
+      ]
+    },
+    "set_pie_view_target": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Player whose view target is set (default 0)"
+        },
+        {
+          "name": "blendTime",
+          "type": "number",
+          "required": false,
+          "description": "Seconds to blend from the current view (default 0, a cut)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
         }
       ]
     },
@@ -33995,7 +35986,7 @@
           "name": "properties",
           "type": "object",
           "required": true,
-          "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}"
+          "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call"
         },
         {
           "name": "resolveFromMontages",
@@ -35412,6 +37403,12 @@
           "type": "any",
           "required": true,
           "description": "New default value, as a string"
+        },
+        {
+          "name": "propagateToInstances",
+          "type": "boolean",
+          "required": false,
+          "description": "Also write the new default onto loaded instances (placed actors included) still holding the old one; overriding instances are left alone. Level packages are dirtied, not saved (default false)"
         }
       ]
     },
@@ -36905,25 +38902,25 @@
           "name": "scaleX",
           "type": "number",
           "required": false,
-          "description": "X scale of the spawned component (default 1)"
+          "description": "X scale of the spawned host actor (default 1)"
         },
         {
           "name": "scaleY",
           "type": "number",
           "required": false,
-          "description": "Y scale of the spawned component (default 1)"
+          "description": "Y scale of the spawned host actor (default 1)"
         },
         {
           "name": "scaleZ",
           "type": "number",
           "required": false,
-          "description": "Z scale of the spawned component (default 1)"
+          "description": "Z scale of the spawned host actor (default 1)"
         },
         {
           "name": "autoDestroy",
           "type": "boolean",
           "required": false,
-          "description": "Destroy the component once the system finishes (default false)"
+          "description": "Destroy the spawned host actor once the system finishes (default false)"
         }
       ]
     },
@@ -37474,6 +39471,112 @@
           "type": "string",
           "required": false,
           "description": "Runtime world scope: auto (default) | pie | editor"
+        }
+      ]
+    },
+    "transform_bone_tracks": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": true,
+          "description": "AnimSequences to rewrite, at most 500",
+          "items": "string"
+        },
+        {
+          "name": "trackOps",
+          "type": "array",
+          "required": true,
+          "description": "Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written",
+          "items": "object",
+          "fields": [
+            {
+              "name": "op",
+              "type": "string",
+              "required": true,
+              "description": "rotate | offset | copy_from_donor | reference_delta"
+            },
+            {
+              "name": "bones",
+              "type": "array",
+              "required": false,
+              "description": "Bones the op writes; required except for reference_delta",
+              "items": "string"
+            },
+            {
+              "name": "rotation",
+              "type": "object",
+              "required": false,
+              "description": "rotate: {x,y,z,w} or {pitch,yaw,roll}"
+            },
+            {
+              "name": "order",
+              "type": "string",
+              "required": false,
+              "description": "rotate: pre (default) multiplies in parent space, post in bone space"
+            },
+            {
+              "name": "rotateTranslation",
+              "type": "boolean",
+              "required": false,
+              "description": "rotate with order pre: also rotate each key's translation (default false)"
+            },
+            {
+              "name": "translation",
+              "type": "object",
+              "required": false,
+              "description": "offset: {x,y,z} added to every key"
+            },
+            {
+              "name": "donorPath",
+              "type": "string",
+              "required": false,
+              "description": "copy_from_donor (required) and reference_delta: AnimSequence to read the pose from"
+            },
+            {
+              "name": "donorFrame",
+              "type": "integer",
+              "required": false,
+              "description": "Donor frame (default 0); exclusive with donorTime"
+            },
+            {
+              "name": "donorTime",
+              "type": "number",
+              "required": false,
+              "description": "Donor time in seconds; exclusive with donorFrame"
+            },
+            {
+              "name": "keepTranslation",
+              "type": "boolean",
+              "required": false,
+              "description": "copy_from_donor: keep each key's own translation (default true)"
+            },
+            {
+              "name": "keepScale",
+              "type": "boolean",
+              "required": false,
+              "description": "copy_from_donor: keep each key's own scale (default true)"
+            },
+            {
+              "name": "sourceBone",
+              "type": "string",
+              "required": false,
+              "description": "reference_delta: bone whose rotation relative to its reference pose is applied"
+            },
+            {
+              "name": "targetBone",
+              "type": "string",
+              "required": false,
+              "description": "reference_delta: bone set to its reference pose times that delta"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save each sequence (default true)"
         }
       ]
     },

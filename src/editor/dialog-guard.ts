@@ -69,6 +69,9 @@ export interface BlockingDialog {
 const MODAL_SAFE_METHODS = new Set([
   "list_dialogs",
   "respond_to_dialog",
+  "list_windows",
+  "press_window_button",
+  "close_window",
   "get_dialog_policy",
   "set_dialog_policy",
   "clear_dialog_policy",
@@ -94,6 +97,9 @@ export function isModalSafeMethod(method: string): boolean {
 const BRIDGE_ALLOWED_WHILE_BLOCKED = new Set([
   "list_dialogs",
   "respond_to_dialog",
+  "list_windows",
+  "press_window_button",
+  "close_window",
   "get_dialog_policy",
   "get_engine_state",
   "get_bridge_capabilities",
@@ -105,6 +111,9 @@ const ACTIONS_ALLOWED_WHILE_BLOCKED = new Set([
   // Read the dialog and answer it.
   "editor.list_dialogs",
   "editor.respond_to_dialog",
+  "editor.list_windows",
+  "editor.press_window_button",
+  "editor.close_window",
   "editor.get_dialog_policy",
   // Work out what is going on.
   "editor.get_engine_state",
@@ -120,7 +129,7 @@ const ACTIONS_ALLOWED_WHILE_BLOCKED = new Set([
  * defer the answer is the person's to give, and a press arriving on the action
  * route is an agent giving it instead.
  */
-const PRESS_ACTIONS = new Set(["editor.respond_to_dialog"]);
+const PRESS_ACTIONS = new Set(["editor.respond_to_dialog", "editor.press_window_button", "editor.close_window"]);
 
 /**
  * A dialog's message flattened onto one line, for a client that shows one.

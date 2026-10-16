@@ -10,6 +10,7 @@ export const widgetTool: ToolDef = categoryTool(
   "UMG Widget Blueprints, Editor Utility Widgets, and Editor Utility Blueprints. One parameter contract across every action (#798): the asset is always `assetPath`, an Unreal package path such as `/Game/UI/WBP_Example`; a widget inside the tree is always `widgetName`; its parent panel is always `parentWidgetName`; arguments for any wrapped `epic_*` action go in `input`, and a top-level `assetPath` is folded into the asset reference of the wrapped tool for you. A `.uasset` suffix, an object suffix (`.WBP_Example`), backslashes, and the legacy `path` / `widgetBlueprintPath` / `widgetBlueprint` spellings are accepted and normalized. Create actions take `assetPath` too; `name` plus `packagePath` remains valid and is composed into it. See [Widget parameter contract](widget-parameters.md).",
   {
     read_tree:         specBp("read", "Read widget hierarchy.", "read_widget_tree"),
+    check_structure:   specBp("read", "Check the object ownership UWidgetBlueprint::ValidateGeneratedClass asserts, the usual suspect when a Widget Blueprint hangs or crashes the editor on compile or load: the designer WidgetTree is outered to the blueprint and every widget in it to that tree, and the generated class's archetype tree (the _C:WidgetTree prototype) is outered to the class and every widget in it to that archetype. Every object comes back with its path, expectedOuter, actualOuter and pass, plus unreachableWidgets (owned by the tree but in no hierarchy), and a pass/failures summary (#1350).", "check_widget_structure"),
     get_details:       specBp("read", "Inspect widget (curated subset).", "get_widget_details"),
     get_properties:    specBp("read", "Full reflected property dump for a widget - every UPROPERTY (RenderOpacity, Visibility, ColorAndOpacity, Border padding/colors, Image brush TintColor/ImageSize, fonts, etc.) plus the slot block, for diagnosing visual bugs get_details omits. Pass includeSubtree to also dump children (#547).", "get_widget_properties"),
     list_bindings:     specBp("read", "List designer property bindings on a WidgetBlueprint (the UE 5.7 Python API keeps them protected). Returns {widgetName, propertyName, functionName, bindingType}. Optional filterWidgetName/filterProperty (#530).", "list_widget_bindings"),
@@ -63,6 +64,10 @@ export const widgetTool: ToolDef = categoryTool(
     // are idempotent by assetPath + widgetName, so a retry is safe.
     add_widget: {
       ...specBp("mutate", "Add widget to widget tree. Idempotent by assetPath + widgetName: passing widgetName makes a retry safe, and the result carries requestedWidgetName/persistedWidgetName/renamed plus compileStatus.", "add_widget"),
+      timeoutMs: 120_000,
+    },
+    build_tree: {
+      ...specBp("mutate", "Build a nested widget subtree in one call (#1300). tree is one node {widgetClass, widgetName?, properties?, children?}, children nesting the same shape; properties take set_widget_property names, slot.* included, with JSON values (a string, number or bool goes through set_widget_property's routes, an object or array through the JSON setter). The whole spec is validated (classes, panels, unique and unused names) before anything is built, any failure undoes every widget it built, and the blueprint is compiled and saved once. Lands under parentWidgetName, else the root panel, else becomes the root. The one rollback is remove_widget on the subtree root, which removes everything under it. Wrap several siblings in a panel node.", "build_tree"),
       timeoutMs: 120_000,
     },
     remove_widget: {

@@ -45,53 +45,11 @@ namespace
 		return Sub ? Sub->GetPathName() : FString();
 	}
 
-	TSharedPtr<FJsonValue> MCPSubgraphParamValue(const FProperty* Property, const void* ValueAddr)
-	{
-		if (const FBoolProperty* Bool = CastField<FBoolProperty>(Property)) return MakeShared<FJsonValueBoolean>(Bool->GetPropertyValue(ValueAddr));
-		if (const FNumericProperty* Number = CastField<FNumericProperty>(Property))
-		{
-			if (!Number->IsEnum())
-			{
-				return MakeShared<FJsonValueNumber>(Number->IsFloatingPoint()
-					? Number->GetFloatingPointPropertyValue(ValueAddr)
-					: static_cast<double>(Number->GetSignedIntPropertyValue(ValueAddr)));
-			}
-		}
-		FString Text;
-		Property->ExportTextItem_Direct(Text, ValueAddr, nullptr, nullptr, PPF_None);
-		return MakeShared<FJsonValueString>(Text);
-	}
-
 	/** Every user parameter of the node's graph instance: name, type, current value, and whether this node overrides it. */
 	TArray<TSharedPtr<FJsonValue>> MCPDescribeSubgraphParameters(UPCGSubgraphSettings* Settings)
 	{
-		TArray<TSharedPtr<FJsonValue>> Out;
 		UPCGGraphInstance* Instance = Settings ? Settings->SubgraphInstance.Get() : nullptr;
-		const FInstancedPropertyBag* Bag = Instance ? Instance->GetUserParametersStruct() : nullptr;
-		const UPropertyBag* BagStruct = Bag ? Bag->GetPropertyBagStruct() : nullptr;
-		if (!BagStruct) return Out;
-		const void* Memory = Bag->GetValue().GetMemory();
-		for (const FPropertyBagPropertyDesc& Desc : BagStruct->GetPropertyDescs())
-		{
-			if (!Desc.CachedProperty || !Memory) continue;
-			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
-			Entry->SetStringField(TEXT("name"), Desc.Name.ToString());
-			Entry->SetStringField(TEXT("type"), Desc.CachedProperty->GetCPPType());
-			Entry->SetField(TEXT("value"), MCPSubgraphParamValue(Desc.CachedProperty, Desc.CachedProperty->ContainerPtrToValuePtr<void>(Memory)));
-			Entry->SetBoolField(TEXT("overridden"), Instance->IsPropertyOverridden(Desc.CachedProperty));
-			Out.Add(MakeShared<FJsonValueObject>(Entry));
-		}
-		return Out;
-	}
-
-	TArray<TSharedPtr<FJsonValue>> MCPPinLabels(const TArray<TObjectPtr<UPCGPin>>& Pins)
-	{
-		TArray<TSharedPtr<FJsonValue>> Out;
-		for (const UPCGPin* Pin : Pins)
-		{
-			if (Pin) Out.Add(MakeShared<FJsonValueString>(Pin->Properties.Label.ToString()));
-		}
-		return Out;
+		return Instance ? MCPPCG::DescribeParameterBag(Instance->GetUserParametersStruct(), Instance) : TArray<TSharedPtr<FJsonValue>>();
 	}
 
 	void MCPCommitSubgraphEdit(const FMCPSubgraphNode& Target, const TSharedPtr<FJsonObject>& Result)
@@ -106,70 +64,10 @@ namespace
 	bool MCPApplySubgraphParameters(const FMCPSubgraphNode& Target, const TSharedPtr<FJsonObject>& Values,
 		TSharedPtr<FJsonObject>& PreviousValues, FString& Error)
 	{
-		UPCGGraphInstance* Instance = Target.Settings->SubgraphInstance.Get();
-		// The mutable accessor is protected; the instance owns this bag, and UpdatePropertyOverride below is its notification.
-		FInstancedPropertyBag* Bag = Instance ? const_cast<FInstancedPropertyBag*>(Instance->GetUserParametersStruct()) : nullptr;
-		const UPropertyBag* BagStruct = Bag ? Bag->GetPropertyBagStruct() : nullptr;
-		if (!BagStruct)
+		if (!MCPPCG::ApplyInstanceOverrides(Target.Settings->SubgraphInstance.Get(), Values, { Target.Graph, Target.Settings }, PreviousValues, Error))
 		{
-			Error = TEXT("The node's subgraph has no user parameters. Assign one with set_subgraph first.");
+			Error += TEXT(" set_subgraph lists the parameters.");
 			return false;
-		}
-
-		// Every value is written to a scratch copy first, so a bad entry refuses the call with nothing changed.
-		FInstancedPropertyBag Scratch = *Bag;
-		TArray<FString> Problems;
-		struct FWrite { const FPropertyBagPropertyDesc* Desc; bool bClear; };
-		TArray<FWrite> Writes;
-		for (const auto& Pair : Values->Values)
-		{
-			const FString Name(*Pair.Key);
-			const FPropertyBagPropertyDesc* Desc = BagStruct->FindPropertyDescByName(FName(*Name));
-			if (!Desc || !Desc->CachedProperty)
-			{
-				Problems.Add(FString::Printf(TEXT("%s is not a parameter of this subgraph"), *Name));
-				continue;
-			}
-			const bool bClear = !Pair.Value.IsValid() || Pair.Value->IsNull();
-			if (!bClear)
-			{
-				FString ValueError;
-				void* Addr = Desc->CachedProperty->ContainerPtrToValuePtr<void>(Scratch.GetMutableValue().GetMemory());
-				if (!MCPJsonProperty::SetJsonOnProperty(const_cast<FProperty*>(Desc->CachedProperty), Addr, Pair.Value, ValueError))
-				{
-					Problems.Add(FString::Printf(TEXT("%s: %s"), *Name, *ValueError));
-					continue;
-				}
-			}
-			Writes.Add({ Desc, bClear });
-		}
-		if (Problems.Num() > 0)
-		{
-			Error = FString::Printf(TEXT("Nothing was changed: %s. set_subgraph lists the parameters."), *FString::Join(Problems, TEXT("; ")));
-			return false;
-		}
-
-		PreviousValues = MakeShared<FJsonObject>();
-		Target.Graph->Modify();
-		Target.Settings->Modify();
-		Instance->Modify();
-		const void* Live = Bag->GetValue().GetMemory();
-		for (const FWrite& W : Writes)
-		{
-			const FProperty* Prop = W.Desc->CachedProperty;
-			PreviousValues->SetField(W.Desc->Name.ToString(), Instance->IsPropertyOverridden(Prop)
-				? MCPSubgraphParamValue(Prop, Prop->ContainerPtrToValuePtr<void>(Live))
-				: MakeShared<FJsonValueNull>());
-		}
-		for (const FWrite& W : Writes)
-		{
-			const FProperty* Prop = W.Desc->CachedProperty;
-			if (!W.bClear)
-			{
-				Prop->CopyCompleteValue(Prop->ContainerPtrToValuePtr<void>(Bag->GetMutableValue().GetMemory()),
-					Prop->ContainerPtrToValuePtr<void>(Scratch.GetValue().GetMemory()));
-			}
-			Instance->UpdatePropertyOverride(Prop, !W.bClear);
 		}
 		return true;
 	}
@@ -224,8 +122,8 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetSubgraph(const TSharedPtr<FJsonObject>& 
 	}
 	Result->SetStringField(TEXT("subgraph"), Next);
 	Result->SetStringField(TEXT("nodeTitle"), Target.Node->GetNodeTitle(EPCGNodeTitleType::ListView).ToString());
-	Result->SetArrayField(TEXT("inputPins"), MCPPinLabels(Target.Node->GetInputPins()));
-	Result->SetArrayField(TEXT("outputPins"), MCPPinLabels(Target.Node->GetOutputPins()));
+	Result->SetArrayField(TEXT("inputPins"), MCPPCG::PinLabelsJson(Target.Node->GetInputPins()));
+	Result->SetArrayField(TEXT("outputPins"), MCPPCG::PinLabelsJson(Target.Node->GetOutputPins()));
 	Result->SetArrayField(TEXT("parameters"), MCPDescribeSubgraphParameters(Target.Settings));
 	return MCPResult(Result);
 }

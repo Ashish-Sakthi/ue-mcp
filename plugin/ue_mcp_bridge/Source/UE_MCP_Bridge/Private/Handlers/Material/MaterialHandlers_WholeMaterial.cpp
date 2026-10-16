@@ -7,6 +7,7 @@
 #include "UE_MCP_BridgeModule.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
+#include "HandlerJsonProperty.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceConstant.h"
@@ -20,6 +21,9 @@
 #include "Materials/MaterialExpressionVectorParameter.h"
 #include "Materials/MaterialExpressionAdd.h"
 #include "Materials/MaterialExpressionMultiply.h"
+#include "Materials/MaterialExpressionCustomOutput.h"
+#include "Materials/MaterialExpressionNamedReroute.h"
+#include "MaterialEditingLibrary.h"
 #include "Factories/MaterialFactoryNew.h"
 #include "AssetToolsModule.h"
 #include "IAssetTools.h"
@@ -94,44 +98,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ValidateMaterial(const TSharedPtr<FJso
 
 	TArray<TSharedPtr<FJsonValue>> Issues;
 
-	// Check every expression for broken refs and unused orphans.
-	TSet<UMaterialExpression*> Referenced;
-	auto MarkRef = [&](UMaterialExpression* Expr) { if (Expr) Referenced.Add(Expr); };
-
-	// Walk material property inputs (reachable roots)
-	for (int32 PropIdx = 0; PropIdx < MP_MAX; ++PropIdx)
-	{
-		FExpressionInput* In = Material->GetExpressionInputForProperty((EMaterialProperty)PropIdx);
-		if (In && In->Expression) MarkRef(In->Expression);
-	}
-
-	// Flood-fill from referenced through their inputs.
-	TArray<UMaterialExpression*> Stack = Referenced.Array();
-	while (Stack.Num() > 0)
-	{
-		UMaterialExpression* Expr = Stack.Pop();
-#if UE_MCP_HAS_5_5_API
-		for (FExpressionInputIterator It{ Expr }; It; ++It)
-		{
-			if (It->Expression && !Referenced.Contains(It->Expression))
-			{
-				Referenced.Add(It->Expression);
-				Stack.Add(It->Expression);
-			}
-		}
-#else
-		// FExpressionInputIterator was added in 5.5; on 5.4 use the legacy GetInput(i) loop.
-		for (int32 InputIdx = 0, InputCount = Expr->GetInputs().Num(); InputIdx < InputCount; ++InputIdx)
-		{
-			FExpressionInput* In = Expr->GetInput(InputIdx);
-			if (In && In->Expression && !Referenced.Contains(In->Expression))
-			{
-				Referenced.Add(In->Expression);
-				Stack.Add(In->Expression);
-			}
-		}
-#endif
-	}
+	const TSet<UMaterialExpression*> Referenced = CollectReachableExpressions(Material);
 
 	auto AllExpressions = Material->GetExpressions();
 	for (UMaterialExpression* Expr : AllExpressions)
@@ -196,6 +163,119 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ValidateMaterial(const TSharedPtr<FJso
 	Result->SetNumberField(TEXT("reachableCount"), Referenced.Num());
 	Result->SetArrayField(TEXT("issues"), Issues);
 	Result->SetBoolField(TEXT("valid"), Issues.Num() == 0);
+	return MCPResult(Result);
+}
+
+
+TSet<UMaterialExpression*> FMaterialHandlers::CollectReachableExpressions(UMaterial* Material)
+{
+	TSet<UMaterialExpression*> Referenced;
+	if (!Material) return Referenced;
+
+	// Roots: every material property input, plus custom output nodes (RVT
+	// output, vertex interpolators' outputs and the like) that feed the
+	// compile without a property wire.
+	TArray<UMaterialExpression*> Stack;
+	for (int32 PropIdx = 0; PropIdx < MP_MAX; ++PropIdx)
+	{
+		FExpressionInput* In = Material->GetExpressionInputForProperty((EMaterialProperty)PropIdx);
+		if (In && In->Expression && !Referenced.Contains(In->Expression))
+		{
+			Referenced.Add(In->Expression);
+			Stack.Add(In->Expression);
+		}
+	}
+	for (UMaterialExpression* Expr : Material->GetExpressions())
+	{
+		if (Expr && Expr->IsA<UMaterialExpressionCustomOutput>() && !Referenced.Contains(Expr))
+		{
+			Referenced.Add(Expr);
+			Stack.Add(Expr);
+		}
+	}
+
+	auto Visit = [&Referenced, &Stack](UMaterialExpression* Expr)
+	{
+		if (Expr && !Referenced.Contains(Expr))
+		{
+			Referenced.Add(Expr);
+			Stack.Add(Expr);
+		}
+	};
+	while (Stack.Num() > 0)
+	{
+		UMaterialExpression* Expr = Stack.Pop();
+		// A named reroute usage reads its declaration by reference, not by wire.
+		if (UMaterialExpressionNamedRerouteUsage* Usage = Cast<UMaterialExpressionNamedRerouteUsage>(Expr))
+		{
+			Visit(Usage->Declaration.Get());
+		}
+#if UE_MCP_HAS_5_5_API
+		for (FExpressionInputIterator It{ Expr }; It; ++It)
+		{
+			Visit(It->Expression);
+		}
+#else
+		for (int32 InputIdx = 0, InputCount = Expr->GetInputs().Num(); InputIdx < InputCount; ++InputIdx)
+		{
+			FExpressionInput* In = Expr->GetInput(InputIdx);
+			if (In) Visit(In->Expression);
+		}
+#endif
+	}
+	return Referenced;
+}
+
+
+TSharedPtr<FJsonValue> FMaterialHandlers::DeleteOrphanExpressions(const TSharedPtr<FJsonObject>& Params)
+{
+	FString AssetPath;
+	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
+	const bool bDryRun = OptionalBool(Params, TEXT("dryRun"), false);
+
+	UMaterial* Material = LoadMaterialFromPath(AssetPath);
+	if (!Material) return MCPError(FString::Printf(TEXT("Material not found: %s"), *AssetPath));
+
+	const TSet<UMaterialExpression*> Reachable = CollectReachableExpressions(Material);
+	TArray<UMaterialExpression*> Orphans;
+	TArray<TSharedPtr<FJsonValue>> OrphanJson;
+	for (UMaterialExpression* Expr : Material->GetExpressions())
+	{
+		if (!Expr || Reachable.Contains(Expr)) continue;
+		Orphans.Add(Expr);
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("expression"), Expr->GetName());
+		Row->SetStringField(TEXT("class"), Expr->GetClass()->GetName());
+		if (!Expr->Desc.IsEmpty()) Row->SetStringField(TEXT("description"), Expr->Desc);
+		OrphanJson.Add(MakeShared<FJsonValueObject>(Row));
+	}
+
+	TSharedPtr<FJsonObject> Result = MCPSuccess();
+	Result->SetStringField(TEXT("assetPath"), Material->GetPathName());
+	Result->SetArrayField(TEXT("orphans"), OrphanJson);
+	Result->SetNumberField(TEXT("orphanCount"), Orphans.Num());
+	Result->SetBoolField(TEXT("dryRun"), bDryRun);
+
+	if (bDryRun || Orphans.Num() == 0)
+	{
+		Result->SetNumberField(TEXT("deletedCount"), 0);
+		if (Orphans.Num() == 0) Result->SetBoolField(TEXT("unchanged"), true);
+		return MCPResult(Result);
+	}
+
+	for (UMaterialExpression* Expr : Orphans)
+	{
+		UMaterialEditingLibrary::DeleteMaterialExpression(Material, Expr);
+	}
+	UMaterialEditingLibrary::RecompileMaterial(Material);
+	Material->MarkPackageDirty();
+	FString SaveError;
+	const bool bSaved = SaveAssetPackageChecked(Material, SaveError);
+	MCPNoteSaveOutcome(Result, Material->GetPathName(), bSaved, SaveError);
+	MCPSetUpdated(Result);
+	Result->SetNumberField(TEXT("deletedCount"), Orphans.Num());
+	Result->SetNumberField(TEXT("expressionCount"), Material->GetExpressions().Num());
+	MCPSetNoRollback(Result, TEXT("Deleted expressions are not recorded for replay; dryRun=true previews the list, and an editor undo step restores them."));
 	return MCPResult(Result);
 }
 
@@ -301,9 +381,28 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ExportMaterialGraph(const TSharedPtr<F
 		}
 	}
 
+	// Node-to-node wires in build_material_graph's connections shape, so an export imports back.
+	TArray<TSharedPtr<FJsonValue>> WireArr;
+	for (UMaterialExpression* Expr : AllExpressions)
+	{
+		if (!Expr) continue;
+		for (int32 InputIdx = 0; Expr->GetInput(InputIdx); ++InputIdx)
+		{
+			const FExpressionInput* In = Expr->GetInput(InputIdx);
+			if (!In->Expression) continue;
+			TSharedPtr<FJsonObject> W = MakeShared<FJsonObject>();
+			W->SetStringField(TEXT("from"), In->Expression->GetName());
+			W->SetNumberField(TEXT("fromOutput"), In->OutputIndex);
+			W->SetStringField(TEXT("to"), Expr->GetName());
+			W->SetNumberField(TEXT("toInput"), InputIdx);
+			WireArr.Add(MakeShared<FJsonValueObject>(W));
+		}
+	}
+
 	TSharedPtr<FJsonObject> Result = MCPSuccess();
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetArrayField(TEXT("nodes"), NodesArr);
+	Result->SetArrayField(TEXT("connections"), WireArr);
 	Result->SetArrayField(TEXT("propertyConnections"), PropArr);
 	return MCPResult(Result);
 }
@@ -347,78 +446,188 @@ TSharedPtr<FJsonValue> FMaterialHandlers::BuildMaterialGraph(const TSharedPtr<FJ
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
 	const TArray<TSharedPtr<FJsonValue>>* NodesArr = nullptr;
-	if (!TryGetArrayParam(Params, TEXT("nodes"), NodesArr))
+	if (!TryGetArrayParam(Params, TEXT("nodes"), NodesArr) || !NodesArr)
 	{
 		return MCPError(TEXT("Missing 'nodes' array"));
 	}
 	// Read before anything can fail (#1057).
 	const TArray<TSharedPtr<FJsonValue>>* PropArr = nullptr;
 	const bool bHasPropertyConnections = TryGetArrayParam(Params, TEXT("propertyConnections"), PropArr) && PropArr;
+	const TArray<TSharedPtr<FJsonValue>>* ConnArr = nullptr;
+	const bool bHasConnections = TryGetArrayParam(Params, TEXT("connections"), ConnArr) && ConnArr;
 
 	UMaterial* Material = LoadMaterialFromPath(AssetPath);
 	if (!Material) return MCPError(FString::Printf(TEXT("Material not found: %s"), *AssetPath));
 
-	TMap<FString, UMaterialExpression*> ByName;
-
-	auto SpawnExpression = [&](const FString& ClassName) -> UMaterialExpression*
-	{
-		UClass* Cls = FindObject<UClass>(nullptr, *FString::Printf(TEXT("/Script/Engine.%s"), *ClassName));
-		if (!Cls) Cls = MCPResolveClassOfType(ClassName, UMaterialExpression::StaticClass());
-		if (!Cls || !Cls->IsChildOf(UMaterialExpression::StaticClass())) return nullptr;
-		UMaterialExpression* Expr = NewObject<UMaterialExpression>(Material, Cls);
-		Material->GetExpressionCollection().AddExpression(Expr);
-		return Expr;
-	};
-
-	int32 Created = 0;
-	TArray<TSharedPtr<FJsonValue>> CreatedExpressionNames;
-	for (const TSharedPtr<FJsonValue>& V : *NodesArr)
+	// Preflight every node and property name, so a typo fails before the graph changes.
+	struct FNodeSpec { FString Name; UClass* Class; TSharedPtr<FJsonObject> Obj; };
+	TArray<FNodeSpec> Specs;
+	TSet<FString> SpecNames;
+	for (int32 i = 0; i < NodesArr->Num(); ++i)
 	{
 		const TSharedPtr<FJsonObject>* NodeObj = nullptr;
-		if (!V->TryGetObject(NodeObj)) continue;
-		FString Name = (*NodeObj)->GetStringField(TEXT("name"));
-		FString Class = (*NodeObj)->GetStringField(TEXT("class"));
-		UMaterialExpression* Expr = SpawnExpression(Class);
-		if (!Expr) continue;
-		Expr->MaterialExpressionEditorX = (*NodeObj)->GetNumberField(TEXT("posX"));
-		Expr->MaterialExpressionEditorY = (*NodeObj)->GetNumberField(TEXT("posY"));
-		ByName.Add(Name, Expr);
-		CreatedExpressionNames.Add(MakeShared<FJsonValueString>(Expr->GetName()));
-		++Created;
-
-		// Apply literal values where we can.
-		double NumVal = 0.0;
-		if (UMaterialExpressionConstant* C = Cast<UMaterialExpressionConstant>(Expr))
+		if (!(*NodesArr)[i].IsValid() || !(*NodesArr)[i]->TryGetObject(NodeObj) || !NodeObj)
 		{
-			if ((*NodeObj)->TryGetNumberField(TEXT("value"), NumVal)) C->R = (float)NumVal;
+			return MCPError(FString::Printf(TEXT("nodes[%d] is not an object"), i));
 		}
-		else if (UMaterialExpressionScalarParameter* SP = Cast<UMaterialExpressionScalarParameter>(Expr))
+		FString Name, ClassName;
+		(*NodeObj)->TryGetStringField(TEXT("name"), Name);
+		(*NodeObj)->TryGetStringField(TEXT("class"), ClassName);
+		if (Name.IsEmpty() || ClassName.IsEmpty())
 		{
-			FString ParamName;
-			if ((*NodeObj)->TryGetStringField(TEXT("parameterName"), ParamName)) SP->ParameterName = FName(*ParamName);
-			if ((*NodeObj)->TryGetNumberField(TEXT("defaultValue"), NumVal)) SP->DefaultValue = (float)NumVal;
+			return MCPError(FString::Printf(TEXT("nodes[%d] needs name and class"), i));
+		}
+		if (SpecNames.Contains(Name))
+		{
+			return MCPError(FString::Printf(TEXT("nodes[%d]: duplicate node name '%s'"), i, *Name));
+		}
+		UClass* Cls = ResolveExpressionClass(ClassName);
+		if (!Cls)
+		{
+			return MCPError(FString::Printf(TEXT("nodes[%d] '%s': unknown expression class '%s' (list_expression_types lists them)"), i, *Name, *ClassName));
+		}
+		SpecNames.Add(Name);
+		Specs.Add({ Name, Cls, *NodeObj });
+	}
+	if (bHasPropertyConnections)
+	{
+		for (int32 i = 0; i < PropArr->Num(); ++i)
+		{
+			const TSharedPtr<FJsonObject>* ConnObj = nullptr;
+			FString PropName;
+			EMaterialProperty Prop;
+			if (!(*PropArr)[i].IsValid() || !(*PropArr)[i]->TryGetObject(ConnObj) || !ConnObj
+				|| !(*ConnObj)->TryGetStringField(TEXT("property"), PropName) || !ParseMaterialProperty(PropName, Prop))
+			{
+				return MCPError(FString::Printf(TEXT("propertyConnections[%d]: needs a known material property (BaseColor, Metallic, Roughness, Normal, EmissiveColor, Opacity, OpacityMask, AmbientOcclusion and the rest)"), i));
+			}
 		}
 	}
 
-	// Property connections. Each one overwrites whatever the property carried,
-	// so record the displaced binding: it is the half of the change that no
-	// single inverse call can put back.
+	Material->PreEditChange(nullptr);
+	TMap<FString, UMaterialExpression*> ByName;
+	TArray<UMaterialExpression*> CreatedNodes;
+	auto Abort = [&](const FString& Message) -> TSharedPtr<FJsonValue>
+	{
+		for (UMaterialExpression* Expr : CreatedNodes)
+		{
+			UMaterialEditingLibrary::DeleteMaterialExpression(Material, Expr);
+		}
+		Material->PostEditChange();
+		return MCPError(Message + TEXT(" Nothing was kept: the nodes this call created were removed again."));
+	};
+
+	for (const FNodeSpec& Spec : Specs)
+	{
+		UMaterialExpression* Expr = NewObject<UMaterialExpression>(Material, Spec.Class, NAME_None, RF_Transactional);
+		Material->GetExpressionCollection().AddExpression(Expr);
+		CreatedNodes.Add(Expr);
+		double Pos = 0.0;
+		if (Spec.Obj->TryGetNumberField(TEXT("posX"), Pos)) Expr->MaterialExpressionEditorX = (int32)Pos;
+		if (Spec.Obj->TryGetNumberField(TEXT("posY"), Pos)) Expr->MaterialExpressionEditorY = (int32)Pos;
+		// The node name becomes its description, so later calls can address it by that name.
+		ApplyExpressionSpec(Expr, Spec.Obj);
+		if (Expr->Desc.IsEmpty()) Expr->Desc = Spec.Name;
+
+		FString TexturePath;
+		if (Spec.Obj->TryGetStringField(TEXT("texturePath"), TexturePath) && !TexturePath.IsEmpty())
+		{
+			FObjectPropertyBase* TexProp = CastField<FObjectPropertyBase>(Expr->GetClass()->FindPropertyByName(TEXT("Texture")));
+			UTexture* Texture = LoadObject<UTexture>(nullptr, *TexturePath);
+			if (!TexProp) return Abort(FString::Printf(TEXT("Node '%s' (%s) has no Texture property for texturePath."), *Spec.Name, *Spec.Class->GetName()));
+			if (!Texture) return Abort(FString::Printf(TEXT("Node '%s': texture not found at '%s'."), *Spec.Name, *TexturePath));
+			TexProp->SetObjectPropertyValue_InContainer(Expr, Texture);
+			if (UMaterialExpressionTextureSample* Sample = Cast<UMaterialExpressionTextureSample>(Expr))
+			{
+				Sample->AutoSetSampleType();
+			}
+		}
+
+		const TSharedPtr<FJsonObject>* Props = nullptr;
+		if (Spec.Obj->TryGetObjectField(TEXT("properties"), Props) && Props)
+		{
+			for (const auto& Pair : (*Props)->Values)
+			{
+				FProperty* Prop = Expr->GetClass()->FindPropertyByName(FName(*Pair.Key));
+				if (!Prop)
+				{
+					for (TFieldIterator<FProperty> It(Expr->GetClass()); It; ++It)
+					{
+						if (It->GetName().Equals(FString(Pair.Key), ESearchCase::IgnoreCase)) { Prop = *It; break; }
+					}
+				}
+				if (!Prop) return Abort(FString::Printf(TEXT("Node '%s' (%s) has no property '%s'."), *Spec.Name, *Spec.Class->GetName(), *Pair.Key));
+				FString SetError;
+				if (!MCPJsonProperty::SetJsonOnProperty(Prop, Prop->ContainerPtrToValuePtr<void>(Expr), Pair.Value, SetError))
+				{
+					return Abort(FString::Printf(TEXT("Node '%s' property '%s': %s."), *Spec.Name, *Pair.Key, *SetError));
+				}
+			}
+		}
+		ByName.Add(Spec.Name, Expr);
+	}
+
+	// A connection endpoint names a node in this spec, or an expression already in the material.
+	auto FindNode = [&](const FString& Name) -> UMaterialExpression*
+	{
+		if (UMaterialExpression** Found = ByName.Find(Name)) return *Found;
+		return Name.IsEmpty() ? nullptr : FindExpressionByName(Material, Name);
+	};
+	// A pin is a name or an index, sent as a string or a number.
+	auto ReadPin = [](const TSharedPtr<FJsonObject>& Obj, const TCHAR* Key, FString& Out)
+	{
+		double Num = 0.0;
+		if (Obj->TryGetStringField(Key, Out)) return;
+		if (Obj->TryGetNumberField(Key, Num)) Out = FString::FromInt((int32)Num);
+	};
+
+	int32 Wires = 0;
+	if (bHasConnections)
+	{
+		for (int32 i = 0; i < ConnArr->Num(); ++i)
+		{
+			const TSharedPtr<FJsonObject>* ConnObj = nullptr;
+			if (!(*ConnArr)[i].IsValid() || !(*ConnArr)[i]->TryGetObject(ConnObj) || !ConnObj) return Abort(FString::Printf(TEXT("connections[%d] is not an object."), i));
+			FString From, To, FromOutput, ToInput;
+			(*ConnObj)->TryGetStringField(TEXT("from"), From);
+			(*ConnObj)->TryGetStringField(TEXT("to"), To);
+			ReadPin(*ConnObj, TEXT("fromOutput"), FromOutput);
+			ReadPin(*ConnObj, TEXT("toInput"), ToInput);
+			UMaterialExpression* Source = FindNode(From);
+			UMaterialExpression* Target = FindNode(To);
+			if (!Source) return Abort(FString::Printf(TEXT("connections[%d]: no node '%s'."), i, *From));
+			if (!Target) return Abort(FString::Printf(TEXT("connections[%d]: no node '%s'."), i, *To));
+			int32 OutIndex = 0, InIndex = 0;
+			FString PinError;
+			if (!ResolveExpressionOutputIndex(Source, FromOutput, OutIndex, PinError)) return Abort(FString::Printf(TEXT("connections[%d]: %s."), i, *PinError));
+			if (!ResolveExpressionInputIndex(Target, ToInput, InIndex, PinError)) return Abort(FString::Printf(TEXT("connections[%d]: %s."), i, *PinError));
+			Target->GetInput(InIndex)->Connect(OutIndex, Source);
+			++Wires;
+		}
+	}
+
+	// Property connections overwrite whatever the property carried; the displaced binding is reported.
 	int32 Connections = 0;
 	TArray<TSharedPtr<FJsonValue>> OverwrittenProperties;
 	if (bHasPropertyConnections)
 	{
-		for (const TSharedPtr<FJsonValue>& V : *PropArr)
+		for (int32 i = 0; i < PropArr->Num(); ++i)
 		{
-			const TSharedPtr<FJsonObject>* ConnObj = nullptr;
-			if (!V->TryGetObject(ConnObj)) continue;
-			FString PropName = (*ConnObj)->GetStringField(TEXT("property"));
-			FString FromName = (*ConnObj)->GetStringField(TEXT("from"));
-			EMaterialProperty Prop;
-			if (!ParseMaterialProperty(PropName, Prop)) continue;
-			UMaterialExpression** Found = ByName.Find(FromName);
-			if (!Found || !*Found) continue;
+			const TSharedPtr<FJsonObject> ConnObj = (*PropArr)[i]->AsObject();
+			const FString PropName = ConnObj->GetStringField(TEXT("property"));
+			FString FromName, Output;
+			ConnObj->TryGetStringField(TEXT("from"), FromName);
+			ReadPin(ConnObj, TEXT("output"), Output);
+			if (Output.IsEmpty()) ReadPin(ConnObj, TEXT("outputIndex"), Output);
+			EMaterialProperty Prop = MP_BaseColor;
+			ParseMaterialProperty(PropName, Prop);
+			UMaterialExpression* Source = FindNode(FromName);
+			if (!Source) return Abort(FString::Printf(TEXT("propertyConnections[%d]: no node '%s'."), i, *FromName));
+			int32 OutIndex = 0;
+			FString PinError;
+			if (!ResolveExpressionOutputIndex(Source, Output, OutIndex, PinError)) return Abort(FString::Printf(TEXT("propertyConnections[%d]: %s."), i, *PinError));
 			FExpressionInput* In = Material->GetExpressionInputForProperty(Prop);
-			if (!In) continue;
+			if (!In) return Abort(FString::Printf(TEXT("propertyConnections[%d]: '%s' cannot be wired directly."), i, *PropName));
 			if (In->Expression)
 			{
 				TSharedPtr<FJsonObject> Displaced = MakeShared<FJsonObject>();
@@ -427,39 +636,46 @@ TSharedPtr<FJsonValue> FMaterialHandlers::BuildMaterialGraph(const TSharedPtr<FJ
 				Displaced->SetNumberField(TEXT("previousOutputIndex"), In->OutputIndex);
 				OverwrittenProperties.Add(MakeShared<FJsonValueObject>(Displaced));
 			}
-			In->Expression = *Found;
-			In->OutputIndex = (int32)(*ConnObj)->GetNumberField(TEXT("outputIndex"));
+			In->Connect(OutIndex, Source);
 			++Connections;
 		}
 	}
 
-	Material->PreEditChange(nullptr);
 	Material->PostEditChange();
 	Material->MarkPackageDirty();
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Material, SaveError);
 
+	TArray<TSharedPtr<FJsonValue>> CreatedExpressionNames;
+	TArray<TSharedPtr<FJsonValue>> NodeMap;
+	for (const FNodeSpec& Spec : Specs)
+	{
+		UMaterialExpression* Expr = ByName.FindRef(Spec.Name);
+		CreatedExpressionNames.Add(MakeShared<FJsonValueString>(Expr->GetName()));
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("name"), Spec.Name);
+		Row->SetStringField(TEXT("expressionName"), Expr->GetName());
+		Row->SetStringField(TEXT("class"), Expr->GetClass()->GetName());
+		Row->SetNumberField(TEXT("expressionIndex"), Material->GetExpressions().IndexOfByKey(Expr));
+		NodeMap.Add(MakeShared<FJsonValueObject>(Row));
+	}
+
 	TSharedPtr<FJsonObject> Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
 	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
-	Result->SetNumberField(TEXT("expressionsCreated"), Created);
+	Result->SetNumberField(TEXT("expressionsCreated"), Specs.Num());
+	Result->SetNumberField(TEXT("wiresMade"), Wires);
 	Result->SetNumberField(TEXT("connectionsMade"), Connections);
 	Result->SetArrayField(TEXT("createdExpressions"), CreatedExpressionNames);
+	Result->SetArrayField(TEXT("nodes"), NodeMap);
 	Result->SetArrayField(TEXT("overwrittenProperties"), OverwrittenProperties);
 
-	// No inverse. This call creates an arbitrary number of expressions and
-	// rewrites an arbitrary number of property inputs, and a rollback record
-	// carries exactly one call. There is no bulk delete for material
-	// expressions, and this action has no replace mode that could be handed a
-	// snapshot of the previous graph (the PCG twin, import_pcg_graph, does have
-	// one and is reversible for that reason). Inventing a single
-	// delete_material_expression here would undo one node out of many and
-	// leave the rest, which is worse than saying so.
+	// One rollback record carries one call, and this created many nodes.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
-		TEXT("No single call undoes this: %d expression(s) were created and %d property connection(s) written. Undo it by hand with one delete_material_expression per name in createdExpressions, then reconnect anything listed in overwrittenProperties with connect_to_material_property. Wrapping the build in begin_transaction / end_transaction gives a one-step undo instead."),
-		Created, Connections));
+		TEXT("No single call undoes this: %d expression(s) were created, %d wire(s) and %d property connection(s) written. Undo it with one delete_material_expression per name in createdExpressions, then reconnect anything listed in overwrittenProperties with connect_to_material_property. Wrapping the build in begin_transaction / end_transaction gives a one-step undo instead."),
+		Specs.Num(), Wires, Connections));
 	return MCPResult(Result);
 }
 

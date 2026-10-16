@@ -22,6 +22,7 @@
 #include "Materials/MaterialExpressionAdd.h"
 #include "Materials/MaterialExpressionLinearInterpolate.h"
 #include "MaterialEditingLibrary.h"
+#include "MaterialGraph/MaterialGraphNode.h"
 #include "Engine/Texture.h"
 #include "Engine/Texture2D.h"
 #include "UObject/Package.h"
@@ -29,6 +30,105 @@
 #include "UObject/SavePackage.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+
+
+bool FMaterialHandlers::ResolveExpressionInputIndex(UMaterialExpression* Expression, const FString& Pin, int32& OutIndex, FString& OutError)
+{
+	// Each pin answers to its reflected name and to the short label the graph
+	// editor draws (UVs, Tex, Exp); "Input" draws as no label at all.
+	TArray<FString> Names;
+	TArray<FString> ShortNames;
+	for (int32 i = 0; Expression && Expression->GetInput(i); ++i)
+	{
+		const FName Name = Expression->GetInputName(i);
+		const FName Short = UMaterialGraphNode::GetShortenPinName(Name);
+		Names.Add(Name.IsNone() ? FString() : Name.ToString());
+		ShortNames.Add(Short.IsNone() ? FString() : Short.ToString());
+	}
+	OutIndex = INDEX_NONE;
+	const FString Trimmed = Pin.TrimStartAndEnd();
+	if (Trimmed.IsEmpty())
+	{
+		OutIndex = 0;
+	}
+	else if (Trimmed.IsNumeric())
+	{
+		OutIndex = FCString::Atoi(*Trimmed);
+	}
+	else
+	{
+		OutIndex = Names.IndexOfByPredicate([&Trimmed](const FString& Name) { return Name.Equals(Trimmed, ESearchCase::IgnoreCase); });
+		if (OutIndex == INDEX_NONE)
+		{
+			OutIndex = ShortNames.IndexOfByPredicate([&Trimmed](const FString& Name) { return !Name.IsEmpty() && Name.Equals(Trimmed, ESearchCase::IgnoreCase); });
+		}
+		if (OutIndex == INDEX_NONE && (Trimmed.Equals(TEXT("Input"), ESearchCase::IgnoreCase) || Trimmed.Equals(TEXT("In"), ESearchCase::IgnoreCase)))
+		{
+			TArray<int32> Unnamed;
+			for (int32 i = 0; i < Names.Num(); ++i) if (Names[i].IsEmpty()) Unnamed.Add(i);
+			if (Unnamed.Num() == 1) OutIndex = Unnamed[0];
+		}
+	}
+	if (Names.IsValidIndex(OutIndex)) return true;
+
+	TArray<FString> Labels;
+	for (int32 i = 0; i < Names.Num(); ++i)
+	{
+		Labels.Add(Names[i].IsEmpty() ? FString::Printf(TEXT("%d (unnamed: pass \"Input\" or %d)"), i, i) : FString::Printf(TEXT("%d %s"), i, *Names[i]));
+	}
+	OutError = FString::Printf(TEXT("Input '%s' not found on '%s'. Inputs: [%s]"),
+		*Pin, Expression ? *Expression->GetName() : TEXT("(null)"), *FString::Join(Labels, TEXT(", ")));
+	return false;
+}
+
+bool FMaterialHandlers::ResolveExpressionOutputIndex(UMaterialExpression* Expression, const FString& Pin, int32& OutIndex, FString& OutError)
+{
+	// An unnamed single-channel output answers to its mask letter, as the editor library does.
+	TArray<FString> Names;
+	if (Expression)
+	{
+		for (const FExpressionOutput& Output : Expression->GetOutputs())
+		{
+			FString Name = Output.OutputName.IsNone() ? FString() : Output.OutputName.ToString();
+			if (Name.IsEmpty() && Output.Mask && (Output.MaskR + Output.MaskG + Output.MaskB + Output.MaskA) == 1)
+			{
+				Name = Output.MaskR ? TEXT("R") : Output.MaskG ? TEXT("G") : Output.MaskB ? TEXT("B") : TEXT("A");
+			}
+			Names.Add(Name);
+		}
+	}
+	OutIndex = INDEX_NONE;
+	const FString Trimmed = Pin.TrimStartAndEnd();
+	if (Trimmed.IsEmpty())
+	{
+		OutIndex = 0;
+	}
+	else if (Trimmed.IsNumeric())
+	{
+		OutIndex = FCString::Atoi(*Trimmed);
+	}
+	else
+	{
+		OutIndex = Names.IndexOfByPredicate([&Trimmed](const FString& Name) { return Name.Equals(Trimmed, ESearchCase::IgnoreCase); });
+		if (OutIndex == INDEX_NONE && (Trimmed.Equals(TEXT("Output"), ESearchCase::IgnoreCase) || Trimmed.Equals(TEXT("Out"), ESearchCase::IgnoreCase)))
+		{
+			TArray<int32> Unnamed;
+			for (int32 i = 0; i < Names.Num(); ++i) if (Names[i].IsEmpty()) Unnamed.Add(i);
+			if (Unnamed.Num() == 1) OutIndex = Unnamed[0];
+		}
+	}
+	// A node with no declared outputs still exposes output 0.
+	if (Names.IsValidIndex(OutIndex) || (Names.Num() == 0 && OutIndex == 0)) return true;
+
+	TArray<FString> Labels;
+	for (int32 i = 0; i < Names.Num(); ++i)
+	{
+		Labels.Add(Names[i].IsEmpty() ? FString::Printf(TEXT("%d (unnamed: pass \"Output\" or %d)"), i, i) : FString::Printf(TEXT("%d %s"), i, *Names[i]));
+	}
+	OutError = FString::Printf(TEXT("Output '%s' not found on '%s'. Outputs: [%s]"),
+		*Pin, Expression ? *Expression->GetName() : TEXT("(null)"), *FString::Join(Labels, TEXT(", ")));
+	return false;
+}
 
 
 TSharedPtr<FJsonValue> FMaterialHandlers::ConnectTextureToMaterial(const TSharedPtr<FJsonObject>& Params)
@@ -159,83 +259,13 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ConnectMaterialExpressions(const TShar
 		return MCPError(FString::Printf(TEXT("Target expression '%s' not found"), *TargetExpressionName));
 	}
 
-	// Resolve source output index. Track whether we matched a named pin so
-	// unknown names fail loudly instead of silently aliasing to index 0
-	// and overwriting whatever connection lives there (#318).
+	// Unknown pin names fail loudly instead of aliasing to index 0 and
+	// overwriting whatever connection lives there (#318, #1403).
 	int32 SourceOutputIndex = 0;
-	bool bSourceOutputResolved = SourceOutputName.IsEmpty(); // empty == "use default 0"
-	if (!SourceOutputName.IsEmpty())
-	{
-		if (SourceOutputName.IsNumeric())
-		{
-			SourceOutputIndex = FCString::Atoi(*SourceOutputName);
-			bSourceOutputResolved = true;
-		}
-		else
-		{
-			TArray<FExpressionOutput>& Outputs = SourceExpression->GetOutputs();
-			for (int32 i = 0; i < Outputs.Num(); i++)
-			{
-				if (Outputs[i].OutputName.ToString().Equals(SourceOutputName, ESearchCase::IgnoreCase))
-				{
-					SourceOutputIndex = i;
-					bSourceOutputResolved = true;
-					break;
-				}
-			}
-			if (!bSourceOutputResolved)
-			{
-				TArray<FString> Names;
-				for (const FExpressionOutput& O : Outputs) { Names.Add(O.OutputName.ToString()); }
-				return MCPError(FString::Printf(
-					TEXT("Source output '%s' not found on '%s'. Available: [%s]"),
-					*SourceOutputName, *SourceExpressionName,
-					*FString::Join(Names, TEXT(", "))));
-			}
-		}
-	}
-
-	// Resolve target input index. Same loud-fail rule (#318) - this is the
-	// case that previously aliased unknown names to A/RGB and clobbered prior
-	// wiring.
 	int32 TargetInputIndex = 0;
-	bool bTargetInputResolved = TargetInputName.IsEmpty();
-	if (!TargetInputName.IsEmpty())
-	{
-		if (TargetInputName.IsNumeric())
-		{
-			TargetInputIndex = FCString::Atoi(*TargetInputName);
-			bTargetInputResolved = true;
-		}
-		else
-		{
-			for (int32 i = 0; ; i++)
-			{
-				FExpressionInput* Input = TargetExpression->GetInput(i);
-				if (!Input) break;
-				FName InputName = TargetExpression->GetInputName(i);
-				if (InputName.ToString().Equals(TargetInputName, ESearchCase::IgnoreCase))
-				{
-					TargetInputIndex = i;
-					bTargetInputResolved = true;
-					break;
-				}
-			}
-			if (!bTargetInputResolved)
-			{
-				TArray<FString> Names;
-				for (int32 i = 0; ; i++)
-				{
-					if (!TargetExpression->GetInput(i)) break;
-					Names.Add(TargetExpression->GetInputName(i).ToString());
-				}
-				return MCPError(FString::Printf(
-					TEXT("Target input '%s' not found on '%s'. Available: [%s]"),
-					*TargetInputName, *TargetExpressionName,
-					*FString::Join(Names, TEXT(", "))));
-			}
-		}
-	}
+	FString PinError;
+	if (!ResolveExpressionOutputIndex(SourceExpression, SourceOutputName, SourceOutputIndex, PinError)) return MCPError(PinError);
+	if (!ResolveExpressionInputIndex(TargetExpression, TargetInputName, TargetInputIndex, PinError)) return MCPError(PinError);
 
 	FExpressionInput* TargetInput = TargetExpression->GetInput(TargetInputIndex);
 	if (!TargetInput)
@@ -331,27 +361,9 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ConnectToMaterialProperty(const TShare
 		return MCPError(FString::Printf(TEXT("Expression '%s' not found"), *ExpressionName));
 	}
 
-	// Resolve output index
 	int32 OutputIndex = 0;
-	if (!OutputName.IsEmpty())
-	{
-		if (OutputName.IsNumeric())
-		{
-			OutputIndex = FCString::Atoi(*OutputName);
-		}
-		else
-		{
-			TArray<FExpressionOutput>& Outputs = Expression->GetOutputs();
-			for (int32 i = 0; i < Outputs.Num(); i++)
-			{
-				if (Outputs[i].OutputName.ToString().Equals(OutputName, ESearchCase::IgnoreCase))
-				{
-					OutputIndex = i;
-					break;
-				}
-			}
-		}
-	}
+	FString PinError;
+	if (!ResolveExpressionOutputIndex(Expression, OutputName, OutputIndex, PinError)) return MCPError(PinError);
 
 	EMaterialProperty MatProperty;
 	if (!ParseMaterialProperty(PropertyName, MatProperty))

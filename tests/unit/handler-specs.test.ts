@@ -519,8 +519,8 @@ describe("the Epic passthrough", () => {
       const schema = spec.epicSchema!;
       const bag: Record<string, unknown> = {};
       for (const [key, prop] of Object.entries(schema.properties ?? {})) {
-        const type = (prop as { type?: string }).type;
-        bag[key] = type === "number" || type === "integer" ? 1 : type === "boolean" ? true : type === "array" ? [] : type === "object" ? {} : "x";
+        const { type, enum: values } = prop as { type?: string; enum?: string[] };
+        bag[key] = type === "number" || type === "integer" ? 1 : type === "boolean" ? true : type === "array" ? [] : type === "object" ? {} : values?.[0] ?? "x";
       }
       const sent = paramMapperOf(spec)!(bag);
       expect(typeof sent.toolset, name).toBe("string");

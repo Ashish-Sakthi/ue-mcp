@@ -5,6 +5,7 @@ import { warn } from "../core/log.js";
 import { UPluginSchema } from "../surface/schemas.js";
 import { engineLookupFor, trySelectEngine } from "./engine-root.js";
 import { packageRoot, packageVersion } from "../core/package-root.js";
+import { removeLegacyPythonContent } from "./legacy-python.js";
 import {
   BRIDGE_PLUGIN_NAME,
   INSTALL_MARKER_NAME,
@@ -76,6 +77,9 @@ export function deploy(context: ProjectContext): DeployResult {
       });
       result.installKind = "source";
     }
+    // A binary install is never mirrored from source, so the retired Python
+    // bridge's files are removed here for both kinds (#1273).
+    if (removeLegacyPythonContent(pluginDir)) result.cppPluginDeployed = true;
     result.pythonPluginEnabled = ensurePythonPlugin(context.projectPath!);
     result.cppPluginEnabled = ensureCppPluginEnabled(context.projectPath!);
   } catch (e) {
@@ -165,6 +169,7 @@ export function attach(context: ProjectContext): AttachResult {
 
     if (!result.cppPluginPresent) return result;
 
+    if (resolved) removeLegacyPythonContent(resolved.dir);
     result.pythonPluginEnabled = ensurePythonPlugin(uprojectPath);
     result.cppPluginEnabled = ensureCppPluginEnabled(uprojectPath);
   } catch (e) {

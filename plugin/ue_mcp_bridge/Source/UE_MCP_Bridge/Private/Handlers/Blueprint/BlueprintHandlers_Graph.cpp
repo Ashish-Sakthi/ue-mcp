@@ -77,6 +77,8 @@ namespace
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -724,13 +726,17 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddNode(const TSharedPtr<FJsonObject>
 	TargetGraph->NotifyGraphChanged();
 	FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
 
-	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	// Compile and save; deferCompile leaves the compile to blueprint(compile).
+	if (!bDeferCompile)
+	{
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	}
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 	auto Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);
@@ -781,6 +787,15 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprintGraph(const TSharedPtr<F
 	const bool bHasOffset = HasParam(Params, TEXT("offset"));
 	const bool bHasLimit = HasParam(Params, TEXT("limit"));
 	const int32 RequestedOffset = FMath::Max(0, OptionalInt(Params, TEXT("offset"), 0));
+	const FString TransitionGuidText = OptionalString(Params, TEXT("transitionGuid"));
+	const FString FromState = OptionalString(Params, TEXT("fromState"));
+	const FString ToState = OptionalString(Params, TEXT("toState"));
+	const FString MachineName = OptionalString(Params, TEXT("stateMachineName"));
+	const bool bIncludeLinks = OptionalBool(Params, TEXT("includeLinks"), false);
+	if (FromState.IsEmpty() != ToState.IsEmpty())
+	{
+		return MCPError(TEXT("Pass fromState and toState together"));
+	}
 
 	UBlueprint* Blueprint = LoadBlueprint(AssetPath);
 	if (!Blueprint)
@@ -788,12 +803,66 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprintGraph(const TSharedPtr<F
 		return BlueprintNotFoundError(AssetPath);
 	}
 
-	// Find the graph in UbergraphPages and FunctionGraphs
-	UEdGraph* TargetGraph = FindGraph(Blueprint, GraphName);
-
-	if (!TargetGraph)
+	// A transition's rule graph is always named "Transition", so a guid or a state
+	// pair is what addresses one reliably (#1321).
+	UEdGraph* TargetGraph = nullptr;
+	UAnimStateTransitionNode* Transition = nullptr;
+	if (!TransitionGuidText.IsEmpty() || !FromState.IsEmpty())
 	{
-		return MCPError(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
+		FGuid Wanted;
+		if (!TransitionGuidText.IsEmpty() && !FGuid::Parse(TransitionGuidText, Wanted))
+		{
+			return MCPError(FString::Printf(TEXT("transitionGuid '%s' is not a GUID"), *TransitionGuidText));
+		}
+		TArray<UAnimStateTransitionNode*> Matches;
+		for (UAnimStateTransitionNode* T : MCPAnimStateGraph::AllTransitions(Blueprint))
+		{
+			if (!TransitionGuidText.IsEmpty())
+			{
+				if (T->NodeGuid == Wanted) Matches.Add(T);
+				continue;
+			}
+			const FString Prev = T->GetPreviousState() ? T->GetPreviousState()->GetStateName() : FString();
+			const FString Next = T->GetNextState() ? T->GetNextState()->GetStateName() : FString();
+			if (Prev.Equals(FromState, ESearchCase::IgnoreCase) && Next.Equals(ToState, ESearchCase::IgnoreCase)
+				&& (MachineName.IsEmpty() || MCPAnimStateGraph::TransitionMachineName(T).Equals(MachineName, ESearchCase::IgnoreCase)))
+			{
+				Matches.Add(T);
+			}
+		}
+		if (Matches.Num() == 0)
+		{
+			return MCPError(TransitionGuidText.IsEmpty()
+				? FString::Printf(TEXT("No transition from '%s' to '%s'%s. animation(read_state_machine) lists the transitions."), *FromState, *ToState,
+					MachineName.IsEmpty() ? TEXT("") : *FString::Printf(TEXT(" in '%s'"), *MachineName))
+				: FString::Printf(TEXT("No transition with guid %s. animation(read_state_machine) lists each transitionGuid."), *TransitionGuidText));
+		}
+		if (Matches.Num() > 1)
+		{
+			TArray<FString> Guids;
+			for (UAnimStateTransitionNode* T : Matches)
+			{
+				Guids.Add(FString::Printf(TEXT("%s (%s)"), *T->NodeGuid.ToString(), *MCPAnimStateGraph::TransitionMachineName(T)));
+			}
+			return MCPError(FString::Printf(TEXT("%d transitions go from '%s' to '%s': %s. Pass transitionGuid or stateMachineName."),
+				Matches.Num(), *FromState, *ToState, *FString::Join(Guids, TEXT(", "))));
+		}
+		Transition = Matches[0];
+		TargetGraph = Transition->BoundGraph;
+		if (!TargetGraph)
+		{
+			return MCPError(FString::Printf(TEXT("Transition %s has no rule graph"), *Transition->NodeGuid.ToString()));
+		}
+		GraphName = TargetGraph->GetName();
+	}
+	else
+	{
+		TargetGraph = FindGraph(Blueprint, GraphName);
+		if (!TargetGraph)
+		{
+			return MCPError(FString::Printf(TEXT("Graph not found: %s"), *GraphName));
+		}
+		Transition = Cast<UAnimStateTransitionNode>(TargetGraph->GetOuter());
 	}
 
 	// #560 build the working node list, applying title/class filters when present.
@@ -842,7 +911,22 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprintGraph(const TSharedPtr<F
 			NodeOptions.bPins = bIncludePins;
 			NodeOptions.bDefaults = bIncludeDefaults;
 			NodeOptions.bComments = bIncludeComments;
+			NodeOptions.bLinks = bIncludeLinks;
 			TSharedPtr<FJsonObject> NodeObj = MCPDescribeGraphNode(Node, NodeOptions);
+			// A Property Access node keeps its path in a reflected Path array.
+			if (const FArrayProperty* PathProp = FindFProperty<FArrayProperty>(Node->GetClass(), TEXT("Path")))
+			{
+				if (CastField<FStrProperty>(PathProp->Inner) && Node->GetClass()->GetName().Contains(TEXT("PropertyAccess")))
+				{
+					FScriptArrayHelper Helper(PathProp, PathProp->ContainerPtrToValuePtr<void>(Node));
+					TArray<FString> Segments;
+					for (int32 Segment = 0; Segment < Helper.Num(); ++Segment)
+					{
+						Segments.Add(*reinterpret_cast<const FString*>(Helper.GetRawPtr(Segment)));
+					}
+					NodeObj->SetStringField(TEXT("propertyAccessPath"), FString::Join(Segments, TEXT(".")));
+				}
+			}
 			Nodes.Add(MakeShared<FJsonValueObject>(NodeObj));
 		}
 
@@ -850,6 +934,12 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprintGraph(const TSharedPtr<F
 		Result->SetStringField(TEXT("path"), AssetPath);
 		AnnotateResolvedBlueprint(Result, Blueprint);
 		Result->SetStringField(TEXT("graphName"), GraphName);
+		if (Transition)
+		{
+			TSharedPtr<FJsonObject> TransitionObj = MCPAnimStateGraph::DescribeTransition(Transition);
+			TransitionObj->SetStringField(TEXT("stateMachine"), MCPAnimStateGraph::TransitionMachineName(Transition));
+			Result->SetObjectField(TEXT("transition"), TransitionObj);
+		}
 		Result->SetArrayField(TEXT("nodes"), Nodes);
 		Result->SetNumberField(TEXT("nodeCount"), Nodes.Num());
 		Result->SetNumberField(TEXT("totalNodeCount"), TotalNodeCount);
@@ -920,6 +1010,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ReadBlueprintGraph(const TSharedPtr<F
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::ConnectPins(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -1121,13 +1213,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ConnectPins(const TSharedPtr<FJsonObj
 			}
 		}
 
-		// Compile and save
-		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+		// Compile and save; deferCompile leaves the compile to blueprint(compile).
+		if (bDeferCompile)
+		{
+			FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+		}
+		else
+		{
+			FKismetEditorUtilities::CompileBlueprint(Blueprint);
+		}
 		FString SaveError;
 		const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 		auto Result = MCPSuccess();
 		MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 		if (bAlreadyLinked)
 		{
 			MCPSetUpdated(Result);
@@ -1217,6 +1317,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::ConnectPins(const TSharedPtr<FJsonObj
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::DeleteNode(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -1451,12 +1553,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::DeleteNode(const TSharedPtr<FJsonObje
 		FBlueprintEditorUtils::RemoveNode(Blueprint, NodeToDelete, /*bDontRecompile*/ true);
 	}
 
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	// deferCompile leaves the compile to blueprint(compile).
+	if (bDeferCompile)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsStructurallyModified(Blueprint);
+	}
+	else
+	{
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	}
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 	auto Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);
 	Result->SetStringField(TEXT("nodeId"), NodeId);
@@ -1868,6 +1979,8 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::DisconnectPins(const TSharedPtr<FJson
 
 TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJsonObject>& Params)
 {
+	// Read before anything can refuse (#1057). Skips the per-call compile (#1346).
+	const bool bDeferCompile = OptionalBool(Params, TEXT("deferCompile"), false);
 	FString AssetPath;
 	if (auto Err = RequireString(Params, TEXT("assetPath"), AssetPath)) return Err;
 
@@ -2035,13 +2148,21 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::SetNodeProperty(const TSharedPtr<FJso
 			*PinName, *FString::Join(PinNames, TEXT(", ")), *FString::Join(PropNames, TEXT(", "))));
 	}
 
-	// Compile and save
-	FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	// Compile and save; deferCompile leaves the compile to blueprint(compile).
+	if (bDeferCompile)
+	{
+		FBlueprintEditorUtils::MarkBlueprintAsModified(Blueprint);
+	}
+	else
+	{
+		FKismetEditorUtilities::CompileBlueprint(Blueprint);
+	}
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(Blueprint, SaveError);
 
 	auto Result = MCPSuccess();
 	MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveError);
+	MCPNoteCompileDeferred(Result, bDeferCompile);
 	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("path"), AssetPath);
 	Result->SetStringField(TEXT("graphName"), GraphName);

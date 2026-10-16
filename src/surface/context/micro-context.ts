@@ -19,7 +19,7 @@ import { takeTimeout } from "../../dispatch/call-pipeline.js";
 import { McpError, ErrorCode } from "../../core/errors.js";
 import { actionSchema } from "../action-schema.js";
 import { takeFieldSelection } from "./field-select.js";
-import { flatValidationMessage } from "./call-envelope.js";
+import { coerceJsonStringArgs, flatValidationMessage } from "./call-envelope.js";
 import { describeCategory, discoveryResults, readOffset, splitDescription } from "./lean-context.js";
 
 /**
@@ -55,6 +55,23 @@ export function microCallParams(params: Record<string, unknown>): Record<string,
 
 /** Resolve only advertised actions; never turn gateway arguments into a
  *  task class path that the registry could import from disk. */
+/**
+ * `action` selects the method on every category, so an `args.action` would be
+ * overwritten and never reach the handler (#1216). It is refused, not dropped,
+ * unless it only repeats the method name.
+ */
+function refuseNestedAction(category: string, method: string, args: unknown): void {
+  const given = args && typeof args === "object" ? (args as Record<string, unknown>).action : undefined;
+  // Repeating the method name is harmless; anything else would be lost.
+  if (given === undefined || given === method) return;
+  throw new McpError(
+    ErrorCode.INVALID_PARAMS,
+    `args.action was not sent to ${category}.${method}: 'action' is the dispatcher's own key on every category `
+      + `and never reaches a handler. If this action takes an action asset or name, pass it under its other `
+      + `parameter name; tools(action="describe", category="${category}", method="${method}") lists them.`,
+  );
+}
+
 export function resolveMicroCall(tools: ToolDef[], params: Record<string, unknown>) {
   const category = typeof params.category === "string" ? params.category : "";
   const method = typeof params.method === "string" ? params.method : "";
@@ -65,6 +82,7 @@ export function resolveMicroCall(tools: ToolDef[], params: Record<string, unknow
   if (!Object.hasOwn(tool.actions, method)) {
     throw new McpError(ErrorCode.UNKNOWN_ACTION, `Unknown action "${method}" on ${category}. Use tools(action="describe", category="${category}").`);
   }
+  refuseNestedAction(category, method, params.args);
   return { taskName: `${category}.${method}`, params: validatedMicroParams(tool, method, microCallParams(params)) };
 }
 
@@ -75,13 +93,15 @@ export function resolveMicroCall(tools: ToolDef[], params: Record<string, unknow
  * the task unchecked, and micro is now the default route.
  *
  * Only the refusal is shared. The parameters go on as the caller sent them,
- * which is what this route has always forwarded, so a key the shape does not
- * declare still reaches the target and is reported there as not read.
+ * apart from a JSON-encoded object or array the shape declares (#1370), so a
+ * key the shape does not declare still reaches the target and is reported
+ * there as not read.
  */
 function validatedMicroParams(tool: ToolDef, method: string, params: Record<string, unknown>): Record<string, unknown> {
-  const { message } = flatValidationMessage(tool, { ...params, action: method });
+  const coerced = coerceJsonStringArgs(tool, params);
+  const { message } = flatValidationMessage(tool, { ...coerced, action: method });
   if (message !== undefined) throw new McpError(ErrorCode.INVALID_PARAMS, message);
-  return params;
+  return coerced;
 }
 
 /** The categories each gateway was built to reach: the enabled set, never a
@@ -155,6 +175,7 @@ export function buildMicroGateway(tools: ToolDef[]): ToolDef {
           throw new McpError(ErrorCode.UNKNOWN_ACTION, `Unknown action "${method}" on ${category}. Use tools(action="describe", category="${category}").`);
         }
         const rawArgs = p.args && typeof p.args === "object" ? (p.args as Record<string, unknown>) : {};
+        refuseNestedAction(category, method, rawArgs);
         // The target category's own handler does the per-call preparation
         // (folding, path repair, routing params), so it is written once (#1081).
         // Dispatch already took the budget off `args` and put it on the context.

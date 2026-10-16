@@ -1638,7 +1638,7 @@ TSharedPtr<FJsonValue> FStateTreeHandlers::SendEvent(const TSharedPtr<FJsonObjec
 	if (!EventTag.IsValid())
 	{
 		return MCPError(FString::Printf(
-			TEXT("Gameplay tag '%s' is not registered, so no StateTree transition could ever match it. Register it first with gameplay(add_gameplay_tag); a transition's eventTag has to name a real tag."),
+			TEXT("Gameplay tag '%s' is not registered, so no StateTree transition could ever match it. Register it first with reflection(create_tag); a transition's eventTag has to name a real tag."),
 			*EventTagStr));
 	}
 

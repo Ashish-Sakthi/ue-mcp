@@ -7,6 +7,7 @@
 #include "HandlerJsonProperty.h"
 #include "HandlerPropertyText.h"
 #include "HandlerAssetCreate.h"
+#include "Handlers/Dialog/DialogHandlers.h"
 #include "JsonSerializer.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "AssetRegistry/IAssetRegistry.h"
@@ -451,14 +452,20 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Delete referenced assets too, closing open editors (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("bulk_rename_assets"), &BulkRename, {
-		MCPParam::Required(TEXT("renames"), EType::Array, TEXT("Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}")).Items(EType::Object),
+		MCPParam::Required(TEXT("renames"), EType::Array, TEXT("Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused")).Items(EType::Object).WithFields({
+			MCPParam::OptionalField(TEXT("sourcePath"), EType::String, TEXT("Asset to move, with destinationPath or with newPackagePath + newName")),
+			MCPParam::OptionalField(TEXT("destinationPath"), EType::String, TEXT("Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused")),
+			MCPParam::OptionalField(TEXT("assetPath"), EType::String, TEXT("Asset to rename in place, with newName")),
+			MCPParam::OptionalField(TEXT("newPackagePath"), EType::String, TEXT("Destination folder, with sourcePath and newName")),
+			MCPParam::OptionalField(TEXT("newName"), EType::String, TEXT("New asset name, with assetPath or with sourcePath + newPackagePath")),
+		}),
 	});
 	// #908: bounded redirector clean-up after a move. Timeout raised because a
 	// fix-up loads and resaves every referencing package.
 	Registry.RegisterHandlerWithTimeout(TEXT("fixup_redirectors"), &FixupRedirectors, 300.0f, {
 		MCPParam::Required(TEXT("paths"), EType::Array, TEXT("Redirector packages, or the folders holding them")).Items(EType::String),
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report the redirectors, referencers and packages it would load and save, and stop (default false)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Run the explicit save pass (default true); the editor's own fix-up writes what it can regardless")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference")),
 		MCPParam::Optional(TEXT("allowProjectWide"), EType::Boolean, TEXT("Permit a path naming a whole content root (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("create_data_asset"), &CreateDataAsset, {
@@ -597,14 +604,15 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
 	});
 	Registry.RegisterHandler(TEXT("import_animation"), &ImportAnimation, {
-		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
-		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("Source FBX on disk; exclusive with filePaths")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("filePaths"), EType::Array, TEXT("Batch: up to 200 FBX files imported into one folder with the same settings")).Items(EType::String),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name for a single filePath (default: the file name)")).Alias(TEXT("assetName")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Animations)")).Alias(TEXT("destinationPath")),
 		MCPParam::Required(TEXT("skeletonPath"), EType::String, TEXT("Skeleton the animation targets")),
 		MCPParam::Optional(TEXT("importCustomAttribute"), EType::Boolean, TEXT("Import FBX custom attributes as curves (default true)")),
 		MCPParam::Optional(TEXT("removeRedundantKeys"), EType::Boolean, TEXT("Strip keys that do not change the value (default true)")),
 		MCPParam::Optional(TEXT("importSettings"), EType::Object, TEXT("FbxAnimSequenceImportData or FbxImportUI fields by UPROPERTY name or dotted path")),
-	});
+	}, MCPSpec::ExactlyOne({ { TEXT("filePath") }, { TEXT("filePaths") } }));
 	Registry.RegisterHandler(TEXT("import_file"), &ImportFile, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Required(TEXT("packagePath"), EType::String, TEXT("Destination folder")).Alias(TEXT("destinationPath")),
@@ -612,11 +620,27 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("factoryClass"), EType::String, TEXT("UFactory subclass by name or /Script path (default: picked by extension)")),
 		MCPParam::Optional(TEXT("factoryProperties"), EType::Object, TEXT("Factory properties by UPROPERTY name or dotted path, set before the import")),
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the imported assets (default false)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each imported asset and report saved per asset (default true; false leaves them dirty)")),
 		MCPParam::Optional(TEXT("automated"), EType::Boolean, TEXT("Suppress interactive dialogs (default true)")),
 	});
 
 	// Texture handlers
+	Registry.RegisterHandler(TEXT("import_font"), &ImportFont, {
+		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Font file on disk: .ttf, .otf, .ttc or .otc")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("name"), EType::String, TEXT("FontFace asset name (default: the file name)")).Alias(TEXT("assetName")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Fonts)")).Alias(TEXT("destinationPath")),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the face exists: skip (default, report it) | error | replace (reimport its bytes)")),
+		MCPParam::Optional(TEXT("hinting"), EType::String, TEXT("Default (default) | Auto | AutoLight | Monochrome | None")),
+		MCPParam::Optional(TEXT("loadingPolicy"), EType::String, TEXT("LazyLoad (default) | Stream | Inline")),
+		MCPParam::Optional(TEXT("createFont"), EType::Boolean, TEXT("Also create <name>_Font, a runtime Font whose Default typeface is this face (default false)")),
+	});
+	Registry.RegisterHandler(TEXT("create_font"), &CreateCompositeFont, {
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("Font asset name")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Folder for the font (default /Game/Fonts)")),
+		MCPParam::Required(TEXT("fontFaces"), EType::Array, TEXT("FontFace asset paths, one typeface entry each")).Items(EType::String),
+		MCPParam::Optional(TEXT("typefaceNames"), EType::Array, TEXT("Typeface entry names in fontFaces order, e.g. Regular, Bold, Italic (default: Default, then each face's asset name)")).Items(EType::String),
+		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the font exists: skip (default, report it) | error | update (rewrite its default typeface)")),
+	});
 	Registry.RegisterHandler(TEXT("import_texture"), &ImportTexture, {
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
@@ -962,6 +986,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("list_skeleton_bones"), &ListSkeletonBones, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("SkeletalMesh or Skeleton asset path")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("includeTransforms"), EType::Boolean, TEXT("Include rest-pose transforms (default true)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Bones per page (default every bone)")),
+		MCPParam::Optional(TEXT("offset"), EType::Number, TEXT("First bone index of the page (default 0)")),
+		MCPParam::Optional(TEXT("includeBones"), EType::Boolean, TEXT("false returns only scaleSummary and boneCount, with no bones (default true)")),
 	});
 	// #595: Chaos cloth read/write.
 	Registry.RegisterHandler(TEXT("read_cloth_data"), &ReadClothData, {
@@ -1059,7 +1086,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game)")),
 		MCPParam::Optional(TEXT("structFields"), EType::Array, TEXT("Initial members; with none the struct keeps its one default member")).Items(EType::Object).WithFields({
 			MCPParam::RequiredField(TEXT("name"), EType::String, TEXT("Member display name")),
-			MCPParam::OptionalField(TEXT("type"), EType::String, TEXT("MakePinType string: bool (default), int, int64, float, string, name, text, byte, a struct such as Vector, an enum, or an object class such as Actor")),
+			MCPParam::OptionalField(TEXT("type"), EType::String, TEXT("Type: bool (default), int, int64, float, string, name, text, byte, a struct (Vector, struct:/Game/S.S), an enum, an object class such as Actor, or a container: struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>")),
 		}),
 		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("skip (default) returns an existing struct; error refuses")),
 	}, MCPSpec::ContractExempt(TEXT("Creates and saves a struct package from the contract name before anything fails")));
@@ -1072,7 +1099,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("fieldName"), EType::String, TEXT("Member by friendly or internal name; add_field names the new member with it")),
 		MCPParam::Optional(TEXT("fieldGuid"), EType::String, TEXT("Member by GUID, stable across renames; wins over fieldName")),
 		MCPParam::Optional(TEXT("newDisplayName"), EType::String, TEXT("New display name for rename_field; add_field falls back to it for the name")),
-		MCPParam::Optional(TEXT("type"), EType::String, TEXT("MakePinType string for add_field (default bool) and set_field_type")),
+		MCPParam::Optional(TEXT("type"), EType::String, TEXT("Type for add_field (default bool) and set_field_type: a scalar, struct, enum or object type, or a container (struct:/Game/S.S[], TArray<int>, Set<Name>, Map<Name,int>). A field's typeSpec from list_struct_fields round-trips")),
 	});
 	// rename_struct_field: edit_user_defined_struct with op=rename_field.
 	Registry.RegisterHandler(TEXT("rename_struct_field"), &RenameStructField, {
@@ -2496,14 +2523,51 @@ TSharedPtr<FJsonValue> FAssetHandlers::RenameAsset(const TSharedPtr<FJsonObject>
 		return RenameWorldWithExternals(SourcePath, DestPath, bForce);
 	}
 
+	const int32 DialogSerialBefore = FDialogHandlers::GetAnsweredDialogSerial();
 	bool bOk = UEditorAssetLibrary::RenameAsset(SourcePath, DestPath);
 
 	auto Result = MCPSuccess();
-	MCPSetUpdated(Result);
 	Result->SetStringField(TEXT("sourcePath"), SourcePath);
 	Result->SetStringField(TEXT("destinationPath"), DestPath);
 	Result->SetBoolField(TEXT("success"), bOk);
 
+	if (!bOk)
+	{
+		// A cancelled confirmation is the usual cause, so the failure names the
+		// dialog and the answer it got (#1334).
+		const TArray<FDialogHandlers::FAnsweredDialog> Dialogs = FDialogHandlers::AnsweredDialogsSince(DialogSerialBefore);
+		TArray<TSharedPtr<FJsonValue>> DialogsJson;
+		for (const FDialogHandlers::FAnsweredDialog& Dialog : Dialogs)
+		{
+			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
+			Entry->SetStringField(TEXT("title"), Dialog.Title);
+			Entry->SetStringField(TEXT("message"), Dialog.Message);
+			Entry->SetStringField(TEXT("answer"), Dialog.Answer);
+			Entry->SetStringField(TEXT("answeredBy"), Dialog.AnsweredBy);
+			DialogsJson.Add(MakeShared<FJsonValueObject>(Entry));
+		}
+		Result->SetArrayField(TEXT("dialogs"), DialogsJson);
+		if (Dialogs.Num() > 0)
+		{
+			const FDialogHandlers::FAnsweredDialog& Last = Dialogs.Last();
+			Result->SetStringField(TEXT("reason"), TEXT("dialog_declined"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor asked '%s' and it was answered '%s' by %s. ")
+				TEXT("To answer it differently, arm editor(set_dialog_policy) with that button before retrying."),
+				*SourcePath, *DestPath, *Last.Message.Left(400), *Last.Answer,
+				Last.AnsweredBy == TEXT("policy") ? TEXT("an armed dialog policy") : TEXT("a person or respond_to_dialog")));
+		}
+		else
+		{
+			Result->SetStringField(TEXT("reason"), TEXT("rename_failed"));
+			Result->SetStringField(TEXT("error"), FString::Printf(
+				TEXT("'%s' was not renamed to '%s'. The editor raised no dialog; the output log carries the reason."),
+				*SourcePath, *DestPath));
+		}
+		return MCPResult(Result);
+	}
+
+	MCPSetUpdated(Result);
 	if (bOk)
 	{
 		// Self-inverse: rename back.
@@ -3000,6 +3064,63 @@ TSharedPtr<FJsonValue> FAssetHandlers::BulkRename(const TSharedPtr<FJsonObject>&
 		return MCPError(TEXT("Missing 'renames' array parameter"));
 	}
 
+	// Every item must be exactly one documented shape; an unknown or mixed key used to rename to the wrong path (#1291).
+	{
+		IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+		TArray<TSharedPtr<FJsonValue>> Problems;
+		for (int32 Index = 0; Index < Items->Num(); ++Index)
+		{
+			const TSharedPtr<FJsonObject>* EntryPtr = nullptr;
+			FString Problem;
+			if (!(*Items)[Index].IsValid() || !(*Items)[Index]->TryGetObject(EntryPtr) || !EntryPtr || !EntryPtr->IsValid())
+			{
+				Problem = TEXT("not an object");
+			}
+			else
+			{
+				TSet<FString> Keys;
+				for (const auto& Field : (*EntryPtr)->Values)
+				{
+					const TPair<FString, TSharedPtr<FJsonValue>> Pair(Field.Key, Field.Value);
+					Keys.Add(Pair.Key);
+				}
+				auto IsShape = [&Keys](std::initializer_list<const TCHAR*> Shape)
+				{
+					if (Keys.Num() != (int32)Shape.size()) return false;
+					for (const TCHAR* Key : Shape) if (!Keys.Contains(Key)) return false;
+					return true;
+				};
+				FString Destination;
+				if (!IsShape({ TEXT("sourcePath"), TEXT("destinationPath") })
+					&& !IsShape({ TEXT("assetPath"), TEXT("newName") })
+					&& !IsShape({ TEXT("sourcePath"), TEXT("newPackagePath"), TEXT("newName") }))
+				{
+					Problem = FString::Printf(TEXT("keys {%s} are not one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}"),
+						*FString::Join(Keys.Array(), TEXT(", ")));
+				}
+				else if ((*EntryPtr)->TryGetStringField(TEXT("destinationPath"), Destination)
+					&& !Destination.Contains(TEXT(".")) && Registry.PathExists(FName(*Destination)))
+				{
+					Problem = FString::Printf(TEXT("destinationPath '%s' names an existing folder; give the full package path including the asset name"), *Destination);
+				}
+			}
+			if (!Problem.IsEmpty())
+			{
+				TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+				Row->SetNumberField(TEXT("index"), Index);
+				Row->SetStringField(TEXT("problem"), Problem);
+				Problems.Add(MakeShared<FJsonValueObject>(Row));
+			}
+		}
+		if (Problems.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("%d rename item(s) do not match a rename shape. Nothing was renamed."), Problems.Num()));
+			Refusal->SetArrayField(TEXT("invalidItems"), Problems);
+			return MCPResult(Refusal);
+		}
+	}
+
 	TArray<FAssetRenameData> BatchRenames;
 	TArray<TSharedPtr<FJsonValue>> PerItem;
 	int32 Skipped = 0;
@@ -3346,7 +3467,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::CreateAssetByClass(const TSharedPtr<FJson
 	if (AssetClass->IsChildOf(AActor::StaticClass()) || AssetClass->IsChildOf(UActorComponent::StaticClass()))
 	{
 		return MCPClassUnusableError(ClassName, AssetClass, TEXT("not_an_asset"),
-			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component_to_actor)."));
+			TEXT("it is an actor or component class, not an asset. Use level(place_actor) or level(add_component)."));
 	}
 
 	const FString FullPath = FString::Printf(TEXT("%s/%s.%s"), *PackagePath, *Name, *Name);
@@ -4783,6 +4904,15 @@ TSharedPtr<FJsonValue> FAssetHandlers::ForceReload(const TSharedPtr<FJsonObject>
 // `subsurface_profile.settings.mean_free_path_distance` - the handler does
 // the struct-copy dance internally and writes back through SetJsonOnProperty.
 // ---------------------------------------------------------------------------
+// A mesh's Sockets array holds instanced subobjects the property writer cannot
+// create, so a failed write there names the socket actions that can (#1182).
+static FString AssetSocketPropertyHint(const UObject* Asset, const FString& PropertyName)
+{
+	if (!Asset || !PropertyName.StartsWith(TEXT("Sockets"), ESearchCase::IgnoreCase)) return FString();
+	if (!Asset->IsA<UStaticMesh>() && !Asset->IsA<USkeletalMesh>()) return FString();
+	return TEXT(" Sockets are authored with asset(add_socket), asset(set_socket_transform) and asset(remove_socket), not set_property.");
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -4814,7 +4944,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	MCPJsonProperty::FResolvedPathInfo PathInfo;
 	if (!MCPJsonProperty::ResolveDottedPath(Asset, PropertyName, FinalProp, ValuePtr, LeafOwner, ResolveErr, &PathInfo))
 	{
-		return MCPError(ResolveErr);
+		return MCPError(ResolveErr + AssetSocketPropertyHint(Asset, PropertyName));
 	}
 
 	FString PrevValue;
@@ -4835,10 +4965,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	Asset->Modify();
 	if (LeafOwner && LeafOwner != Asset) LeafOwner->Modify();
 	FString SetErr;
-	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
+	if (!MCPJsonProperty::SetJsonOnPropertyWithOwner(FinalProp, ValuePtr, ValueField, LeafOwner ? LeafOwner : Asset, SetErr))
 	{
 		Transaction.Cancel();
-		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
+		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s%s"), *PropertyName, *SetErr, *AssetSocketPropertyHint(Asset, PropertyName)));
 	}
 
 	if (LeafOwner) LeafOwner->PostEditChange();

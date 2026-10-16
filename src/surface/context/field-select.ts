@@ -149,18 +149,22 @@ export interface ProjectionResult<T> {
   applied: boolean;
 }
 
-/** Read the selection out of a parameter bag, accepting a bare string for one path. */
+/**
+ * Read the selection out of a parameter bag. A string, bare or in the array,
+ * is a comma-separated list of paths: "a.b,c" is two paths, never one (#1335).
+ */
 export function takeFieldSelection(
   params: Record<string, unknown>,
 ): { selection: FieldSelection; rest: Record<string, unknown> } {
   const { select, omit, ...rest } = params;
   const asList = (value: unknown): string[] | undefined => {
-    if (typeof value === "string" && value.trim() !== "") return [value];
-    if (Array.isArray(value)) {
-      const out = value.filter((v): v is string => typeof v === "string" && v.trim() !== "");
-      return out.length > 0 ? out : undefined;
-    }
-    return undefined;
+    const items = typeof value === "string" ? [value] : Array.isArray(value) ? value : [];
+    const out = items
+      .filter((v): v is string => typeof v === "string")
+      .flatMap((v) => v.split(","))
+      .map((v) => v.trim())
+      .filter((v) => v !== "");
+    return out.length > 0 ? out : undefined;
   };
   return { selection: { select: asList(select), omit: asList(omit) }, rest };
 }

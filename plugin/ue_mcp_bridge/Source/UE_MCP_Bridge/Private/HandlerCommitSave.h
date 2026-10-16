@@ -10,8 +10,56 @@
 #include "FileHelpers.h"
 #include "HAL/FileManager.h"
 #include "UObject/Package.h"
+#include "ObjectTools.h"
 #include "Dom/JsonObject.h"
 #include "Dom/JsonValue.h"
+
+/** Take the dirty, emptied external actor/object packages out of Packages and delete their files, as the
+ *  editor's own save does; a direct save of one fails (#1301). One row per package goes to OutDeleted
+ *  (file removed, or never on disk) or OutFailed (file still there). */
+inline void MCPCommitEmptyExternalPackages(
+	TArray<UPackage*>& Packages, TArray<TSharedPtr<FJsonValue>>& OutDeleted, TArray<TSharedPtr<FJsonValue>>& OutFailed)
+{
+	struct FEmptyEntry { FString Package; FString File; bool bExisted = false; };
+	TArray<UPackage*> Empty;
+	TArray<FEmptyEntry> Entries;
+	for (int32 Index = Packages.Num() - 1; Index >= 0; --Index)
+	{
+		UPackage* Package = Packages[Index];
+		if (!Package || !Package->IsDirty()) continue;
+		const FString Name = Package->GetName();
+		if (!Name.Contains(TEXT("/__ExternalActors__/")) && !Name.Contains(TEXT("/__ExternalObjects__/"))) continue;
+		if (!UPackage::IsEmptyPackage(Package)) continue;
+		FEmptyEntry Entry;
+		Entry.Package = Name;
+		ResolvePackageFileName(Package, Entry.File);
+		Entry.bExisted = !Entry.File.IsEmpty() && IFileManager::Get().FileExists(*Entry.File);
+		Entries.Add(Entry);
+		Empty.Add(Package);
+		Packages.RemoveAt(Index);
+	}
+	if (Empty.IsEmpty()) return;
+
+	ObjectTools::CleanupAfterSuccessfulDelete(Empty, /*bPerformReferenceCheck*/ true);
+
+	for (const FEmptyEntry& Entry : Entries)
+	{
+		const bool bExistsNow = !Entry.File.IsEmpty() && IFileManager::Get().FileExists(*Entry.File);
+		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+		Row->SetStringField(TEXT("package"), Entry.Package);
+		if (!Entry.File.IsEmpty()) Row->SetStringField(TEXT("file"), FPaths::ConvertRelativePathToFull(Entry.File));
+		Row->SetBoolField(TEXT("emptyPackage"), true);
+		if (bExistsNow)
+		{
+			Row->SetStringField(TEXT("error"), TEXT("The emptied package's file could not be deleted; it may be read-only or held by source control."));
+			OutFailed.Add(MakeShared<FJsonValueObject>(Row));
+			continue;
+		}
+		Row->SetBoolField(TEXT("deleted"), Entry.bExisted);
+		if (!Entry.bExisted) Row->SetBoolField(TEXT("neverOnDisk"), true);
+		OutDeleted.Add(MakeShared<FJsonValueObject>(Row));
+	}
+}
 
 /** Save every dirty map and/or content package with
  *  UEditorLoadingAndSavingUtils::SaveDirtyPackages, and report each package

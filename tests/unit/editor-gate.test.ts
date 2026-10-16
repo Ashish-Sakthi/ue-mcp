@@ -33,6 +33,10 @@ describe("write gating beyond one editor", () => {
     expect(refuseUntargetedCall({ taskName: "flow.plan", ...TWO })).toBeNull();
   });
 
+  it("lets feedback(submit) through, which touches no editor (#1276)", () => {
+    expect(refuseUntargetedCall({ taskName: "feedback.submit", ...TWO })).toBeNull();
+  });
+
   it("refuses an unclassifiable call rather than guessing it is a read", () => {
     const refusal = refuseUntargetedCall({ taskName: "epic.call_tool", ...TWO });
     expect(refusal).toContain("does whatever its parameters say");

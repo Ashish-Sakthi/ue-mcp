@@ -125,6 +125,7 @@ private:
 	// #1166: many Blueprints to disk in one call, and a report-only audit of
 	// unused and unreachable logic. Defined in BlueprintHandlers_Audit.cpp.
 	static TSharedPtr<FJsonValue> ExportBlueprintBatch(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> ListSubclasses(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AuditDeadCode(const TSharedPtr<FJsonObject>& Params);
 
 	// #419: SetCapsuleSize on CapsuleComponent BP templates (UFUNCTION setter

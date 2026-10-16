@@ -152,6 +152,9 @@ private:
 	static TSharedPtr<FJsonValue> ListTextureProperties(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetTextureProperties(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ImportTexture(const TSharedPtr<FJsonObject>& Params);
+	// #1377: .ttf/.otf to UFontFace, and a UFont composite built from faces, in AssetHandlers_Font.cpp.
+	static TSharedPtr<FJsonValue> ImportFont(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CreateCompositeFont(const TSharedPtr<FJsonObject>& Params);
 	// #697: export a texture to PNG on disk, and compare two textures.
 	static TSharedPtr<FJsonValue> ExportTexture(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CompareTextures(const TSharedPtr<FJsonObject>& Params);

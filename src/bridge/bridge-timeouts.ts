@@ -79,6 +79,7 @@ export const REGISTERED_HANDLER_TIMEOUT_SECONDS: Readonly<Record<string, number>
   fix_asset_hygiene: 300,
   fixup_redirectors: 300,
   generate_mesh_collision: 300,
+  generate_skeletal_mesh_lods: 600,
   get_blueprint_connections: 600,
   get_landscape_height_region: 120,
   get_landscape_holes: 120,

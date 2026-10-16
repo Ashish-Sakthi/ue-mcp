@@ -3,6 +3,7 @@
 #include "CoreMinimal.h"
 #include "Dom/JsonValue.h"
 #include "Dom/JsonObject.h"
+#include "Misc/CoreDelegates.h"
 
 class SButton;
 class SCheckBox;
@@ -126,6 +127,24 @@ public:
 	/** The wire name of a prompt kind, as list_dialogs reports it. */
 	static const TCHAR* PromptKindName(EMCPPromptKind Kind);
 
+	/** One dialog the editor raised and the answer it got, for a handler that
+	 *  failed because of it and has to say so (#1334). */
+	struct FAnsweredDialog
+	{
+		int32 Serial = 0;
+		FString Title;
+		FString Message;
+		FString Answer;
+		/** "policy" when an armed policy answered, "person" otherwise. */
+		FString AnsweredBy;
+	};
+
+	/** Serial of the most recent answered dialog; pass it to AnsweredDialogsSince. */
+	static int32 GetAnsweredDialogSerial();
+
+	/** Dialogs answered after Serial, oldest first. Game thread only. */
+	static TArray<FAnsweredDialog> AnsweredDialogsSince(int32 Serial);
+
 private:
 	// Dialog policy: pattern -> response mapping
 	struct FDialogPolicy
@@ -139,6 +158,10 @@ private:
 		 * instead. Empty means "resolve the button from Response".
 		 */
 		FString ButtonLabel;
+		/** Response was given by the caller, not derived from ButtonLabel. */
+		bool bResponseExplicit = true;
+		/** Response holds a value: given, or derived from a label that names one. */
+		bool bHasResponse = true;
 	};
 
 	// Handler implementations
@@ -148,8 +171,17 @@ private:
 	static TSharedPtr<FJsonValue> ListDialogs(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> RespondToDialog(const TSharedPtr<FJsonObject>& Params);
 
+	// Window control (#1231): every open modal and floating window, addressed
+	// by the windowId list_windows and list_dialogs report.
+	static TSharedPtr<FJsonValue> ListWindows(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PressWindowButton(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> CloseWindowById(const TSharedPtr<FJsonObject>& Params);
+
+	/** The window the dialog gate refuses calls for, or null when it is open. */
+	static TSharedPtr<SWindow> FindGatingWindow();
+
 	// The hooked dialog handler
-	static EAppReturnType::Type HandleModalDialog(EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
+	static EAppReturnType::Type HandleModalDialog(EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
 	// FCoreDelegates::ModalMessageDialog (UE 5.7) signature includes an EAppMsgCategory.
 	static EAppReturnType::Type HandleModalDialogV2(enum EAppMsgCategory Category, EAppMsgType::Type MsgType, const FText& Text, const FText& Title);
 
@@ -158,6 +190,19 @@ private:
 	static EAppReturnType::Type ParseResponseType(const FString& ResponseStr, bool& bOutValid);
 	static FString ValidResponseList();
 	static FString ResponseTypeToString(EAppReturnType::Type Response);
+	/** The policy's response keyword, or empty when it has none. */
+	static FString PolicyResponseString(const FDialogPolicy& Policy);
+
+	/**
+	 * The answer a policy gives an FMessageDialog of this type. A buttonLabel
+	 * is matched against the buttons that type offers; without one, or when it
+	 * names none of them, an explicit response answers. False means the policy
+	 * names nothing this dialog offers and the dialog is left for a person.
+	 */
+	static bool ResolveMessageDialogAnswer(const FDialogPolicy& Policy, EAppMsgType::Type MsgType, EAppReturnType::Type& OutAnswer, FString& OutReason);
+
+	/** Record an answered dialog for AnsweredDialogsSince. */
+	static void NoteAnsweredDialog(const FString& Title, const FString& Message, const FString& Answer, const TCHAR* AnsweredBy);
 
 	// Shared modal walk. One traversal answers DescribeActiveModal,
 	// list_dialogs, respond_to_dialog and the policy applier, so the four
@@ -177,8 +222,13 @@ private:
 	// Active policies
 	static TArray<FDialogPolicy> Policies;
 
-	// Original delegate handle (so we can unbind)
-	static FDelegateHandle OriginalDelegateHandle;
+	// The binding InstallDialogHook replaced, normally the editor's own Slate
+	// dialog. A prompt no policy answers goes to it, so it stays a Slate modal
+	// list_dialogs and respond_to_dialog can reach (#1272).
+	static decltype(FCoreDelegates::ModalMessageDialog) PreviousModalMessageDialog;
+
+	// Our own binding, so RemoveDialogHook restores only what it replaced.
+	static FDelegateHandle OurDialogHandle;
 
 	// Whether we've installed our hook
 	static bool bHookInstalled;

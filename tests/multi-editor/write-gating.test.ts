@@ -109,7 +109,7 @@ describe("untargeted calls beyond one editor", () => {
 
   it("still serves a read from the active session", async () => {
     const tool = targetable(assetTool);
-    const result = await dispatch(tool, { action: "list", path: "/Game" });
+    const result = await dispatch(tool, { action: "list", directory: "/Game" });
 
     expect("ran" in result).toBe(true);
     expect((result as { editor: string }).editor).toBe("Alpha");
@@ -143,7 +143,7 @@ describe("targeted calls beyond one editor", () => {
 
   it("names the serving editor on the response", async () => {
     const tool = targetable(assetTool);
-    const result = await dispatch(tool, { action: "list", path: "/Game", editor: "Beta" });
+    const result = await dispatch(tool, { action: "list", directory: "/Game", editor: "Beta" });
     expect((result as { attribution: string }).attribution).toContain('"editor":"Beta"');
   });
 });

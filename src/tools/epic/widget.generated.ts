@@ -16,11 +16,11 @@ import { bp } from "../../surface/category-tool.js";
 const S_epic_add_uicomponent = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}},"widgetName":{"type":"string"},"componentClass":{"type":"object","properties":{"refPath":{}}}},"required":["widgetBlueprint","widgetName","componentClass"]} as const;
 const S_epic_add_widget = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}},"widgetClass":{"type":"object","properties":{"refPath":{}}},"widgetDisplayName":{"type":"string"},"parentWidget":{"type":"object","properties":{"refPath":{}}},"childIndex":{"type":"integer"}},"required":["widgetBlueprint","widgetClass","widgetDisplayName"]} as const;
 const S_epic_bind_to_event_property = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}},"eventName":{"type":"string"},"propertyName":{"type":"string"},"propertyClass":{"type":"object","properties":{"refPath":{}}}},"required":["widgetBlueprint","eventName","propertyName","propertyClass"]} as const;
-const S_epic_click = {"properties":{"ref":{"type":"string"},"button":{"type":"string"},"doubleClick":{"type":"boolean"},"modifiers":{"type":"object"}},"required":["ref"]} as const;
+const S_epic_click = {"properties":{"ref":{"type":"string"},"button":{"type":"string"},"doubleClick":{"type":"boolean"},"modifiers":{"type":"object","properties":{"bShift":{"type":"boolean"},"bCtrl":{"type":"boolean"},"bAlt":{"type":"boolean"},"bCmd":{"type":"boolean"}}}},"required":["ref"]} as const;
 const S_epic_compile_widget_blueprint = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}}},"required":["widgetBlueprint"]} as const;
 const S_epic_create_widget_blueprint = {"properties":{"folderPath":{"type":"string"},"assetName":{"type":"string"},"parentClass":{"type":"object","properties":{"refPath":{}}}},"required":["folderPath","assetName","parentClass"]} as const;
-const S_epic_drag = {"properties":{"startRef":{"type":"string"},"endRef":{"type":"string"},"modifiers":{"type":"object"}},"required":["startRef","endRef"]} as const;
-const S_epic_fill_form = {"properties":{"fields":{"type":"array"}},"required":["fields"]} as const;
+const S_epic_drag = {"properties":{"startRef":{"type":"string"},"endRef":{"type":"string"},"modifiers":{"type":"object","properties":{"bShift":{"type":"boolean"},"bCtrl":{"type":"boolean"},"bAlt":{"type":"boolean"},"bCmd":{"type":"boolean"}}}},"required":["startRef","endRef"]} as const;
+const S_epic_fill_form = {"properties":{"fields":{"type":"array","items":{"type":"object","properties":{"ref":{"type":"string"},"value":{"type":"string"},"fieldType":{"type":"string"}}}}},"required":["fields"]} as const;
 const S_epic_get_named_slots = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}}},"required":["widgetBlueprint"]} as const;
 const S_epic_get_widget_class_info = {"properties":{"widgetClass":{"type":"object","properties":{"refPath":{}}}},"required":["widgetClass"]} as const;
 const S_epic_get_widget_description = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}},"startWidget":{"type":"object","properties":{"refPath":{}}},"maxDepth":{"type":"integer"}},"required":["widgetBlueprint"]} as const;
@@ -49,7 +49,7 @@ const S_epic_type = {"properties":{"ref":{"type":"string"},"text":{"type":"strin
 const S_epic_unobserve = {"properties":{"identifier":{"type":"string"}},"required":["identifier"]} as const;
 const S_epic_wait_for = {"properties":{"text":{"type":"string"},"textGone":{"type":"string"}},"required":["text","textGone"]} as const;
 const S_epic_windows = {"properties":{"action":{"type":"string"},"index":{"type":"integer"}}} as const;
-const S_epic_wrap_widgets = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}},"widgets":{"type":"array"},"wrapperClass":{"type":"object","properties":{"refPath":{}}}},"required":["widgetBlueprint","widgets","wrapperClass"]} as const;
+const S_epic_wrap_widgets = {"properties":{"widgetBlueprint":{"type":"object","properties":{"refPath":{}}},"widgets":{"type":"array","items":{"type":"object","properties":{"refPath":{}}}},"wrapperClass":{"type":"object","properties":{"refPath":{}}}},"required":["widgetBlueprint","widgets","wrapperClass"]} as const;
 
 /** 37 wrapped engine tools routed to the `widget` category. */
 export const actions: Record<string, ActionSpec> = {
