@@ -116,7 +116,6 @@ describe.skipIf(echoUnavailable !== null)("the client consumes the routing key, 
       const result = await server.call("asset", {
         action: "list_textures",
         directory: READ_DIRECTORY,
-        recursive: false,
         editor: LIVE,
       });
       expect(result.isError).toBe(false);
@@ -162,7 +161,7 @@ describe.skipIf(echoUnavailable !== null)("the client consumes the routing key, 
       action: "call",
       category: "asset",
       method: "list_textures",
-      args: { directory: READ_DIRECTORY, recursive: false, editor: LIVE },
+      args: { directory: READ_DIRECTORY, editor: LIVE },
     });
 
     const entries = await readParamEcho(echo);
@@ -193,7 +192,6 @@ describe.skipIf(echoUnavailable !== null)("the client consumes the routing key, 
     await tool.handler(ctx, {
       action: "list_textures",
       directory: READ_DIRECTORY,
-      recursive: false,
       editor: LIVE,
     });
 

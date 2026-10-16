@@ -4,6 +4,7 @@ import { actionEnum } from "../surface/category-tool.js";
 import { compileSchemaFields, type ManifestInjectAction } from "./manifest.js";
 import { inferActionEffect } from "../surface/action-class.js";
 import { contractActionFields, type NativeContractExtras } from "./native-contract.js";
+import { liftOptional, manifestActionFields } from "./manifest-params.js";
 
 /**
  * Per-category injection plan derived from one plugin's `inject:` block.
@@ -71,7 +72,9 @@ export function mergeInjectionsIntoTool(
         // read someone else's task to find out what it does.
         effect: injectSpec.effect ?? inferActionEffect(orig.name, prefixed),
         effectSource: injectSpec.effect ? "declared" : "inferred",
-        description: injectSpec.description ?? `Plugin action from ${plan.pluginName}`,
+        ...(injectSpec.contract
+          ? { description: injectSpec.description ?? `Plugin action from ${plan.pluginName}` }
+          : manifestActionFields(injectSpec.description ?? `Plugin action from ${plan.pluginName}`, injectSpec.schema)),
         ...contractActionFields(injectSpec.contract),
       } as ActionSpec;
       added.push(prefixed);
@@ -81,13 +84,12 @@ export function mergeInjectionsIntoTool(
           : `- ${prefixed} (${plan.pluginName})`,
       );
 
-      // Lift per-action schema fields to the top level as optional, matching
-      // the pattern built-in categories already use (one flat schema, action
-      // selects which params apply).
+      // Lift per-action schema fields to the top level as optional: one flat
+      // schema backs every action, so requiredness lives on the action (#1270).
       const compiled = injectSpec.zodSchema ?? compileSchemaFields(injectSpec.schema);
       for (const [k, v] of Object.entries(compiled)) {
         if (!(k in extraSchema) && !(k in orig.schema)) {
-          extraSchema[k] = v;
+          extraSchema[k] = liftOptional(v);
         }
       }
     }

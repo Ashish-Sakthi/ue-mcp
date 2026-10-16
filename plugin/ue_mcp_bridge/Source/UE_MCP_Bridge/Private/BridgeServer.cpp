@@ -560,6 +560,8 @@ TSharedPtr<FJsonObject> FMCPBridgeServer::BuildCapabilitiesPayload()
 		TEXT("param-echo"),
 		// #1057: handlerSpecs below.
 		TEXT("handler-specs"),
+		// #1339: a frame-level timeoutMs raises the game-thread wait.
+		TEXT("call-timeout"),
 	};
 	TArray<TSharedPtr<FJsonValue>> FeatureValues;
 	for (const TCHAR* Feature : Features)
@@ -701,7 +703,17 @@ FString FMCPBridgeServer::ProcessMessage(const FString& Message)
 	// Some handlers (create_cpp_class regenerates IDE project files;
 	// long-running compiles) legitimately need minutes. Honor per-handler
 	// timeouts registered via FMCPHandlerRegistry::RegisterHandlerWithTimeout.
-	const float PerHandlerTimeout = HandlerRegistry.GetHandlerTimeout(Method);
+	float PerHandlerTimeout = HandlerRegistry.GetHandlerTimeout(Method);
+
+	// A caller's explicit budget (frame-level timeoutMs) raises the wait, never
+	// lowers it, so execute_python and the like can run past 30s (#1339).
+	double RequestedTimeoutMs = 0.0;
+	if (Request->TryGetNumberField(TEXT("timeoutMs"), RequestedTimeoutMs) && RequestedTimeoutMs > 0.0)
+	{
+		const float RequestedSeconds = (float)FMath::Min(RequestedTimeoutMs / 1000.0, 3600.0);
+		const float BaseSeconds = PerHandlerTimeout > 0.0f ? PerHandlerTimeout : FMCPGameThreadExecutor::DefaultTimeoutSeconds;
+		PerHandlerTimeout = FMath::Max(BaseSeconds, RequestedSeconds);
+	}
 
 	// These read or answer the dialog that is blocking the engine loop, so they
 	// are the handlers that must keep working while one is up. Everything else
@@ -712,6 +724,9 @@ FString FMCPBridgeServer::ProcessMessage(const FString& Message)
 		TEXT("get_dialog_policy"),
 		TEXT("set_dialog_policy"),
 		TEXT("clear_dialog_policy"),
+		TEXT("list_windows"),
+		TEXT("press_window_button"),
+		TEXT("close_window"),
 	};
 	const bool bModalSafe = ModalSafeMethods.Contains(Method);
 

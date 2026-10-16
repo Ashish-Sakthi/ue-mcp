@@ -28,7 +28,9 @@ describe("graphSelector on graph writes", () => {
 
   for (const action of ["delete_node", "refresh_node", "disconnect_pins"]) {
     it(`${action} forwards graphSelector`, async () => {
-      const [method, params] = await route({ action, assetPath: BP, graphSelector: "Aim[1]", nodeId: NODE, pinName: "Pose" });
+      // pinName only where the action takes it: an undeclared key is refused (#1336).
+      const pin = action === "disconnect_pins" ? { pinName: "Pose" } : {};
+      const [method, params] = await route({ action, assetPath: BP, graphSelector: "Aim[1]", nodeId: NODE, ...pin });
       expect(method).toBe(action);
       expect(params).toMatchObject({ assetPath: BP, graphSelector: "Aim[1]", nodeId: NODE });
     });

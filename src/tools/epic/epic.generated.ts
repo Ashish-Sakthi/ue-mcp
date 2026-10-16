@@ -13,12 +13,12 @@ import { z } from "zod";
 import type { ActionSpec } from "../../core/types.js";
 import { bp } from "../../surface/category-tool.js";
 
-const S_epic_create_skill = {"properties":{"folderPath":{"type":"string"},"assetName":{"type":"string"},"description":{"type":"string"},"details":{"type":"object"}},"required":["folderPath","assetName","description","details"]} as const;
+const S_epic_create_skill = {"properties":{"folderPath":{"type":"string"},"assetName":{"type":"string"},"description":{"type":"string"},"details":{"type":"object","properties":{"instructions":{"type":"string"}}}},"required":["folderPath","assetName","description","details"]} as const;
 const S_epic_execute_tool_script = {"properties":{"script":{"type":"string"}},"required":["script"]} as const;
 const S_epic_get_execution_environment = {"properties":{}} as const;
-const S_epic_get_skills = {"properties":{"skillPaths":{"type":"array"}},"required":["skillPaths"]} as const;
+const S_epic_get_skills = {"properties":{"skillPaths":{"type":"array","items":{"type":"string"}}},"required":["skillPaths"]} as const;
 const S_epic_list_skills = {"properties":{}} as const;
-const S_epic_update_skill = {"properties":{"skillPath":{"type":"string"},"description":{"type":"string"},"details":{"type":"object"}},"required":["skillPath","description","details"]} as const;
+const S_epic_update_skill = {"properties":{"skillPath":{"type":"string"},"description":{"type":"string"},"details":{"type":"object","properties":{"instructions":{"type":"string"}}}},"required":["skillPath","description","details"]} as const;
 
 /** 6 wrapped engine tools routed to the `epic` category. */
 export const actions: Record<string, ActionSpec> = {

@@ -791,7 +791,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::RemoveComponentsByClass(const TSharedPtr<
 	// is the inverse of this and even the per-actor replay is not a restore.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("results[].components names every component removed, per actor, and componentClass names the class, so level(add_component_to_actor) can put an empty one back on each. Their property values, transforms and attachments were not captured and do not come back. dryRun=true, which is the default here, is the preflight."));
+		TEXT("results[].components names every component removed, per actor, and componentClass names the class, so level(add_component) can put an empty one back on each. Their property values, transforms and attachments were not captured and do not come back. dryRun=true, which is the default here, is the preflight."));
 
 	return MCPResult(Result);
 }

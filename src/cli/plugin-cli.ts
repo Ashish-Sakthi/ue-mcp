@@ -5,14 +5,15 @@
  *   install <name> [--version x.y.z]   npm install + add to ue-mcp.yml plugins:
  *   uninstall <name>                   npm uninstall + remove from plugins:
  *   list                               list configured plugins and their status
- *   update [name]                      npm update + re-validate manifests
+ *   update [name] [--version x.y.z]    rerun install for each plugin not at its
+ *                                      target (latest, or the given version)
  *   check-skills [dir]                 check a plugin's skills/ against the
  *                                      action surface, before publishing
  *   create <name> [--dir path]         scaffold a new plugin (superset of every
  *                                      extension shape: inject, provides, flows,
  *                                      and a dormant native C++ module)
- *   publish [dir] [--private|--public] push a listing (incl. its README) to the
- *                                      registry; merges over curated fields
+ *   publish [dir] [--dry-run]          push the registry listing; derives
+ *                                      provides/ueVersions, keeps the slug
  *   record-specs [dir] --project <p>   record the native module's handler
  *                                      contracts from a running editor (#1282);
  *                                      --check fails when the file differs
@@ -26,7 +27,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadManifest } from "../extensions/manifest.js";
+import { loadManifest, manifestActionNames, type PluginManifest } from "../extensions/manifest.js";
 import { satisfiesMinimum } from "../extensions/version.js";
 import { findInstalledPackage } from "../extensions/resolver.js";
 import { pluginSlug, deriveGroups, isGroupEnabled } from "../extensions/plugin-groups.js";
@@ -47,9 +48,9 @@ import {
 } from "../extensions/native-deploy.js";
 import { ALL_TOOLS } from "../tools.js";
 import { readPluginsList, type PluginEntry } from "../extensions/plugins-list.js";
-import { prefixedActionName } from "../extensions/manifest.js";
 import { flowCategoryForCheck } from "../flow/flow-surface.js";
 import { buildMicroGateway } from "../surface/context/micro-context.js";
+import { actionParamNames } from "../surface/action-signature.js";
 import {
   checkSkills,
   conflictMessages,
@@ -63,10 +64,12 @@ import { resolvePublishToken } from "../extensions/registry-auth.js";
 import { EditorBridge } from "../bridge/bridge.js";
 import { recordedSpecsProblems, type HandlerSpecs } from "../surface/handler-spec.js";
 import { parseEditorFlag, resolveEditorFlag, EditorFlagError } from "./editor-flag.js";
+import { formatUsage, type CliUsage } from "./cli-main.js";
 import { packageVersion } from "../core/package-root.js";
 import { deriveDefaultPrefix, deriveUePluginName, writeScaffold } from "../extensions/plugin-scaffold.js";
 import { ProjectContext } from "../config/project.js";
 import { registryBase } from "../extensions/registry-catalog.js";
+import { chooseListing, derivedListingFields, listingDiff } from "../extensions/publish-listing.js";
 import { findUProject, projectDirOf } from "../config/uproject-path.js";
 
 const RESTART_NOTE =
@@ -221,7 +224,39 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   }
 
   const proj = findProjectDir(projectStartDir(editor));
+  const { manifest, nativeDeployed } = installPackage(proj, name, version, version);
+  if (nativeDeployed) note(REBUILD_NOTE);
+  printInstallSummary(name, manifest);
+}
 
+/** What one run of the install path did. */
+interface InstalledPlugin {
+  manifest: PluginManifest;
+  version: string;
+  /** The native module was copied into the project, so the UE project needs a rebuild. */
+  nativeDeployed: boolean;
+}
+
+const REBUILD_NOTE =
+  "REBUILD REQUIRED: run `ue-mcp build` (or rebuild the UE project) before launching the editor so the new C++ module compiles in.";
+
+/** The version in an installed package's package.json. */
+function installedVersion(pkgDir: string): string | undefined {
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8")) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The install path `plugin install` and `plugin update` share: npm (which
+ * writes package.json), validation, the ue-mcp.yml entry pinned to `pin`, the
+ * native module with stale files pruned, and skills. Any failure exits
+ * non-zero, so a half-installed plugin is never reported as done.
+ */
+function installPackage(proj: ProjectInfo, name: string, version: string | undefined, pin: string | undefined): InstalledPlugin {
+  let nativeDeployed = false;
   // Ensure a package.json exists. npm install will refuse without one.
   if (!fs.existsSync(path.join(proj.projectDir, "package.json"))) {
     note(`no package.json in ${proj.projectDir}; running 'npm init -y'`);
@@ -319,9 +354,9 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   const list = readPluginsList(proj.configPath);
   const existing = list.findIndex((p) => p.name === name);
   if (existing >= 0) {
-    list[existing] = { name, version };
+    list[existing] = { name, version: pin };
   } else {
-    list.push({ name, version });
+    list.push({ name, version: pin });
   }
   writePluginsList(proj.configPath, list);
 
@@ -336,16 +371,15 @@ function cmdInstall(args: string[], editor: string | undefined): void {
       if (pruned > 0) {
         note(`removed ${pruned} file(s) the previous ${native.uePluginName} version deployed and this one no longer ships`);
       }
-      const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8")) as { version?: string };
       state[name] = {
         uePluginName: native.uePluginName,
-        pluginVersion: pkgJson.version ?? "0.0.0",
+        pluginVersion: installedVersion(pkgDir) ?? "0.0.0",
         installedAt: new Date().toISOString(),
         files: result.fileList,
       };
       writeNativeModulesState(proj.projectDir, state);
       note(`deployed native module ${native.uePluginName} (${result.filesCopied} files) to ${path.relative(proj.projectDir, result.destDir)}`);
-      note(`REBUILD REQUIRED: run \`npm run build\` (or rebuild the UE project) before launching the editor so the new C++ module compiles in.`);
+      nativeDeployed = true;
     } catch (e) {
       fail(`${name}: failed to deploy native module: ${(e as Error).message}`);
     }
@@ -359,8 +393,10 @@ function cmdInstall(args: string[], editor: string | undefined): void {
     const skills = [...r.installed, ...r.unchanged];
     if (skills.length > 0) note(`skills: ${skills.join(", ")} (in .claude/skills/)`);
   }
+  return { manifest, version: installedVersion(pkgDir) ?? version ?? "?", nativeDeployed };
+}
 
-  // Summary
+function printInstallSummary(name: string, manifest: PluginManifest): void {
   note(`installed ${name}@${manifest.minServerVersion ? `(server-min ${manifest.minServerVersion})` : ""}`);
   note(`actionPrefix: ${manifest.actionPrefix}`);
   for (const [category, actions] of Object.entries(manifest.inject)) {
@@ -441,20 +477,118 @@ function cmdList(editor: string | undefined): void {
   }
 }
 
-function cmdUpdate(args: string[], editor: string | undefined): void {
-  const name = args.shift();
-  const proj = findProjectDir(projectStartDir(editor));
-  if (name) {
-    runNpm(["update", name], proj.projectDir);
-  } else {
-    runNpm(["update"], proj.projectDir);
+/** One plugin `plugin update` will move, and why. */
+export interface PluginUpdateStep {
+  name: string;
+  /** The version to install. */
+  to: string;
+  /** The ue-mcp.yml pin to write: the new version when the entry was pinned, else none. */
+  pin?: string;
+  reason: string;
+}
+
+/** What `plugin update` reads about each declared plugin. */
+export interface PluginUpdateFacts {
+  installed(name: string): string | undefined;
+  /** The version whose native module is deployed in the project, if one is. */
+  deployedNative(name: string): string | undefined;
+  /** The newest published version, or null when npm could not say. */
+  latest(name: string): string | null;
+}
+
+/**
+ * Decide what `plugin update [name] [--version v]` installs. A plugin moves
+ * when its package, its ue-mcp.yml pin or its deployed native module is not
+ * at the target, which is the given version or the newest published one, so
+ * a 0.x minor is crossed rather than held back by a caret range.
+ */
+export function planPluginUpdates(
+  entries: readonly PluginEntry[],
+  requested: string | undefined,
+  version: string | undefined,
+  facts: PluginUpdateFacts,
+): { steps: PluginUpdateStep[]; current: string[]; errors: string[] } {
+  const errors: string[] = [];
+  if (version && !requested) return { steps: [], current: [], errors: ["--version needs a plugin name"] };
+  const chosen = requested
+    ? entries.filter((e) => e.name === requested || pluginSlug(e.name) === requested)
+    : [...entries];
+  if (requested && chosen.length === 0) {
+    errors.push(`${requested} is not in ue-mcp.yml plugins:; install it with \`ue-mcp plugin install ${requested}\``);
   }
+  const steps: PluginUpdateStep[] = [];
+  const current: string[] = [];
+  for (const entry of chosen) {
+    const to = version ?? facts.latest(entry.name);
+    if (!to) {
+      errors.push(`could not read the latest version of ${entry.name} from npm`);
+      continue;
+    }
+    const installed = facts.installed(entry.name);
+    const native = facts.deployedNative(entry.name);
+    const pin = entry.version ? to : undefined;
+    const reason = installed !== to
+      ? `${installed ?? "not installed"} -> ${to}`
+      : entry.version && entry.version !== to
+        ? `ue-mcp.yml pins ${entry.version}`
+        : native !== undefined && native !== to
+          ? `native module deployed from ${native}`
+          : undefined;
+    if (reason) steps.push({ name: entry.name, to, pin, reason });
+    else current.push(`${entry.name}@${to}`);
+  }
+  return { steps, current, errors };
+}
+
+/** The version behind a package's `latest` dist-tag, or null when npm cannot answer. */
+function npmLatest(name: string, cwd: string): string | null {
+  const r = spawnSync("npm", ["view", name, "version"], { windowsHide: true, cwd, encoding: "utf8", shell: true });
+  const v = (r.stdout ?? "").trim().split(/\r?\n/).pop()?.trim();
+  return r.status === 0 && v ? v : null;
+}
+
+function cmdUpdate(args: string[], editor: string | undefined): void {
+  let requested: string | undefined;
+  let version: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--version") version = args[++i];
+    else if (!args[i].startsWith("-")) requested ??= args[i];
+  }
+  const proj = findProjectDir(projectStartDir(editor));
+  const nativeState = readNativeModulesState(proj.projectDir);
+  const plan = planPluginUpdates(readPluginsList(proj.configPath), requested, version, {
+    installed: (name) => {
+      const dir = findInstalledPackage(name, proj.projectDir);
+      return dir ? installedVersion(dir) : undefined;
+    },
+    deployedNative: (name) => nativeState[name]?.pluginVersion,
+    latest: (name) => npmLatest(name, proj.projectDir),
+  });
+  if (plan.errors.length > 0) fail(plan.errors.join("; "));
+  for (const c of plan.current) note(`${c} is current`);
+
+  let rebuild = false;
+  for (const step of plan.steps) {
+    note(`updating ${step.name} (${step.reason})`);
+    const done = installPackage(proj, step.name, step.to, step.pin);
+    rebuild ||= done.nativeDeployed;
+    note(`${step.name} is at ${done.version}${step.pin ? `, pinned in ue-mcp.yml` : ""}`);
+  }
+
+  // Skills of plugins that did not move are refreshed too, so a deleted skill comes back.
   const skills = syncPluginSkills(proj.projectDir, proj.configPath);
   for (const [plugin, r] of Object.entries(skills.plugins)) {
     for (const line of conflictMessages(r)) note(`WARNING: ${line}`);
     if (r.installed.length > 0) note(`${plugin}: updated skills ${r.installed.join(", ")}`);
     if (r.pruned.length > 0) note(`${plugin}: removed skills ${r.pruned.join(", ")}`);
   }
+
+  if (plan.steps.length === 0) {
+    note("nothing to update. Rebuild needed: no. MCP client restart needed: no.");
+    return;
+  }
+  if (rebuild) note(REBUILD_NOTE);
+  note(`updated ${plan.steps.length} plugin(s). Rebuild needed: ${rebuild ? "yes" : "no"}. MCP client restart needed: yes.`);
   note(RESTART_NOTE);
 }
 
@@ -470,24 +604,23 @@ function cmdCheckSkills(args: string[]): void {
   if (listSkills(root).length === 0) fail(`no skills/<name>/SKILL.md under ${dir}`);
 
   const known = new Set<string>();
+  const coreParams = new Map<string, string[]>();
   // The micro gateway is advertised too (the default strategy), so a skill may teach it.
   for (const tool of [...ALL_TOOLS, flowCategoryForCheck(), buildMicroGateway(ALL_TOOLS)]) {
-    for (const action of Object.keys(tool.actions)) known.add(`${tool.name}.${action}`);
+    for (const action of Object.keys(tool.actions)) {
+      known.add(`${tool.name}.${action}`);
+      coreParams.set(`${tool.name}.${action}`, actionParamNames(tool, action));
+    }
   }
   try {
     const { manifest } = loadManifest(dir);
-    for (const [category, actions] of Object.entries(manifest.inject)) {
-      for (const a of Object.keys(actions)) known.add(`${category}.${prefixedActionName(manifest.actionPrefix, a)}`);
-    }
-    for (const [category, spec] of Object.entries(manifest.provides)) {
-      for (const a of Object.keys(spec.actions)) known.add(`${category}.${a}`);
-    }
+    for (const name of manifestActionNames(manifest, new Set(ALL_TOOLS.map((t) => t.name)))) known.add(name);
   } catch (e) {
     note(`no usable ue-mcp.plugin.yml (${(e as Error).message}); checking against core actions only`);
   }
 
   // The installer sets a plugin skill's name, so the directory need not match it.
-  const result = checkSkills(root, known, { requireNameMatch: false });
+  const result = checkSkills(root, known, { requireNameMatch: false, paramsOf: (ref) => coreParams.get(ref) });
   for (const p of result.problems) {
     console.log(`  ${p.skill}: ${p.detail}${p.didYouMean?.length ? ` Closest: ${p.didYouMean.join(", ")}` : ""}`);
   }
@@ -577,15 +710,6 @@ async function fetchCatalog(base: string): Promise<RegistryRow[]> {
 }
 
 /**
- * `ue-mcp plugin publish [dir] [--slug s] [--private|--public] [--token t] [--dry-run]`
- *
- * Reads the package at [dir] (default cwd): its README.md becomes the listing's
- * README (npm model - the docs travel with the package), and package.json fills
- * packageName / repoUrl / author. Curated marketplace fields (category, pricing,
- * tagline, tags, featured) are preserved by merging over the existing registry
- * row, so a re-publish only refreshes what the package owns.
- */
-/**
  * Record a native module's handler contracts from the editor that has it
  * loaded (#1282). The module registers each handler with its C++ spec; the
  * bridge publishes them in get_bridge_capabilities.pluginHandlerSpecs, and
@@ -643,6 +767,15 @@ async function cmdRecordSpecs(args: string[]): Promise<void> {
   note(`recorded ${declared.length} handler contracts to ${native.specs}${current === text ? " (unchanged)" : ""}`);
 }
 
+/**
+ * `ue-mcp plugin publish [dir]`: push the package's registry listing.
+ *
+ * A row already listing this package keeps its slug unless --slug and
+ * --rename say otherwise. Facts the package declares (provides, ueVersions)
+ * are derived on every publish; curated text comes from the manifest's
+ * `registry:` block or flags, and anything else is kept from the row.
+ * --dry-run prints the field-by-field change instead of posting.
+ */
 async function cmdPublish(args: string[]): Promise<void> {
   let dir = process.cwd();
   let slugFlag: string | undefined;
@@ -650,15 +783,29 @@ async function cmdPublish(args: string[]): Promise<void> {
   let tokenFlag: string | undefined;
   let privacy: boolean | undefined;
   let dryRun = false;
+  let rename = false;
+  let readmeMode: "snapshot" | "live" = "snapshot";
+  let tagsFromKeywords = false;
+  const curated: { tagline?: string; description?: string; category?: string } = {};
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
     if (a === "--slug") slugFlag = args[++i];
+    else if (a === "--rename") rename = true;
     else if (a === "--repo") repoFlag = args[++i];
     else if (a === "--token") tokenFlag = args[++i];
     else if (a === "--private") privacy = true;
     else if (a === "--public") privacy = false;
     else if (a === "--dry-run" || a === "--dry") dryRun = true;
-    else if (!a.startsWith("--")) dir = path.resolve(a);
+    else if (a === "--tagline") curated.tagline = args[++i];
+    else if (a === "--description") curated.description = args[++i];
+    else if (a === "--category") curated.category = args[++i];
+    else if (a === "--tags-from-keywords") tagsFromKeywords = true;
+    else if (a === "--readme") {
+      const mode = args[++i];
+      if (mode !== "snapshot" && mode !== "live") fail(`--readme must be snapshot or live, not '${mode}'`);
+      readmeMode = mode;
+    } else if (a.startsWith("-")) fail(`unknown flag ${a} for plugin publish`);
+    else dir = path.resolve(a);
   }
 
   const pkgPath = path.join(dir, "package.json");
@@ -676,8 +823,20 @@ async function cmdPublish(args: string[]): Promise<void> {
   const readmePath = ["README.md", "readme.md", "Readme.md"]
     .map((f) => path.join(dir, f))
     .find((f) => fs.existsSync(f));
-  const readme = readmePath ? fs.readFileSync(readmePath, "utf-8").trim() : "";
-  if (!readme) note(`WARNING: no README.md in ${dir}; publishing with an empty README.`);
+  // An empty stored readme is rendered live from the public repo; a snapshot
+  // is what the listing shows until the next publish.
+  const readme = readmeMode === "live" ? "" : readmePath ? fs.readFileSync(readmePath, "utf-8").trim() : "";
+  if (readmeMode === "snapshot" && !readme) {
+    note(`WARNING: no README.md in ${dir}; the listing falls back to the repo's README, if the repo is public.`);
+  }
+
+  // The listing fields the package itself declares.
+  let pluginManifest: PluginManifest | undefined;
+  try {
+    pluginManifest = loadManifest(dir).manifest;
+  } catch (e) {
+    note(`WARNING: no usable ue-mcp.plugin.yml (${(e as Error).message}); provides is taken from skills/ only.`);
+  }
 
   const base = registryBase();
   // Precedence: --token, then env (CI), then the token cached by `ue-mcp login`.
@@ -690,11 +849,11 @@ async function cmdPublish(args: string[]): Promise<void> {
     );
   }
 
-  // Default slug: the package name minus the conventional `ue-mcp-` prefix.
-  const slug = slugFlag ?? pkg.name.replace(/^ue-mcp-/, "");
-
   const catalog = await fetchCatalog(base);
-  const existing = catalog.find((r) => r.slug === slug || r.packageName === pkg.name);
+  const choice = chooseListing(catalog, pkg.name, slugFlag, rename);
+  if (!choice.ok) fail(choice.error);
+  const { slug, existing } = choice;
+  if (choice.renamed) note(`renaming listing '${choice.renamed}' -> '${slug}'`);
 
   const authorName =
     typeof pkg.author === "string"
@@ -718,6 +877,21 @@ async function cmdPublish(args: string[]): Promise<void> {
   manifest.repoUrl = repoFlag ?? repoUrlFromPkg(pkg) ?? manifest.repoUrl;
   if (privacy !== undefined) manifest.repoPrivate = privacy;
 
+  // Facts the package declares replace hand-curated copies on every publish.
+  const derived = derivedListingFields(
+    pluginManifest,
+    listSkills(path.join(dir, "skills")).length > 0,
+    Array.isArray(existing?.provides) ? (existing.provides as string[]) : [],
+  );
+  manifest.provides = derived.provides;
+  if (derived.ueVersions) manifest.ueVersions = derived.ueVersions;
+  // Curated fields: ue-mcp.plugin.yml `registry:`, then flags.
+  const own = { ...(pluginManifest?.registry ?? {}), ...Object.fromEntries(Object.entries(curated).filter(([, v]) => v !== undefined)) };
+  for (const [k, v] of Object.entries(own)) if (v !== undefined) manifest[k] = v;
+  if (tagsFromKeywords && Array.isArray(pkg.keywords)) {
+    manifest.tags = pkg.keywords.filter((k) => k !== "ue-mcp-plugin").slice(0, 12);
+  }
+
   if (!existing) {
     // New listing: fill the required marketplace fields with sane defaults so
     // the publish validates; the owner can refine category/pricing on the site.
@@ -733,9 +907,9 @@ async function cmdPublish(args: string[]): Promise<void> {
   }
 
   if (dryRun) {
-    note(`dry run - would POST to ${base}/api/publish:`);
-    const preview = { ...manifest, readme: `<${readme.length} chars>` };
-    console.log(JSON.stringify(preview, null, 2));
+    const changes = listingDiff(existing, manifest);
+    note(`dry run - nothing posted. ${existing ? `Changes to listing '${existing.slug}'` : `New listing '${slug}'`} at ${base}:`);
+    console.log(changes.length > 0 ? changes.join("\n") : "  (no changes)");
     return;
   }
 
@@ -885,6 +1059,24 @@ function reportConfigWrite(slug: string, target: ConfigTarget, proj: ProjectInfo
   note(CONFIG_RESTART_NOTE);
 }
 
+export const usage: CliUsage = {
+  usage: [
+    "ue-mcp plugin <subcommand>",
+    "  ue-mcp plugin install <name> [--version x.y.z]",
+    "  ue-mcp plugin uninstall <name>",
+    "  ue-mcp plugin list",
+    "  ue-mcp plugin update [name] [--version x.y.z]",
+    "  ue-mcp plugin check-skills [dir]",
+    "  ue-mcp plugin config <name> [--enable a,b] [--disable c,d] [--list-groups] [--local|--project]",
+    "  ue-mcp plugin create <name> [--dir path]",
+    "  ue-mcp plugin publish [dir] [--slug s [--rename]] [--private|--public] [--readme snapshot|live]",
+    "                        [--tagline t] [--description d] [--category c] [--tags-from-keywords] [--dry-run]",
+    "  ue-mcp plugin record-specs [dir] --project <path.uproject> [--check]",
+  ].join("\n"),
+  summary: "Install, create and publish plugins.",
+  flags: [{ name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" }],
+};
+
 /** Entry point for `ue-mcp plugin <subcommand>`. */
 export async function run(argv: string[]): Promise<number | void> {
   // --editor names one of the editors this server drives; every project lookup
@@ -910,18 +1102,7 @@ export async function run(argv: string[]): Promise<number | void> {
     case "config": await cmdConfig(args, editor).catch((e) => fail(e instanceof Error ? e.message : String(e))); break;
     case "record-specs": await cmdRecordSpecs(args).catch((e) => fail(e instanceof Error ? e.message : String(e))); break;
     default:
-      console.error(
-        "Usage:\n" +
-        "  ue-mcp plugin install <name> [--version x.y.z]\n" +
-        "  ue-mcp plugin uninstall <name>\n" +
-        "  ue-mcp plugin list\n" +
-        "  ue-mcp plugin update [name]\n" +
-        "  ue-mcp plugin check-skills [dir]\n" +
-        "  ue-mcp plugin config <name> [--enable a,b] [--disable c,d] [--list-groups] [--local|--project]\n" +
-        "  ue-mcp plugin create <name> [--dir path]\n" +
-        "  ue-mcp plugin publish [dir] [--slug s] [--private|--public] [--dry-run]\n" +
-        "  ue-mcp plugin record-specs [dir] --project <path.uproject> [--check]",
-      );
+      console.error(formatUsage(usage));
       return 1;
   }
 }

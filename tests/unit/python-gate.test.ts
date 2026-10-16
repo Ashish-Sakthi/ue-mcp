@@ -27,6 +27,7 @@ import { editorTool } from "../../src/tools/editor.js";
 import { resetAllWorkarounds } from "../../src/dispatch/workaround-tracker.js";
 import { PLUGIN_UPGRADE_POINTER } from "../../src/bridge/bridge.js";
 import { ALL_TOOLS } from "../../src/tools.js";
+import { handlerFailure } from "../../src/flow/handler-outcome.js";
 import type { IBridge } from "../../src/bridge/bridge.js";
 import type { ToolContext } from "../../src/core/types.js";
 
@@ -316,6 +317,19 @@ describe("editor.execute_python end to end", () => {
     const refused = await run({ code: "print(1)" });
     expect(refused.blocked).toBe(true);
     expect(refused.reason).toBe("missing_task_summary");
+    expect(calls).toEqual([]);
+  });
+
+  it("reports every refusal as success:false, so a task or flow step fails (#1269)", async () => {
+    const missing = await run({ code: "print(1)" });
+    expect(missing.success).toBe(false);
+    expect(handlerFailure(missing)).toMatch(/taskSummary/);
+
+    resetRulings();
+    const gated = await run({ code: "print(1)", taskSummary: "invoke a ufunction on an actor component" });
+    expect(gated.blocked).toBe(true);
+    expect(gated.success).toBe(false);
+    expect(handlerFailure(gated)).toBeTruthy();
     expect(calls).toEqual([]);
   });
 });

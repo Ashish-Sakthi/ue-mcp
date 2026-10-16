@@ -943,7 +943,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::EndEditorTransaction(const TSharedPtr<FJ
 		NoOp->SetBoolField(TEXT("committed"), false);
 		NoOp->SetBoolField(TEXT("unchanged"), true);
 		NoOp->SetStringField(TEXT("note"),
-			TEXT("No transaction was open, so nothing was committed. Open one with editor(begin_editor_transaction) before the writes that should undo together."));
+			TEXT("No transaction was open, so nothing was committed. Open one with editor(begin_transaction) before the writes that should undo together."));
 		MCPViewportCtlWriteUndoState(Trans, NoOp);
 		return MCPResult(NoOp);
 	}
@@ -1094,7 +1094,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::UndoRedoSteps(const TSharedPtr<FJsonObje
 
 	if (Trans->IsActive())
 	{
-		return MCPError(TEXT("A transaction is currently open, so the undo buffer cannot be moved. Close it with editor(end_editor_transaction) or discard it with editor(cancel_editor_transaction) first."));
+		return MCPError(TEXT("A transaction is currently open, so the undo buffer cannot be moved. Close it with editor(end_transaction) or discard it with editor(cancel_transaction) first."));
 	}
 
 	const int32 AvailableBefore = bUndo

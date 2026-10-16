@@ -1137,7 +1137,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::QueryZoneGraph(const TSharedPtr<FJsonO
 		Result->SetNumberField(TEXT("laneCount"), 0);
 		Result->SetStringField(TEXT("note"), ShapeCount > 0
 			? TEXT("This world has ZoneShape actors but no built ZoneGraphData, so there are no lanes to query yet. ZoneGraph only builds on demand: turn on bBuildZoneGraphWhileEditing with editor(set_property) at objectPath /Script/ZoneGraph.Default__ZoneGraphSettings, then move or re-edit a shape to trigger the build.")
-			: TEXT("This world has no ZoneShape actors and no ZoneGraphData. Place shapes first with level(spawn_actor, actorClass=\"/Script/ZoneGraph.ZoneShape\") and author their Points with editor(set_property)."));
+			: TEXT("This world has no ZoneShape actors and no ZoneGraphData. Place shapes first with level(place_actor, actorClass=\"/Script/ZoneGraph.ZoneShape\") and author their Points with editor(set_property)."));
 		return MCPResult(Result);
 	}
 

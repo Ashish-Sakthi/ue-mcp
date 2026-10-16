@@ -32,7 +32,7 @@ Set `category` and ue-mcp surfaces every handler as an MCP action that dispatche
 
 Two rules that bite if missed:
 
-- **Declare each handler's parameters in C++, and record them.** See [Typed contracts](#typed-contracts). A handler surfaced without a contract has only the manifest's loose `schema:` (types `string`, `number`, `boolean`, `object`, `array`, all forced optional), which cannot express required parameters, enums, ranges, integers or nested fields. With `specs:` set, a declared handler with no recorded contract is not surfaced at all.
+- **Declare each handler's parameters in C++, and record them.** See [Typed contracts](#typed-contracts). A handler surfaced without a contract has only the manifest's loose `schema:` (types `string`, `number`, `boolean`, `object`, `array`, with `required:` reported per action but left to the handler to enforce), which cannot express enums, ranges, integers or nested fields. With `specs:` set, a declared handler with no recorded contract is not surfaced at all.
 - **`timeoutSeconds`** sets the bridge-call timeout for that action (default 30s). Raise it for long-running handlers.
 
 Omit `category` entirely and handlers are still registered on the bridge but exposed as no MCP action - useful only if another task calls them internally. For an agent-facing plugin you almost always want `category`.
@@ -71,7 +71,7 @@ ue-mcp plugin record-specs --project path/to/Project.uproject
 ue-mcp plugin record-specs --project path/to/Project.uproject --check   # CI: fail when the file is stale
 ```
 
-Ship that file in the tarball (`files:`). The server builds the surface from the recording, so the surface is the same whether or not an editor is connected. `project(get_status)` reports `deployedPlugin.handlerSpecDrift` when the running module registered something different.
+Ship that file in the tarball (`files:`). The server builds the surface from the recording, so the surface is the same whether or not an editor is connected. `project(get_status)` reports `deployedPlugin.handlerSpecDrift` when the running module registered something different. A call to a drifted handler is checked against the contract the running module registered, since the bridge enforces that one anyway; `describe_action` keeps showing the recording until you re-record it and the client reconnects.
 
 ## Layout inside the npm tarball
 
