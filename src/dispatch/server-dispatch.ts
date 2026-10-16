@@ -32,7 +32,7 @@ import { clientAdvertisesElicitation } from "../editor/dialog-mode.js";
 import { contestedProject } from "../editor/project-holders.js";
 import { withAssetLocks, type LockingConfig } from "./locking.js";
 import { unknownActionMessage } from "../surface/action-schema.js";
-import { withheldTarget } from "../surface/registered-surface.js";
+import { withheldTarget, wrapsEpicTool } from "../surface/registered-surface.js";
 import { explainMissingAction } from "../sessions/session-surface.js";
 import type { FlowContext } from "../flow/context.js";
 import type { SessionLoad, SessionLoads } from "../sessions/session-load.js";
@@ -292,7 +292,14 @@ export async function dispatchCategoryCall(
   }
 
   // Withheld from the surface because the running plugin lacks its method (6.4).
-  const withheld = withheldTarget(sessionLoad.registryTools, effectiveTask, session.bridge);
+  // A wrapped engine tool re-reads the editor's toolsets when they are unknown
+  // or say it is absent, since a toolset can register after the handshake.
+  let withheld = withheldTarget(sessionLoad.registryTools, effectiveTask, session.bridge);
+  if (wrapsEpicTool(sessionLoad.registryTools, effectiveTask)
+    && (withheld || session.bridge.epicToolsets == null) && session.bridge.refreshEpicToolsets) {
+    await session.bridge.refreshEpicToolsets();
+    withheld = withheldTarget(sessionLoad.registryTools, effectiveTask, session.bridge);
+  }
   if (withheld) return errorResult("NOT_FOUND", withheld);
 
   const served = attribution(sessions, session);

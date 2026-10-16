@@ -13,6 +13,7 @@ import { pushWorkaround, workaroundCount } from "../dispatch/workaround-tracker.
 import { searchToolGraph } from "../surface/context/tool-search.js";
 import { evaluateGate, gateRefusalMessage, type GateCandidate } from "../dispatch/python-gate.js";
 import { checkBridgeParity } from "../bridge/bridge-parity.js";
+import { absentToolset, registeredMethodsOf } from "../surface/registered-surface.js";
 import { PLUGIN_UPGRADE_POINTER } from "../bridge/bridge.js";
 import { actions as epicActions, schema as epicSchema } from "./epic/editor.generated.js";
 import { specBp, schema as specSchema } from "./specs/editor.generated.js";
@@ -25,10 +26,12 @@ import { specBp, schema as specSchema } from "./specs/editor.generated.js";
 async function notInRunningPlugin(ctx: ToolContext): Promise<(c: GateCandidate) => boolean> {
   const graph = toolGraphOf(ctx);
   const missing = new Set(checkBridgeParity(graph, ctx.bridge.capabilities).missing);
-  if (missing.size === 0) return () => false;
+  const have = registeredMethodsOf(ctx.bridge);
+  if (missing.size === 0 && !have) return () => false;
   return (c) => {
     const spec = graph.find((t) => t.name === c.tool)?.actions[c.action];
-    return spec?.kind === "bridge" && missing.has(spec.bridge);
+    // An epic_* action whose toolset the editor lacks cannot do the task either (#1323).
+    return spec?.kind === "bridge" && (missing.has(spec.bridge) || absentToolset(spec, have) !== undefined);
   };
 }
 
