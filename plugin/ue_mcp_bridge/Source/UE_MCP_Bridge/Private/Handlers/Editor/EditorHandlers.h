@@ -239,6 +239,7 @@ private:
 	static TSharedPtr<FJsonValue> GenerateProjectFiles(const TSharedPtr<FJsonObject>& Params);
 	// #126: Fast-forward PIE game time
 	static TSharedPtr<FJsonValue> SetPieTimeScale(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetPiePaused(const TSharedPtr<FJsonObject>& Params);
 	// #148: Headless SceneCapture2D → PNG (works when editor is unfocused)
 	static TSharedPtr<FJsonValue> CaptureScenePng(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetRealtime(const TSharedPtr<FJsonObject>& Params);
@@ -252,6 +253,8 @@ private:
 	static TSharedPtr<FJsonValue> GetPieConfig(const TSharedPtr<FJsonObject>& Params);
 	// #671: PIE player view + input staging.
 	static TSharedPtr<FJsonValue> PieSetPlayerView(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> SetPieViewTarget(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PoseDebugCamera(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> StageGameInput(const TSharedPtr<FJsonObject>& Params);
 	// #583: repeatedly invoke a parameterless UFUNCTION on an actor at an interval.
 	// #455: discover BlueprintFunctionLibrary classes (GeometryScript,

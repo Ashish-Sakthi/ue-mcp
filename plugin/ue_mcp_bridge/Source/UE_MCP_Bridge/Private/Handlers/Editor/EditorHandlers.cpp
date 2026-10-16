@@ -26,6 +26,7 @@
 #include "Editor.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/GameplayStatics.h"
+#include "Misc/StringOutputDevice.h"
 #include "Kismet/BlueprintFunctionLibrary.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorScriptingUtilities/Public/EditorAssetLibrary.h"
@@ -311,13 +312,17 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		return TArray<FMCPParamSpec>{
 			MCPParam::Optional(TEXT("objectPath"), EType::String, TEXT("Object path of the live instance. Wins over target")),
 			MCPParam::Optional(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
-			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem")),
-			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller or playerpawn (default 0)")),
+			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
+			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
+			MCPParam::Optional(TEXT("propertyPath"), EType::String, TEXT("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor")),
 		};
 	};
 
 	Registry.RegisterHandler(TEXT("execute_command"), &ExecuteCommand, {
-		MCPParam::Required(TEXT("command"), EType::String, TEXT("Console command to run in the editor world")),
+		MCPParam::Required(TEXT("command"), EType::String, TEXT("Console command to run")),
+		MCPParam::Optional(TEXT("world"), EType::String, TEXT("editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world")),
+		MCPParam::Optional(TEXT("pieInstance"), EType::Number, TEXT("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances")),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Local player whose console runs a PIE command (default 0)")),
 	}, MCPSpec::ContractExempt(TEXT("runs a console command")));
 	Registry.RegisterHandler(TEXT("execute_python"), &ExecutePython);
 	// `args` on run_python_file and the invoke_* handlers takes one of four
@@ -549,6 +554,11 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		Spec.Append(RuntimeTargetParams());
 		Spec.Append({
 			FunctionArgsParam(),
+			MCPParam::Optional(TEXT("modify"), EType::Object, TEXT("Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument")).WithFields({
+				MCPParam::RequiredField(TEXT("argument"), EType::String, TEXT("Struct parameter of functionName to fill")),
+				MCPParam::RequiredField(TEXT("getter"), EType::String, TEXT("Zero-argument UFUNCTION on the same object that returns that struct")),
+				MCPParam::OptionalField(TEXT("patch"), EType::Object, TEXT("Field name or dotted path to structured JSON value, applied to the struct the getter returned")),
+			}),
 			WorldParam(),
 			PieInstanceParam(),
 			MCPParam::Optional(TEXT("deferToNextTick"), EType::Boolean, TEXT("Queue the call for the next engine tick, outside the editor script-execution guard, so a replicated UFUNCTION routes normally; return and out values are not reported")),
@@ -561,8 +571,9 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::RequiredField(TEXT("functionName"), EType::String, TEXT("UFUNCTION to call")),
 			MCPParam::OptionalField(TEXT("objectPath"), EType::String, TEXT("Object path of the live instance. Wins over target")),
 			MCPParam::OptionalField(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
-			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem")),
-			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller or playerpawn (default 0)")),
+			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
+			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
+			MCPParam::OptionalField(TEXT("propertyPath"), EType::String, TEXT("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor")),
 			MCPParam::OptionalField(TEXT("args"), EType::Any, TEXT("This call's arguments, in any form invoke_object_function takes")).OneOfForms(ArgForms),
 		}),
 		WorldParam(),
@@ -571,7 +582,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	{
 		TArray<FMCPParamSpec> Spec = RuntimeTargetParams();
 		Spec.Append({
-			MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these properties. The Details-panel spelling is accepted")).Items(EType::String),
+			MCPParam::Optional(TEXT("propertyNames"), EType::Array, TEXT("Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components")).Items(EType::String),
 			WorldParam(),
 			PieInstanceParam(),
 			LimitParam(TEXT("Max properties returned (default 200)")),
@@ -748,6 +759,14 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("set_pie_time_scale"), &SetPieTimeScale, {
 		MCPParam::Required(TEXT("factor"), EType::Number, TEXT("Time-scale factor, greater than 0 (e.g. 500)")),
 	});
+	// #1215: pause or resume a running PIE instance.
+	Registry.RegisterHandler(TEXT("set_pie_paused"), &SetPiePaused, {
+		MCPParam::Required(TEXT("paused"), EType::Boolean, TEXT("true pauses, false resumes")),
+		MCPParam::Optional(TEXT("mode"), EType::String, TEXT("game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world")),
+		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)")),
+		WorldParam(),
+		PieInstanceParam(),
+	});
 	Registry.RegisterHandler(TEXT("capture_scene_png"), &CaptureScenePng, {
 		MCPParam::Required(TEXT("outputPath"), EType::String, TEXT("Absolute or project-relative PNG path to write, e.g. Saved/Screenshots/cap.png")).Alias(TEXT("filename")),
 		MCPParam::Optional(TEXT("location"), EType::Vec3, TEXT("Camera location")),
@@ -796,6 +815,13 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("launchSeparateServer"), EType::Boolean, TEXT("Launch a separate dedicated server")),
 		MCPParam::Optional(TEXT("newWindowWidth"), EType::Number, TEXT("Play-in-New-Window width")),
 		MCPParam::Optional(TEXT("newWindowHeight"), EType::Number, TEXT("Play-in-New-Window height")),
+		MCPParam::Optional(TEXT("clientWindowWidth"), EType::Number, TEXT("Width of each additional multiplayer client window")),
+		MCPParam::Optional(TEXT("clientWindowHeight"), EType::Number, TEXT("Height of each additional multiplayer client window")),
+		MCPParam::Optional(TEXT("newWindowPosition"), EType::Object, TEXT("Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed")).WithFields({
+			MCPParam::RequiredField(TEXT("x"), EType::Number, TEXT("Screen X in pixels")),
+			MCPParam::RequiredField(TEXT("y"), EType::Number, TEXT("Screen Y in pixels")),
+		}),
+		MCPParam::Optional(TEXT("centerNewWindow"), EType::Boolean, TEXT("Center new PIE windows; false places them at newWindowPosition")),
 	}, MCPSpec::ContractExempt(TEXT("writes the editor's Play settings")));
 	Registry.RegisterHandler(TEXT("get_pie_config"), &GetPieConfig, NoParams);
 	Registry.RegisterHandler(TEXT("pie_set_player_view"), &PieSetPlayerView, {
@@ -803,6 +829,26 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("yaw"), EType::Number, TEXT("Control-rotation yaw")),
 		MCPParam::Optional(TEXT("roll"), EType::Number, TEXT("Control-rotation roll")),
 	}, MCPSpec::ContractExempt(TEXT("rotates the running PIE player's view")));
+	// #1203: point the PIE player's camera at an actor, such as a spawned CameraActor.
+	Registry.RegisterHandler(TEXT("set_pie_view_target"), &SetPieViewTarget, {
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player whose view target is set (default 0)")),
+		MCPParam::Optional(TEXT("blendTime"), EType::Number, TEXT("Seconds to blend from the current view (default 0, a cut)")),
+		WorldParam(),
+		PieInstanceParam(),
+	}, MCPSpec::AtLeastOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } }));
+	// #1250: eject and aim the PIE debug camera for verification shots.
+	Registry.RegisterHandler(TEXT("pose_debug_camera"), &PoseDebugCamera, {
+		MCPParam::Optional(TEXT("enabled"), EType::Boolean, TEXT("true (default) ejects the debug camera if needed and poses it; false returns control to the player")),
+		MCPParam::Optional(TEXT("location"), EType::Vec3, TEXT("Camera location; omit to keep the current one")),
+		MCPParam::Optional(TEXT("rotation"), EType::Rotator, TEXT("Camera rotation; omit to keep the current one")),
+		MCPParam::Optional(TEXT("lookAtActorLabel"), EType::String, TEXT("Aim at this PIE actor's bounds center; wins over rotation")),
+		MCPParam::Optional(TEXT("lookAtActorPath"), EType::String, TEXT("Full path of the PIE actor to aim at. Wins over lookAtActorLabel")),
+		MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Local player whose debug camera is used (default 0)")),
+		WorldParam(),
+		PieInstanceParam(),
+	});
 	Registry.RegisterHandler(TEXT("stage_game_input"), &StageGameInput, {
 		MCPParam::Optional(TEXT("inputMode"), EType::String, TEXT("gameOnly (default) | gameAndUI | uiOnly")),
 		MCPParam::Optional(TEXT("showMouseCursor"), EType::Boolean, TEXT("Show the mouse cursor (default false for gameOnly, true otherwise)")),
@@ -834,21 +880,69 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 
 TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every parameter is read before anything can fail (#1057).
 	FString Command;
-	if (auto Err = RequireString(Params, TEXT("command"), Command)) return Err;
-
-	REQUIRE_EDITOR_WORLD(World);
-
-	// Open is game travel: in the editor world it does nothing yet would report success (#1393).
-	if (!World->IsGameWorld() && Command.TrimStart().StartsWith(TEXT("open "), ESearchCase::IgnoreCase))
-	{
-		return MCPError(TEXT("The Open console command does not switch the editor's map. Use level(load, levelPath), with saveFirst or discardUnsaved when the open map has unsaved changes."));
-	}
-
-	UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
+	TSharedPtr<FJsonValue> CommandErr = RequireString(Params, TEXT("command"), Command);
+	const FString Scope = OptionalString(Params, TEXT("world"), TEXT("editor")).ToLower();
+	const int32 PlayerIndex = OptionalInt(Params, TEXT("playerIndex"), 0);
+	UWorld* Resolved = ResolveWorldFromParams(Params, TEXT("editor"));
+	if (CommandErr) return CommandErr;
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("command"), Command);
+
+	// #1250: world=pie runs the command as a PIE player, through its local
+	// player's console, so cheat-manager commands such as slomo reach that
+	// instance. Calling ExecuteConsoleCommand through invoke_object_function
+	// is the crash this route replaces.
+	const bool bWantsPlay = Scope == TEXT("pie") || Scope == TEXT("game")
+		|| (Scope == TEXT("auto") && Resolved && Resolved->IsPlayInEditor());
+	if (bWantsPlay)
+	{
+		if (!Resolved || !Resolved->IsPlayInEditor())
+		{
+			return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+		}
+		FString Output;
+		FString Route;
+		{
+			FMCPScopedPlayWorldContext PlayContext(Resolved);
+			if (APlayerController* PC = UGameplayStatics::GetPlayerController(Resolved, PlayerIndex))
+			{
+				Output = PC->ConsoleCommand(Command, false);
+				Route = TEXT("playerController");
+				Result->SetStringField(TEXT("playerController"), PC->GetPathName());
+			}
+			else if (GEngine)
+			{
+				// A dedicated server has no player: run it against that world.
+				FStringOutputDevice Captured;
+				GEngine->Exec(Resolved, *Command, Captured);
+				Output = Captured;
+				Route = TEXT("engine");
+			}
+		}
+		Result->SetStringField(TEXT("route"), Route);
+		Result->SetStringField(TEXT("world"), Resolved->GetPathName());
+		Result->SetStringField(TEXT("netMode"), DescribePIENetMode(Resolved));
+		if (const FWorldContext* Ctx = GEngine ? GEngine->GetWorldContextFromWorld(Resolved) : nullptr)
+		{
+			Result->SetNumberField(TEXT("pieInstance"), Ctx->PIEInstance);
+		}
+		Result->SetStringField(TEXT("output"), Output.Left(20000));
+	}
+	else
+	{
+		REQUIRE_EDITOR_WORLD(World);
+		// Open is game travel: in the editor world it does nothing yet would report success (#1393).
+		if (!World->IsGameWorld() && Command.TrimStart().StartsWith(TEXT("open "), ESearchCase::IgnoreCase))
+		{
+			return MCPError(TEXT("The Open console command does not switch the editor's map. Use level(load, levelPath), with saveFirst or discardUnsaved when the open map has unsaved changes."));
+		}
+		UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
+		Result->SetStringField(TEXT("world"), World->GetPathName());
+	}
+
 	// The command was dispatched. Whether it changed anything is the command's
 	// business: the console reports nothing back that this handler could read.
 	Result->SetBoolField(TEXT("changed"), true);
@@ -4314,6 +4408,42 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScenePng(const TSharedPtr<FJsonOb
 	const bool bFullyLoadTextures = OptionalBool(Params, TEXT("fullyLoadTextures"), true);
 	Rig.Capture(bFullyLoadTextures);
 
+	// #1203: components spawned at runtime are flushed to the renderer before
+	// the capture. Name the ones it still cannot show: no render state, or
+	// bOnlyOwnerSee, which a capture (owned by its own actor) never draws.
+	TSharedPtr<FJsonObject> RuntimeComponents;
+	if (World->IsGameWorld())
+	{
+		int32 RuntimeCount = 0;
+		int32 WithoutRenderState = 0;
+		int32 OnlyOwnerSee = 0;
+		TArray<TSharedPtr<FJsonValue>> NotDrawn;
+		for (TActorIterator<AActor> It(World); It; ++It)
+		{
+			for (UActorComponent* Component : It->GetComponents())
+			{
+				UPrimitiveComponent* Primitive = Cast<UPrimitiveComponent>(Component);
+				if (!Primitive || Primitive->CreationMethod != EComponentCreationMethod::Instance) continue;
+				if (!Primitive->IsRegistered() || !Primitive->IsVisible() || Primitive->bHiddenInGame) continue;
+				++RuntimeCount;
+				const bool bNoRenderState = !Primitive->IsRenderStateCreated();
+				const bool bOwnerOnly = Primitive->bOnlyOwnerSee;
+				if (bNoRenderState) ++WithoutRenderState;
+				if (bOwnerOnly) ++OnlyOwnerSee;
+				if ((bNoRenderState || bOwnerOnly) && NotDrawn.Num() < 20)
+				{
+					NotDrawn.Add(MakeShared<FJsonValueString>(FString::Printf(TEXT("%s.%s (%s)"),
+						*It->GetActorLabel(), *Primitive->GetName(), bNoRenderState ? TEXT("no render state") : TEXT("bOnlyOwnerSee"))));
+				}
+			}
+		}
+		RuntimeComponents = MakeShared<FJsonObject>();
+		RuntimeComponents->SetNumberField(TEXT("visibleRuntimePrimitives"), RuntimeCount);
+		RuntimeComponents->SetNumberField(TEXT("withoutRenderState"), WithoutRenderState);
+		RuntimeComponents->SetNumberField(TEXT("onlyOwnerSee"), OnlyOwnerSee);
+		if (NotDrawn.Num() > 0) RuntimeComponents->SetArrayField(TEXT("notDrawn"), NotDrawn);
+	}
+
 	FString AbsPath = UEMCP::SceneCapture::ResolveOutputPath(OutputPath);
 	if (!AbsPath.EndsWith(TEXT(".png"))) AbsPath += TEXT(".png");
 
@@ -4352,6 +4482,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::CaptureScenePng(const TSharedPtr<FJsonOb
 	CaptureMetadata->SetNumberField(TEXT("worldTimeSeconds"), World->GetTimeSeconds());
 	CaptureMetadata->SetBoolField(TEXT("fullyLoadTextures"), bFullyLoadTextures);
 	if (FocusMetadata) CaptureMetadata->SetObjectField(TEXT("focus"), FocusMetadata);
+	if (RuntimeComponents) CaptureMetadata->SetObjectField(TEXT("runtimeComponents"), RuntimeComponents);
 	Result->SetObjectField(TEXT("captureMetadata"), CaptureMetadata);
 	// The capture actor is gone by the time this reaches the caller, so say so
 	// rather than naming an actor they could go and look for.

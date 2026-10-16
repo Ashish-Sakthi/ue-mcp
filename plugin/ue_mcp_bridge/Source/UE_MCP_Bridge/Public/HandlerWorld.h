@@ -9,6 +9,8 @@
 #include "Editor.h"
 #include "Engine/Engine.h"
 #include "Engine/World.h"
+#include "UnrealEngine.h"
+#include "Templates/UniquePtr.h"
 #include "HandlerResult.h"
 #include "HandlerParams.h"
 
@@ -129,6 +131,41 @@ inline UWorld* ResolveWorldFromParams(const TSharedPtr<FJsonObject>& Params, con
 	}
 	return ResolveWorldScope(Scope, PIEInstance);
 }
+
+/** The play-in-editor world Object lives in, or nullptr for an editor-world or unowned object. */
+inline UWorld* MCPPlayWorldOf(const UObject* Object)
+{
+	UWorld* World = Object ? Object->GetWorld() : nullptr;
+	return (World && World->IsPlayInEditor()) ? World : nullptr;
+}
+
+/**
+ * Runs the enclosed code as the PIE instance that owns World: GWorld and the
+ * PIE id point at that instance, the way the engine switches them for script
+ * running in it. A no-op for an editor world or when World is null.
+ */
+class FMCPScopedPlayWorldContext : public FNoncopyable
+{
+public:
+	explicit FMCPScopedPlayWorldContext(UWorld* World)
+	{
+		if (!World || !World->IsPlayInEditor() || !GEngine) return;
+		const FWorldContext* Context = GEngine->GetWorldContextFromWorld(World);
+		if (!Context) return;
+		PieInstance = Context->PIEInstance;
+		IdOverride = MakeUnique<FTemporaryPlayInEditorIDOverride>(Context->PIEInstance);
+		Switcher = MakeUnique<FScopedConditionalWorldSwitcher>(World);
+	}
+
+	/** The PIE instance the scope switched to, or INDEX_NONE when it did nothing. */
+	int32 GetPieInstance() const { return PieInstance; }
+
+private:
+	int32 PieInstance = INDEX_NONE;
+	// Declared in construction order so the world is restored before the id.
+	TUniquePtr<FTemporaryPlayInEditorIDOverride> IdOverride;
+	TUniquePtr<FScopedConditionalWorldSwitcher> Switcher;
+};
 
 /** Get the editor world or return an error response. */
 #define REQUIRE_EDITOR_WORLD(WorldVar) \

@@ -389,6 +389,18 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "Socket or bone on the resolved parent component"
+      },
+      {
+        "name": "relativeLocation",
+        "type": "vec3",
+        "required": false,
+        "description": "Relative location set after the attach, in the parent component or socket frame"
+      },
+      {
+        "name": "relativeRotation",
+        "type": "rotator",
+        "required": false,
+        "description": "Relative rotation set after the attach, in the parent component or socket frame"
       }
     ]
   },
@@ -2318,7 +2330,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "fields",
         "type": "array",
         "required": false,
-        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health",
+        "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData",
         "items": "string"
       },
       {
@@ -2326,6 +2338,13 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "array",
         "required": false,
         "description": "Component UPROPERTY names projected under props.*, at most 32",
+        "items": "string"
+      },
+      {
+        "name": "actorPropertyNames",
+        "type": "array",
+        "required": false,
+        "description": "Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32",
         "items": "string"
       },
       {
@@ -4987,7 +5006,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   add_streaming_sublevel: "Params: levelPath, streamingClass?, location?, initiallyLoaded?, initiallyVisible?",
   aim_actor_at: "Params: actorLabel?, actorPath?, targetPoint?, targetActor?, targetActorPath?, roll?, world?, pieInstance?",
   attach_actor: "Params: childLabel?, childPath?, parentLabel?, parentPath?, attachRule?, socketName?",
-  attach_component: "Params: childLabel?, childPath?, parentLabel?, parentPath?, childComponentName?, parentComponentName?, attachRule?, weldSimulatedBodies?, socketName?",
+  attach_component: "Params: childLabel?, childPath?, parentLabel?, parentPath?, childComponentName?, parentComponentName?, attachRule?, weldSimulatedBodies?, socketName?, relativeLocation?, relativeRotation?",
   batch_set_actor_properties: "Params: properties, actorLabels?, labelPrefix?, labelContains?, tag?, classFilter?, folderPath?, folderPathPrefix?, matchSubclasses?, dryRun?, force?, transactionLabel?",
   batch_translate: "Params: offset, at least one of actorLabels/actorPaths/tag",
   bulk_line_trace: "Params: traces, world?, pieInstance?",
@@ -5035,7 +5054,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   nudge_component: "Params: actorLabel OR actorPath, componentName, frame?, translationDelta?, axisRotation?, viewRotation?, scaleMultiplier?, dryRun?, world?, pieInstance?",
   place_actor: "Params: actorClass, label?, onConflict?, location?, rotation?, scale?, staticMesh?, material?, world?, pieInstance?",
   place_actors_batch: "Params: actors",
-  query_components: "Params: componentClass?, actorClass?, matchSubclasses?, componentNameContains?, actorLabelPrefix?, actorLabelContains?, actorTag?, folderPath?, folderPathPrefix?, fields?, propertyNames?, where?, whereMode?, suspectOnly?, groupBy?, countBy?, sampleLimit?, countOnly?, limit?, startIndex?, duplicateTransformTolerance?, levelPath?, world?, pieInstance?",
+  query_components: "Params: componentClass?, actorClass?, matchSubclasses?, componentNameContains?, actorLabelPrefix?, actorLabelContains?, actorTag?, folderPath?, folderPathPrefix?, fields?, propertyNames?, actorPropertyNames?, where?, whereMode?, suspectOnly?, groupBy?, countBy?, sampleLimit?, countOnly?, limit?, startIndex?, duplicateTransformTolerance?, levelPath?, world?, pieInstance?",
   read_actor_motion: "Params: actorLabel?, actorLabels?, actorPath?, actorPaths?, world?, pieInstance?",
   rebuild_water_zone: "Params: actorLabel?, actorPath?, zoneExtent?, tileSize?, maxPasses?",
   recreate_physics_state: "Params: at least one of actorLabels/labelPrefix/tag/classFilter/componentClass/componentNameContains, dryRun?, maxComponents?, world?, pieInstance?",
@@ -5098,6 +5117,7 @@ export const schema: Record<string, z.ZodType> = {
   actorPathA: z.string().optional().describe("First actor object path"),
   actorPathB: z.string().optional().describe("Second actor object path"),
   actorPaths: z.array(z.string()).optional().describe("Full actor object paths"),
+  actorPropertyNames: z.array(z.string()).optional().describe("Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32"),
   actors: z.array(z.object({ staticMesh: z.string().describe("Static mesh asset path"), location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("World rotation"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World scale"), label: z.string().optional().describe("Actor label"), tags: z.array(z.string()).optional().describe("Actor tags to add"), parentLabel: z.string().optional().describe("Label of the actor to attach to, keeping world transform; may name an actor later in the batch") })).optional().describe("StaticMeshActors to spawn; meshes load once per path"),
   actorTag: z.string().optional().describe("Actor must carry this tag"),
   all: z.boolean().optional().describe("Destroy every transient verification actor in the world (destroy_transient_actor). Target every actor (set_editor_visibility)"),
@@ -5153,7 +5173,7 @@ export const schema: Record<string, z.ZodType> = {
   exactClass: z.boolean().optional().describe("Require classFilter to be the exact class (default true) (convert_brushes_to_static_mesh). Require classFilter to be the exact class name (get_world_outliner)"),
   exposure: z.number().optional().describe("Fixed adaptation brightness, written to both min and max"),
   extent: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Query extent (default 100, 100, 100) (nav_project_point). Half extent of the cube brush (default 100, 100, 100) (spawn_volume)"),
-  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health"),
+  fields: z.array(z.string()).optional().describe("Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData"),
   filePath: z.string().optional().describe("Alias for outputPath"),
   filter: z.string().optional().describe("Case-insensitive substring over label, name, class and path"),
   floorOffset: z.number().optional().describe("Vertical offset added to the impact Z"),
@@ -5254,6 +5274,8 @@ export const schema: Record<string, z.ZodType> = {
   reference: z.string().optional().describe("Alias for referenceLabel"),
   referenceLabel: z.string().optional().describe("Reference actor label; pass referenceLabel or referencePath"),
   referencePath: z.string().optional().describe("Reference actor object path"),
+  relativeLocation: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Relative location set after the attach, in the parent component or socket frame"),
+  relativeRotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Relative rotation set after the attach, in the parent component or socket frame"),
   relativeTransform: z.object({ location: z.object({ x: z.number(), y: z.number(), z: z.number() }).describe("Relative location"), quaternion: z.record(z.unknown()).describe("Relative rotation {x, y, z, w}; this is what is applied"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).describe("Relative scale"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("The same rotation as a rotator, for reading only") }).optional().describe("The relative transform to put back, as nudge_component's rollback records it"),
   restoreOriginalLevel: z.boolean().optional().describe("Reopen the map that was open before the call (default true)"),
   roll: z.number().optional().describe("Roll in degrees (default 0)"),

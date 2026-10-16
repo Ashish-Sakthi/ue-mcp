@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1088,
+  "handlerCount": 1091,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -5077,6 +5077,18 @@
           "type": "string",
           "required": false,
           "description": "Socket or bone on the resolved parent component"
+        },
+        {
+          "name": "relativeLocation",
+          "type": "vec3",
+          "required": false,
+          "description": "Relative location set after the attach, in the parent component or socket frame"
+        },
+        {
+          "name": "relativeRotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Relative rotation set after the attach, in the parent component or socket frame"
         }
       ]
     },
@@ -8269,6 +8281,44 @@
           "type": "number",
           "required": false,
           "description": "Play-in-New-Window height"
+        },
+        {
+          "name": "clientWindowWidth",
+          "type": "number",
+          "required": false,
+          "description": "Width of each additional multiplayer client window"
+        },
+        {
+          "name": "clientWindowHeight",
+          "type": "number",
+          "required": false,
+          "description": "Height of each additional multiplayer client window"
+        },
+        {
+          "name": "newWindowPosition",
+          "type": "object",
+          "required": false,
+          "description": "Screen position of a new PIE window; setting it turns centerNewWindow off unless that is also passed",
+          "fields": [
+            {
+              "name": "x",
+              "type": "number",
+              "required": true,
+              "description": "Screen X in pixels"
+            },
+            {
+              "name": "y",
+              "type": "number",
+              "required": true,
+              "description": "Screen Y in pixels"
+            }
+          ]
+        },
+        {
+          "name": "centerNewWindow",
+          "type": "boolean",
+          "required": false,
+          "description": "Center new PIE windows; false places them at newWindowPosition"
         }
       ],
       "contractExempt": "writes the editor's Play settings"
@@ -13094,7 +13144,25 @@
           "name": "command",
           "type": "string",
           "required": true,
-          "description": "Console command to run in the editor world"
+          "description": "Console command to run"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "editor (default) | pie | auto: pie runs it as a PIE player, through that player's console, cheat manager and world"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose console runs a PIE command (default 0)"
         }
       ],
       "contractExempt": "runs a console command"
@@ -16234,19 +16302,25 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "propertyNames",
           "type": "array",
           "required": false,
-          "description": "Only these properties. The Details-panel spelling is accepted",
+          "description": "Only these properties. The Details-panel spelling is accepted, and a dotted or indexed path (StashWorld.KickRadiusCm, CharacterMovement.GroundFriction, Items[0].Count) reads into structs, subobjects and components",
           "items": "string"
         },
         {
@@ -18243,13 +18317,19 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "args",
@@ -18261,6 +18341,32 @@
             "stringList",
             "argEntryList",
             "string"
+          ]
+        },
+        {
+          "name": "modify",
+          "type": "object",
+          "required": false,
+          "description": "Read-modify-write of a struct argument: the zero-argument getter's struct, with patch applied, is passed as that argument",
+          "fields": [
+            {
+              "name": "argument",
+              "type": "string",
+              "required": true,
+              "description": "Struct parameter of functionName to fill"
+            },
+            {
+              "name": "getter",
+              "type": "string",
+              "required": true,
+              "description": "Zero-argument UFUNCTION on the same object that returns that struct"
+            },
+            {
+              "name": "patch",
+              "type": "object",
+              "required": false,
+              "description": "Field name or dotted path to structured JSON value, applied to the struct the getter returned"
+            }
           ]
         },
         {
@@ -18316,13 +18422,19 @@
               "name": "subsystemClass",
               "type": "string",
               "required": false,
-              "description": "Subsystem class name or /Script path, with target=subsystem"
+              "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
             },
             {
               "name": "playerIndex",
               "type": "integer",
               "required": false,
-              "description": "Player index for target=playercontroller or playerpawn (default 0)"
+              "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+            },
+            {
+              "name": "propertyPath",
+              "type": "string",
+              "required": false,
+              "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
             },
             {
               "name": "args",
@@ -22701,6 +22813,59 @@
         }
       ]
     },
+    "pose_debug_camera": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "enabled",
+          "type": "boolean",
+          "required": false,
+          "description": "true (default) ejects the debug camera if needed and poses it; false returns control to the player"
+        },
+        {
+          "name": "location",
+          "type": "vec3",
+          "required": false,
+          "description": "Camera location; omit to keep the current one"
+        },
+        {
+          "name": "rotation",
+          "type": "rotator",
+          "required": false,
+          "description": "Camera rotation; omit to keep the current one"
+        },
+        {
+          "name": "lookAtActorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Aim at this PIE actor's bounds center; wins over rotation"
+        },
+        {
+          "name": "lookAtActorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full path of the PIE actor to aim at. Wins over lookAtActorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Local player whose debug camera is used (default 0)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
     "press_window_button": {
       "category": "editor",
       "params": [
@@ -22887,7 +23052,7 @@
           "name": "fields",
           "type": "array",
           "required": false,
-          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health",
+          "description": "Field groups: transform, bounds, localBounds, shadow, nanite, navigation, tick, materials, mesh, decal, health, physics, attachment, customPrimitiveData",
           "items": "string"
         },
         {
@@ -22895,6 +23060,13 @@
           "type": "array",
           "required": false,
           "description": "Component UPROPERTY names projected under props.*, at most 32",
+          "items": "string"
+        },
+        {
+          "name": "actorPropertyNames",
+          "type": "array",
+          "required": false,
+          "description": "Owning actor property names or dotted paths, Blueprint variables included, projected under actorProps.*, at most 32",
           "items": "string"
         },
         {
@@ -33434,13 +33606,19 @@
           "name": "subsystemClass",
           "type": "string",
           "required": false,
-          "description": "Subsystem class name or /Script path, with target=subsystem"
+          "description": "Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"
         },
         {
           "name": "playerIndex",
           "type": "number",
           "required": false,
-          "description": "Player index for target=playercontroller or playerpawn (default 0)"
+          "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+        },
+        {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
         },
         {
           "name": "postEditChange",
@@ -33789,6 +33967,41 @@
         }
       ]
     },
+    "set_pie_paused": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "paused",
+          "type": "boolean",
+          "required": true,
+          "description": "true pauses, false resumes"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "required": false,
+          "description": "game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ]
+    },
     "set_pie_time_scale": {
       "category": "editor",
       "params": [
@@ -33797,6 +34010,60 @@
           "type": "number",
           "required": true,
           "description": "Time-scale factor, greater than 0 (e.g. 500)"
+        }
+      ]
+    },
+    "set_pie_view_target": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "playerIndex",
+          "type": "number",
+          "required": false,
+          "description": "Player whose view target is set (default 0)"
+        },
+        {
+          "name": "blendTime",
+          "type": "number",
+          "required": false,
+          "description": "Seconds to blend from the current view (default 0, a cut)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "atLeastOne",
+          "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
         }
       ]
     },
