@@ -94,6 +94,8 @@ export const ENV_VARS = {
   disableUpdateCheck: "UE_MCP_DISABLE_UPDATE_CHECK",
   /** Path of the cached update-check result. */
   versionCache: "UE_MCP_VERSION_CACHE",
+  /** Origin of the npm registry the release lookups read. Unset means https://registry.npmjs.org. */
+  npmRegistry: "UE_MCP_NPM_REGISTRY",
 } as const;
 
 export type EnvVar = keyof typeof ENV_VARS;
