@@ -1533,7 +1533,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ReadMaterial(const TSharedPtr<FJsonObj
 		UMaterialInterface* Interface = LoadAssetByPath<UMaterialInterface>(AssetPath);
 		if (!Interface)
 		{
-			return MCPError(FString::Printf(TEXT("Failed to load material or material instance at '%s'"), *AssetPath));
+			return MCPAssetLoadError(AssetPath, TEXT("MaterialInterface"));
 		}
 
 		auto InstanceResult = MCPSuccess();
@@ -2306,7 +2306,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ListMaterialParameters(const TSharedPt
 		UMaterialInterface* Interface = LoadAssetByPath<UMaterialInterface>(AssetPath);
 		if (!Interface)
 		{
-			return MCPError(FString::Printf(TEXT("Failed to load material or material instance at '%s'"), *AssetPath));
+			return MCPAssetLoadError(AssetPath, TEXT("MaterialInterface"));
 		}
 
 		auto InstanceResult = MCPSuccess();
@@ -2525,7 +2525,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::SetMaterialParameter(const TSharedPtr<
 		}
 		else
 		{
-			return MCPError(FString::Printf(TEXT("Failed to load material or material instance at '%s'"), *AssetPath));
+			return MCPAssetLoadError(AssetPath, TEXT("MaterialInterface"));
 		}
 	}
 
@@ -3406,7 +3406,7 @@ TSharedPtr<FJsonValue> FMaterialHandlers::ListMaterialStaticSwitches(const TShar
 	UMaterialInterface* Material = LoadAssetByPath<UMaterialInterface>(AssetPath);
 	if (!Material)
 	{
-		return MCPError(FString::Printf(TEXT("Failed to load material or material instance at '%s'"), *AssetPath));
+		return MCPAssetLoadError(AssetPath, TEXT("MaterialInterface"));
 	}
 
 	TArray<TSharedPtr<FJsonValue>> Switches = MaterialStaticSwitchesToJson(Material);
