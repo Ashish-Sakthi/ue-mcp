@@ -261,7 +261,7 @@ describe("server mode", () => {
       const r = await server.call("tools", { action: "call", category: "project", method: "get_status" });
       expect(r.isError, r.text).toBe(false);
       expect(Date.now() - t0).toBeLessThan(30_000);
-      expect(server.log).toMatch(/exited \(code \d+\) before it started/);
+      expect(server.log).toMatch(/exited before it started/);
       expect(server.log).toContain("daemon unavailable; serving in process");
       expect(readDiscovery(sb, project)).toBeNull();
     } finally {

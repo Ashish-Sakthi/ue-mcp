@@ -250,6 +250,42 @@ namespace MCPDialogPolicy
 		return false;
 	}
 
+	/**
+	 * The button an FMessageDialog of this type offers for a response, by
+	 * meaning: the response itself, else its nearest equivalent there. An
+	 * OK/Cancel dialog has no Yes or No, so yes answers OK and no answers
+	 * Cancel; returning a value the dialog does not offer is read by the caller
+	 * as whatever it tests for, which let "no" continue a rename (#1334).
+	 */
+	static bool OfferedAnswerFor(EAppMsgType::Type MsgType, EAppReturnType::Type Response, EAppReturnType::Type& OutAnswer)
+	{
+		TArray<EAppReturnType::Type> Preference;
+		switch (Response)
+		{
+		case EAppReturnType::Yes:      Preference = { EAppReturnType::Yes, EAppReturnType::Ok, EAppReturnType::Continue }; break;
+		case EAppReturnType::Ok:       Preference = { EAppReturnType::Ok, EAppReturnType::Yes, EAppReturnType::Continue }; break;
+		case EAppReturnType::Continue: Preference = { EAppReturnType::Continue, EAppReturnType::Ok, EAppReturnType::Yes }; break;
+		case EAppReturnType::YesAll:   Preference = { EAppReturnType::YesAll, EAppReturnType::Yes, EAppReturnType::Ok }; break;
+		case EAppReturnType::No:       Preference = { EAppReturnType::No, EAppReturnType::Cancel }; break;
+		case EAppReturnType::NoAll:    Preference = { EAppReturnType::NoAll, EAppReturnType::No, EAppReturnType::Cancel }; break;
+		case EAppReturnType::Cancel:   Preference = { EAppReturnType::Cancel, EAppReturnType::No }; break;
+		default:                       Preference = { Response }; break;
+		}
+		const TArray<FMessageDialogButton> Offered = MessageDialogButtons(MsgType);
+		for (const EAppReturnType::Type Want : Preference)
+		{
+			for (const FMessageDialogButton& Button : Offered)
+			{
+				if (Button.Answer == Want)
+				{
+					OutAnswer = Want;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	/** The response keyword a label names on some message dialog, for reporting. */
 	static bool ResponseNamedByLabel(const FString& Label, EAppReturnType::Type& OutAnswer)
 	{
@@ -515,19 +551,16 @@ bool FDialogHandlers::ResolveMessageDialogAnswer(const FDialogPolicy& Policy, EA
 	using namespace MCPDialogPolicy;
 
 	OutReason.Empty();
-	if (Policy.ButtonLabel.IsEmpty())
-	{
-		OutAnswer = Policy.Response;
-		return true;
-	}
 	const TArray<FMessageDialogButton> Offered = MessageDialogButtons(MsgType);
-	if (FindMessageAnswer(Offered, Policy.ButtonLabel, OutAnswer))
+	if (!Policy.ButtonLabel.IsEmpty() && FindMessageAnswer(Offered, Policy.ButtonLabel, OutAnswer))
 	{
 		return true;
 	}
-	if (Policy.bResponseExplicit)
+	// A label this dialog does not carry still answers by the response it names
+	// (Yes on an OK/Cancel dialog is OK), as an explicit response does.
+	const bool bAnswersByResponse = Policy.ButtonLabel.IsEmpty() || Policy.bHasResponse;
+	if (bAnswersByResponse && OfferedAnswerFor(MsgType, Policy.Response, OutAnswer))
 	{
-		OutAnswer = Policy.Response;
 		return true;
 	}
 	TArray<FString> Labels;
@@ -535,8 +568,9 @@ bool FDialogHandlers::ResolveMessageDialogAnswer(const FDialogPolicy& Policy, EA
 	{
 		Labels.Add(Button.Labels.Num() > 0 ? Button.Labels[0] : FString());
 	}
-	OutReason = FString::Printf(TEXT("buttonLabel '%s' matches none of [%s] and the policy has no response keyword"),
-		*Policy.ButtonLabel, *FString::Join(Labels, TEXT(", ")));
+	OutReason = bAnswersByResponse
+		? FString::Printf(TEXT("response '%s' has no equivalent among [%s]"), *ResponseTypeToString(Policy.Response), *FString::Join(Labels, TEXT(", ")))
+		: FString::Printf(TEXT("buttonLabel '%s' matches none of [%s] and the policy has no response keyword"), *Policy.ButtonLabel, *FString::Join(Labels, TEXT(", ")));
 	return false;
 }
 
@@ -713,7 +747,7 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 	if (!bResponseExplicit)
 	{
 		Result->SetStringField(TEXT("messageDialogNote"), bHasResponse
-			? FString::Printf(TEXT("On a message dialog that offers it, this label answers '%s'."), *ResponseOut)
+			? FString::Printf(TEXT("On a message dialog this label answers '%s', or the nearest button that dialog offers (OK for yes on an OK/Cancel dialog, Cancel for no)."), *ResponseOut)
 			: FString(TEXT("No message dialog button carries this label, so a message dialog this pattern matches is left for a person.")));
 	}
 
