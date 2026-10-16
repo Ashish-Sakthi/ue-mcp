@@ -1417,7 +1417,7 @@ Nothing outside these modes ever answers a dialog by itself. `editor(set_dialog_
 |--------|-------------|
 | `list_graphs(cursor?, limit?:i)` | List PCG graphs, sorted by object path. Lists the whole project; page through it with cursor/limit. Params: `cursor?, limit?` |
 | `read_graph(assetPath\|path)` | Read graph structure. Params: `assetPath (or path)` |
-| `read_node_settings(assetPath\|path, nodeName)` | Read node settings. Params: `assetPath (or path), nodeName` |
+| `read_node_settings(assetPath\|path, nodeName)` | Read node settings. An instanced subobject (a spawner's MeshSelectorParameters or InstanceDataPackerParameters) is expanded under instanced {class, properties}, and a weighted mesh selector also lists meshEntries [{mesh, weight, materialOverrides}] (#1303). Params: `assetPath (or path), nodeName` |
 | `get_components()` | List PCG components in level. Params: `none` |
 | `get_component_details(one(actorLabel; actorPath))` | Inspect PCG component (#983). Reports isGenerating, isCleaningUp, generated, partitioned (with local component counts) and lastRun {id, state generating\|generated\|cancelled\|cleaned\|not_started, startedUtc, finishedUtc}; to wait for a run, use wait_for_generation or wait=true on execute. Params: `actorLabel OR actorPath` |
 | `create_graph(name, packagePath\|path?, onConflict?)` | Create graph in packagePath (or path), default /Game/PCG. Idempotent by path: an existing graph is reported rather than replaced. Params: `name, packagePath? (or path), onConflict?` |
