@@ -144,9 +144,15 @@ export interface BridgeResponse {
   error?: { code: number; message: string };
 }
 
-/** One request frame, as the plugin reads it. Every sender builds it here. */
-function encodeRequest(id: string, method: string, params?: Record<string, unknown>): string {
-  return JSON.stringify({ id, method, params: params ?? {} });
+/**
+ * One request frame, as the plugin reads it. Every sender builds it here.
+ * `timeoutMs` is the caller's explicit budget; the plugin waits at least that
+ * long on the game thread instead of its 30s default (#1339).
+ */
+export function encodeRequest(id: string, method: string, params?: Record<string, unknown>, timeoutMs?: number): string {
+  return JSON.stringify(timeoutMs === undefined
+    ? { id, method, params: params ?? {} }
+    : { id, method, params: params ?? {}, timeoutMs });
 }
 
 /**
@@ -744,7 +750,8 @@ export class EditorBridge implements IBridge {
     }
 
     const id = String(++this.idCounter);
-    const frame = encodeRequest(id, method, params);
+    const explicit = typeof timeoutMs === "number" && Number.isFinite(timeoutMs) && timeoutMs > 0;
+    const frame = encodeRequest(id, method, params, explicit ? resolveBridgeTimeout(method, timeoutMs) : undefined);
     // #989: not a flat 30s any more. An explicit per-call budget is honoured,
     // and a method the C++ side registered a longer timeout for is waited out
     // to that limit, so the client stops declaring a failure on a call the
