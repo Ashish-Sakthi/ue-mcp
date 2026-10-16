@@ -205,7 +205,7 @@ TSharedPtr<FJsonValue> FNiagaraHandlers::CaptureNiagaraSimCache(const TSharedPtr
 			*Actor->GetActorLabel(), *FString::Join(Names, TEXT(", "))));
 	}
 	if (!Component->GetAsset()) return MCPError(TEXT("The NiagaraComponent has no system assigned"));
-	if (!Component->IsActive()) return MCPError(TEXT("The NiagaraComponent is not active; niagara(reactivate) first, a sim cache records nothing from an inactive system"));
+	if (!Component->IsActive()) return MCPError(TEXT("The NiagaraComponent is not active, so a sim cache would record nothing. A system authored this session stays inactive until it is compiled: niagara(compile) it, then niagara(reactivate) the actor and capture again."));
 
 	UNiagaraSimCache* Cache = NewObject<UNiagaraSimCache>(GetTransientPackage(),
 		MakeUniqueObjectName(GetTransientPackage(), UNiagaraSimCache::StaticClass(), TEXT("MCPSimCache")));
