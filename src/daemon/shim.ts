@@ -11,7 +11,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { spawnOutsideTree } from "../core/spawn-outside-tree.js";
 import WebSocket from "ws";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
@@ -55,15 +55,14 @@ function spawnDaemon(uproject: string, projectDir: string, logDir: string, logFi
   // checkout under tsx starts a dev daemon and a published package its own.
   fs.mkdirSync(logDir, { recursive: true });
   const log = fs.openSync(logFile, "a");
-  const child = spawn(process.execPath, [...process.execArgv, process.argv[1], "daemon", "run", path.resolve(uproject)], {
-    detached: true,
-    stdio: ["ignore", log, log],
-    windowsHide: true,
+  // Outside the shim's process tree: a client that ends the tree on reconnect
+  // would otherwise end the daemon and the editor it launched (#1274).
+  spawnOutsideTree(process.execPath, [...process.execArgv, process.argv[1], "daemon", "run", path.resolve(uproject)], {
+    output: log,
     env: process.env,
   });
-  child.unref();
   fs.closeSync(log);
-  info("shim", `started daemon (pid ${child.pid}) for ${path.basename(projectDir)}`);
+  info("shim", `started daemon for ${path.basename(projectDir)}`);
 }
 
 export async function runShim(uproject: string): Promise<void> {

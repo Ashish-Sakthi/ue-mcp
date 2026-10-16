@@ -2523,8 +2523,29 @@ TSharedPtr<FJsonValue> FAssetHandlers::RenameAsset(const TSharedPtr<FJsonObject>
 		return RenameWorldWithExternals(SourcePath, DestPath, bForce);
 	}
 
+	// A redirector at the destination refuses too: AssetTools renaming onto a loaded one is a fatal error.
+	if (UEditorAssetLibrary::DoesAssetExist(DestPath))
+	{
+		return MCPError(FString::Printf(TEXT("Cannot rename '%s': an asset already exists at '%s'."), *SourcePath, *DestPath));
+	}
+	UObject* SourceAsset = UEditorAssetLibrary::LoadAsset(SourcePath);
+	if (!SourceAsset)
+	{
+		return MCPError(FString::Printf(TEXT("Asset could not be loaded: %s"), *SourcePath));
+	}
+	FString DestPackage, DestObject;
+	if (!DestPath.Split(TEXT("."), &DestPackage, &DestObject, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+	{
+		DestPackage = DestPath;
+	}
+
+	// Through AssetTools, not UEditorAssetLibrary::RenameAsset: that runs as an unattended
+	// script, so the engine answers the rename's own confirmation with its default and
+	// neither an armed policy nor a person ever sees it (#1334).
 	const int32 DialogSerialBefore = FDialogHandlers::GetAnsweredDialogSerial();
-	bool bOk = UEditorAssetLibrary::RenameAsset(SourcePath, DestPath);
+	TArray<FAssetRenameData> RenameBatch;
+	RenameBatch.Emplace(TWeakObjectPtr<UObject>(SourceAsset), FPaths::GetPath(DestPackage), FPaths::GetBaseFilename(DestPackage));
+	bool bOk = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get().RenameAssets(RenameBatch);
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("sourcePath"), SourcePath);
