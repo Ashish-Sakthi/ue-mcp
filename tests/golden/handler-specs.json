@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1081,
+  "handlerCount": 1082,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -7138,6 +7138,20 @@
           "type": "number",
           "required": false,
           "description": "Raster resolution for the overlap estimate (default 512)"
+        }
+      ]
+    },
+    "check_widget_structure": {
+      "category": "widget",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Widget Blueprint or Editor Utility asset path, e.g. /Game/UI/WBP_Example (#798)",
+          "aliases": [
+            "path"
+          ]
         }
       ]
     },

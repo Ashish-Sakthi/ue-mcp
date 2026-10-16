@@ -27,3 +27,15 @@ describe("widget build_tree (#1300)", () => {
     expect(timeoutMs).toBe(120_000);
   });
 });
+
+describe("widget check_structure (#1350)", () => {
+  it("routes to check_widget_structure as a read", async () => {
+    const call = vi.fn().mockResolvedValue({ success: true, pass: true });
+    const ctx = { bridge: { call } } as unknown as ToolContext;
+    await widgetTool.handler(ctx, z.object(widgetTool.schema).parse({ action: "check_structure", assetPath: "/Game/UI/WBP_Form" }));
+    const [method, params] = call.mock.calls[0] as [string, Record<string, unknown>];
+    expect(method).toBe("check_widget_structure");
+    expect(params).toMatchObject({ assetPath: "/Game/UI/WBP_Form" });
+    expect(widgetTool.actions.check_structure.effect).toBe("read");
+  });
+});

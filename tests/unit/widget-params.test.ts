@@ -46,6 +46,8 @@ const ASSET_ACTIONS = [
   // They are listed here because what this list pins is that an action which
   // accepts assetPath accepts the canonical spelling and its legacy alias.
   "get_bind_widget_contract", "audit_commonui",
+  // Subtree authoring and the ownership check, each on one Widget Blueprint.
+  "build_tree", "check_structure",
 ];
 
 /**

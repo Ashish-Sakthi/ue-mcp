@@ -2,7 +2,7 @@
 
 This page lists ue-mcp's own category tools and actions. For the official Unreal 5.8 tools that ue-mcp wraps (surfaced inside these same categories), see [Native Tools](native-tools.md).
 
-UE-MCP exposes **<!-- count:tools -->26<!-- /count --> category tools** covering **<!-- count:actions -->1977+<!-- /count --> actions**, plus a `flow` tool for running multi-step YAML workflows. Every category tool takes an `action` parameter that selects the operation and an `args` object holding that action's parameters: `level(action="place_actor", args={actorClass: "PointLight"})`. Under the default `micro` [context strategy](configuration.md#context-strategy-full-lean-micro) the same call goes through the gateway: `tools(action="call", category="level", method="place_actor", args={...})`.
+UE-MCP exposes **<!-- count:tools -->26<!-- /count --> category tools** covering **<!-- count:actions -->1978+<!-- /count --> actions**, plus a `flow` tool for running multi-step YAML workflows. Every category tool takes an `action` parameter that selects the operation and an `args` object holding that action's parameters: `level(action="place_actor", args={actorClass: "PointLight"})`. Under the default `micro` [context strategy](configuration.md#context-strategy-full-lean-micro) the same call goes through the gateway: `tools(action="call", category="level", method="place_actor", args={...})`.
 
 !!! tip "First call in any session"
     Start with `project(action="get_status")` to check the connection, then `level(action="get_outliner")` or `asset(action="list")` to explore.
@@ -1673,6 +1673,7 @@ Nothing outside these modes ever answers a dialog by itself. `editor(set_dialog_
 | Action | Description |
 |--------|-------------|
 | `read_tree(assetPath\|path)` | Read widget hierarchy. Params: `assetPath (or path)` |
+| `check_structure(assetPath\|path)` | Check the object ownership UWidgetBlueprint::ValidateGeneratedClass asserts, the usual suspect when a Widget Blueprint hangs or crashes the editor on compile or load: the designer WidgetTree is outered to the blueprint and every widget in it to that tree, and the generated class's archetype tree (the _C:WidgetTree prototype) is outered to the class and every widget in it to that archetype. Every object comes back with its path, expectedOuter, actualOuter and pass, plus unreachableWidgets (owned by the tree but in no hierarchy), and a pass/failures summary (#1350). Params: `assetPath (or path)` |
 | `get_details(assetPath\|path, widgetName)` | Inspect widget (curated subset). Params: `assetPath (or path), widgetName` |
 | `get_properties(assetPath\|path, widgetName, includeSubtree?:b)` | Full reflected property dump for a widget - every UPROPERTY (RenderOpacity, Visibility, ColorAndOpacity, Border padding/colors, Image brush TintColor/ImageSize, fonts, etc.) plus the slot block, for diagnosing visual bugs get_details omits. Pass includeSubtree to also dump children (#547). Params: `assetPath (or path), widgetName, includeSubtree?` |
 | `list_bindings(assetPath\|path, filterWidgetName?, filterProperty?)` | List designer property bindings on a WidgetBlueprint (the UE 5.7 Python API keeps them protected). Returns {widgetName, propertyName, functionName, bindingType}. Optional filterWidgetName/filterProperty (#530). Params: `assetPath (or path), filterWidgetName?, filterProperty?` |
