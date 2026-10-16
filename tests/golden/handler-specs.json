@@ -27295,6 +27295,18 @@
           "aliases": [
             "filename"
           ]
+        },
+        {
+          "name": "preserveSettings",
+          "type": "boolean",
+          "required": false,
+          "description": "Texture: put back any compression, LOD group, sRGB, streaming, size, mip, filter or address setting the reimport changed (default true)"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the reimported asset's package (default false: it is left dirty)"
         }
       ]
     },

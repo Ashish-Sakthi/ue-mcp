@@ -362,7 +362,6 @@
     "import_static_mesh",
     "import_stringtable",
     "import_stringtable_csv",
-    "import_texture",
     "init_asc",
     "inspect_anim_nodes",
     "inspect_data_interface",
