@@ -51,6 +51,8 @@ const ADDRESSES_THE_SERVER = new Set([
   "project.use_editor",
   "project.add_editor",
   "project.drop_editor",
+  // Posts an issue to GitHub; it reads no editor and changes none.
+  "feedback.submit",
 ]);
 
 export interface UntargetedCall {

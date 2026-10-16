@@ -5,7 +5,8 @@
  *   install <name> [--version x.y.z]   npm install + add to ue-mcp.yml plugins:
  *   uninstall <name>                   npm uninstall + remove from plugins:
  *   list                               list configured plugins and their status
- *   update [name]                      npm update + re-validate manifests
+ *   update [name] [--version x.y.z]    rerun install for each plugin not at its
+ *                                      target (latest, or the given version)
  *   check-skills [dir]                 check a plugin's skills/ against the
  *                                      action surface, before publishing
  *   create <name> [--dir path]         scaffold a new plugin (superset of every
@@ -26,7 +27,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadManifest, manifestActionNames } from "../extensions/manifest.js";
+import { loadManifest, manifestActionNames, type PluginManifest } from "../extensions/manifest.js";
 import { satisfiesMinimum } from "../extensions/version.js";
 import { findInstalledPackage } from "../extensions/resolver.js";
 import { pluginSlug, deriveGroups, isGroupEnabled } from "../extensions/plugin-groups.js";
@@ -221,7 +222,39 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   }
 
   const proj = findProjectDir(projectStartDir(editor));
+  const { manifest, nativeDeployed } = installPackage(proj, name, version, version);
+  if (nativeDeployed) note(REBUILD_NOTE);
+  printInstallSummary(name, manifest);
+}
 
+/** What one run of the install path did. */
+interface InstalledPlugin {
+  manifest: PluginManifest;
+  version: string;
+  /** The native module was copied into the project, so the UE project needs a rebuild. */
+  nativeDeployed: boolean;
+}
+
+const REBUILD_NOTE =
+  "REBUILD REQUIRED: run `ue-mcp build` (or rebuild the UE project) before launching the editor so the new C++ module compiles in.";
+
+/** The version in an installed package's package.json. */
+function installedVersion(pkgDir: string): string | undefined {
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8")) as { version?: string }).version;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The install path `plugin install` and `plugin update` share: npm (which
+ * writes package.json), validation, the ue-mcp.yml entry pinned to `pin`, the
+ * native module with stale files pruned, and skills. Any failure exits
+ * non-zero, so a half-installed plugin is never reported as done.
+ */
+function installPackage(proj: ProjectInfo, name: string, version: string | undefined, pin: string | undefined): InstalledPlugin {
+  let nativeDeployed = false;
   // Ensure a package.json exists. npm install will refuse without one.
   if (!fs.existsSync(path.join(proj.projectDir, "package.json"))) {
     note(`no package.json in ${proj.projectDir}; running 'npm init -y'`);
@@ -319,9 +352,9 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   const list = readPluginsList(proj.configPath);
   const existing = list.findIndex((p) => p.name === name);
   if (existing >= 0) {
-    list[existing] = { name, version };
+    list[existing] = { name, version: pin };
   } else {
-    list.push({ name, version });
+    list.push({ name, version: pin });
   }
   writePluginsList(proj.configPath, list);
 
@@ -336,16 +369,15 @@ function cmdInstall(args: string[], editor: string | undefined): void {
       if (pruned > 0) {
         note(`removed ${pruned} file(s) the previous ${native.uePluginName} version deployed and this one no longer ships`);
       }
-      const pkgJson = JSON.parse(fs.readFileSync(path.join(pkgDir, "package.json"), "utf-8")) as { version?: string };
       state[name] = {
         uePluginName: native.uePluginName,
-        pluginVersion: pkgJson.version ?? "0.0.0",
+        pluginVersion: installedVersion(pkgDir) ?? "0.0.0",
         installedAt: new Date().toISOString(),
         files: result.fileList,
       };
       writeNativeModulesState(proj.projectDir, state);
       note(`deployed native module ${native.uePluginName} (${result.filesCopied} files) to ${path.relative(proj.projectDir, result.destDir)}`);
-      note(`REBUILD REQUIRED: run \`npm run build\` (or rebuild the UE project) before launching the editor so the new C++ module compiles in.`);
+      nativeDeployed = true;
     } catch (e) {
       fail(`${name}: failed to deploy native module: ${(e as Error).message}`);
     }
@@ -359,8 +391,10 @@ function cmdInstall(args: string[], editor: string | undefined): void {
     const skills = [...r.installed, ...r.unchanged];
     if (skills.length > 0) note(`skills: ${skills.join(", ")} (in .claude/skills/)`);
   }
+  return { manifest, version: installedVersion(pkgDir) ?? version ?? "?", nativeDeployed };
+}
 
-  // Summary
+function printInstallSummary(name: string, manifest: PluginManifest): void {
   note(`installed ${name}@${manifest.minServerVersion ? `(server-min ${manifest.minServerVersion})` : ""}`);
   note(`actionPrefix: ${manifest.actionPrefix}`);
   for (const [category, actions] of Object.entries(manifest.inject)) {
@@ -441,20 +475,118 @@ function cmdList(editor: string | undefined): void {
   }
 }
 
-function cmdUpdate(args: string[], editor: string | undefined): void {
-  const name = args.shift();
-  const proj = findProjectDir(projectStartDir(editor));
-  if (name) {
-    runNpm(["update", name], proj.projectDir);
-  } else {
-    runNpm(["update"], proj.projectDir);
+/** One plugin `plugin update` will move, and why. */
+export interface PluginUpdateStep {
+  name: string;
+  /** The version to install. */
+  to: string;
+  /** The ue-mcp.yml pin to write: the new version when the entry was pinned, else none. */
+  pin?: string;
+  reason: string;
+}
+
+/** What `plugin update` reads about each declared plugin. */
+export interface PluginUpdateFacts {
+  installed(name: string): string | undefined;
+  /** The version whose native module is deployed in the project, if one is. */
+  deployedNative(name: string): string | undefined;
+  /** The newest published version, or null when npm could not say. */
+  latest(name: string): string | null;
+}
+
+/**
+ * Decide what `plugin update [name] [--version v]` installs. A plugin moves
+ * when its package, its ue-mcp.yml pin or its deployed native module is not
+ * at the target, which is the given version or the newest published one, so
+ * a 0.x minor is crossed rather than held back by a caret range.
+ */
+export function planPluginUpdates(
+  entries: readonly PluginEntry[],
+  requested: string | undefined,
+  version: string | undefined,
+  facts: PluginUpdateFacts,
+): { steps: PluginUpdateStep[]; current: string[]; errors: string[] } {
+  const errors: string[] = [];
+  if (version && !requested) return { steps: [], current: [], errors: ["--version needs a plugin name"] };
+  const chosen = requested
+    ? entries.filter((e) => e.name === requested || pluginSlug(e.name) === requested)
+    : [...entries];
+  if (requested && chosen.length === 0) {
+    errors.push(`${requested} is not in ue-mcp.yml plugins:; install it with \`ue-mcp plugin install ${requested}\``);
   }
+  const steps: PluginUpdateStep[] = [];
+  const current: string[] = [];
+  for (const entry of chosen) {
+    const to = version ?? facts.latest(entry.name);
+    if (!to) {
+      errors.push(`could not read the latest version of ${entry.name} from npm`);
+      continue;
+    }
+    const installed = facts.installed(entry.name);
+    const native = facts.deployedNative(entry.name);
+    const pin = entry.version ? to : undefined;
+    const reason = installed !== to
+      ? `${installed ?? "not installed"} -> ${to}`
+      : entry.version && entry.version !== to
+        ? `ue-mcp.yml pins ${entry.version}`
+        : native !== undefined && native !== to
+          ? `native module deployed from ${native}`
+          : undefined;
+    if (reason) steps.push({ name: entry.name, to, pin, reason });
+    else current.push(`${entry.name}@${to}`);
+  }
+  return { steps, current, errors };
+}
+
+/** The version behind a package's `latest` dist-tag, or null when npm cannot answer. */
+function npmLatest(name: string, cwd: string): string | null {
+  const r = spawnSync("npm", ["view", name, "version"], { windowsHide: true, cwd, encoding: "utf8", shell: true });
+  const v = (r.stdout ?? "").trim().split(/\r?\n/).pop()?.trim();
+  return r.status === 0 && v ? v : null;
+}
+
+function cmdUpdate(args: string[], editor: string | undefined): void {
+  let requested: string | undefined;
+  let version: string | undefined;
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === "--version") version = args[++i];
+    else if (!args[i].startsWith("-")) requested ??= args[i];
+  }
+  const proj = findProjectDir(projectStartDir(editor));
+  const nativeState = readNativeModulesState(proj.projectDir);
+  const plan = planPluginUpdates(readPluginsList(proj.configPath), requested, version, {
+    installed: (name) => {
+      const dir = findInstalledPackage(name, proj.projectDir);
+      return dir ? installedVersion(dir) : undefined;
+    },
+    deployedNative: (name) => nativeState[name]?.pluginVersion,
+    latest: (name) => npmLatest(name, proj.projectDir),
+  });
+  if (plan.errors.length > 0) fail(plan.errors.join("; "));
+  for (const c of plan.current) note(`${c} is current`);
+
+  let rebuild = false;
+  for (const step of plan.steps) {
+    note(`updating ${step.name} (${step.reason})`);
+    const done = installPackage(proj, step.name, step.to, step.pin);
+    rebuild ||= done.nativeDeployed;
+    note(`${step.name} is at ${done.version}${step.pin ? `, pinned in ue-mcp.yml` : ""}`);
+  }
+
+  // Skills of plugins that did not move are refreshed too, so a deleted skill comes back.
   const skills = syncPluginSkills(proj.projectDir, proj.configPath);
   for (const [plugin, r] of Object.entries(skills.plugins)) {
     for (const line of conflictMessages(r)) note(`WARNING: ${line}`);
     if (r.installed.length > 0) note(`${plugin}: updated skills ${r.installed.join(", ")}`);
     if (r.pruned.length > 0) note(`${plugin}: removed skills ${r.pruned.join(", ")}`);
   }
+
+  if (plan.steps.length === 0) {
+    note("nothing to update. Rebuild needed: no. MCP client restart needed: no.");
+    return;
+  }
+  if (rebuild) note(REBUILD_NOTE);
+  note(`updated ${plan.steps.length} plugin(s). Rebuild needed: ${rebuild ? "yes" : "no"}. MCP client restart needed: yes.`);
   note(RESTART_NOTE);
 }
 
@@ -886,7 +1018,7 @@ export const usage: CliUsage = {
     "  ue-mcp plugin install <name> [--version x.y.z]",
     "  ue-mcp plugin uninstall <name>",
     "  ue-mcp plugin list",
-    "  ue-mcp plugin update [name]",
+    "  ue-mcp plugin update [name] [--version x.y.z]",
     "  ue-mcp plugin check-skills [dir]",
     "  ue-mcp plugin config <name> [--enable a,b] [--disable c,d] [--list-groups] [--local|--project]",
     "  ue-mcp plugin create <name> [--dir path]",
