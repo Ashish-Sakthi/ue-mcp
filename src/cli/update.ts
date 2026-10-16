@@ -1,4 +1,4 @@
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import * as fs from "node:fs";
 
 import * as path from "node:path";
@@ -49,12 +49,16 @@ async function editorRunningFor(uproject: string): Promise<boolean> {
   }
 }
 
-/** Run `ue-mcp <command>` from THIS package (not npx) so a local shadow can't intercept. */
+/**
+ * Run `ue-mcp <command>` from THIS package (not npx) so a local shadow can't
+ * intercept. The node flags this process runs under (a loader, for one) go to
+ * the child too.
+ */
 function runSelfCommand(command: string, projectArg: string | undefined): boolean {
   const entry = packageModulePath("index.js");
-  const argSuffix = projectArg ? ` "${projectArg}"` : "";
+  const args = [...process.execArgv, entry, ...command.split(" "), ...(projectArg ? [projectArg] : [])];
   try {
-    execSync(`"${process.execPath}" "${entry}" ${command}${argSuffix}`, { windowsHide: true, stdio: "inherit" });
+    execFileSync(process.execPath, args, { windowsHide: true, stdio: "inherit" });
     return true;
   } catch {
     return false;
