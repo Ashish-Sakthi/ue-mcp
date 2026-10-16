@@ -217,8 +217,9 @@ namespace
 	}
 
 	/**
-	 * Writes Value over the whole selector at Addr (#1275). A string in editor syntax goes through the selector's
-	 * own parser. Export text ("PCGBegin(...)PCGEnd" or "(...)") imports as any other struct text.
+	 * Writes Value over the whole selector at Addr (#1275, #1298). A string in editor syntax goes through the
+	 * selector's own parser; an object starts from a default selector, so a field it leaves out (ExtraNames) is
+	 * reset rather than kept. Export text ("PCGBegin(...)PCGEnd" or "(...)") imports as any other struct text.
 	 */
 	static bool SetPCGSelectorFromJson(const FStructProperty* Prop, void* Addr, const TSharedPtr<FJsonValue>& Value, FString& OutError)
 	{
@@ -226,18 +227,54 @@ namespace
 		FString Text;
 		const bool bString = Value.IsValid() && Value->TryGetString(Text);
 		Text.TrimStartAndEndInline();
-		if (!(bString && !Text.StartsWith(TEXT("PCGBegin")) && !Text.StartsWith(TEXT("("))))
+		const bool bEditorSyntax = bString && !Text.StartsWith(TEXT("PCGBegin")) && !Text.StartsWith(TEXT("("));
+		const bool bObject = Value.IsValid() && Value->Type == EJson::Object;
+		if (!bEditorSyntax && !bObject)
 		{
 			return MCPJsonProperty::SetJsonOnProperty(const_cast<FStructProperty*>(Prop), Addr, Value, OutError);
 		}
 		TArray<uint8> Scratch;
 		Scratch.SetNumZeroed(Struct->GetStructureSize());
 		Struct->InitializeStruct(Scratch.GetData());
-		const bool bOk = static_cast<FPCGAttributePropertySelector*>(static_cast<void*>(Scratch.GetData()))->Update(Text);
-		if (!bOk) OutError = FString::Printf(TEXT("'%s' is not a selector the PCG editor accepts (MyAttr, $Density, @Last, $Position.Z)"), *Text);
+		bool bOk = true;
+		if (bEditorSyntax)
+		{
+			bOk = static_cast<FPCGAttributePropertySelector*>(static_cast<void*>(Scratch.GetData()))->Update(Text);
+			if (!bOk) OutError = FString::Printf(TEXT("'%s' is not a selector the PCG editor accepts (MyAttr, $Density, @Last, $Position.Z)"), *Text);
+		}
+		else
+		{
+			bOk = MCPJsonProperty::SetJsonOnProperty(const_cast<FStructProperty*>(Prop), Scratch.GetData(), Value, OutError);
+		}
 		if (bOk) Struct->CopyScriptStruct(Addr, Scratch.GetData());
 		Struct->DestroyStruct(Scratch.GetData());
 		return bOk;
+	}
+
+	/** {key: "$Position.Z"} for each written key that lands on a selector, so a merge or reset is visible. */
+	static TSharedPtr<FJsonObject> ResolvedSelectors(UObject* Settings, const TArray<FString>& Keys)
+	{
+		TSharedPtr<FJsonObject> Out = MakeShared<FJsonObject>();
+		for (const FString& Key : Keys)
+		{
+			FProperty* Leaf = nullptr;
+			void* Addr = nullptr;
+			UObject* Owner = nullptr;
+			FString Err;
+			if (!MCPJsonProperty::ResolveDottedPath(Settings, Key, Leaf, Addr, Owner, Err) || !Addr) continue;
+			if (AsSelectorProp(Leaf))
+			{
+				Out->SetStringField(Key, PCGSelectorText(Addr));
+			}
+			else if (const FArrayProperty* AP = CastField<FArrayProperty>(Leaf); AP && AsSelectorProp(AP->Inner))
+			{
+				TArray<TSharedPtr<FJsonValue>> Items;
+				FScriptArrayHelper Helper(AP, Addr);
+				for (int32 i = 0; i < Helper.Num(); ++i) Items.Add(MakeShared<FJsonValueString>(PCGSelectorText(Helper.GetRawPtr(i))));
+				Out->SetArrayField(Key, Items);
+			}
+		}
+		return Out;
 	}
 
 	/** Whether Value writes a selector anywhere under Prop: the selector itself, an array of them, or a struct object holding one. */
@@ -1455,6 +1492,8 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 	}
 
 	Settings->Modify();
+	// A write that renames or removes pins (a maths op going binary to unary) drops their edges (#1298).
+	const TArray<MCPPCG::FEdgeKey> EdgesBefore = MCPPCG::CollectNodeEdges(FoundNode);
 
 	// A spawner selector already stale is replaced before a dotted key writes
 	// into it, and again after any write of its type.
@@ -1514,6 +1553,18 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 	for (const UPCGPin* Pin : FoundNode->GetOutputPins()) if (Pin) OutLabels.Add(MakeShared<FJsonValueString>(Pin->Properties.Label.ToString()));
 	Result->SetArrayField(TEXT("inputPins"), InLabels);
 	Result->SetArrayField(TEXT("outputPins"), OutLabels);
+	TArray<FString> WrittenKeys;
+	for (const auto& Pair : SetResults->Values) WrittenKeys.Add(FString(*Pair.Key));
+	const TSharedPtr<FJsonObject> Selectors = ResolvedSelectors(Settings, WrittenKeys);
+	if (Selectors->Values.Num() > 0) Result->SetObjectField(TEXT("resolvedSelectors"), Selectors);
+	const TArray<TSharedPtr<FJsonValue>> RemovedEdges = MCPPCG::DroppedEdges(EdgesBefore, MCPPCG::CollectNodeEdges(FoundNode));
+	Result->SetArrayField(TEXT("removedEdges"), RemovedEdges);
+	TArray<TSharedPtr<FJsonValue>> Warnings;
+	if (RemovedEdges.Num() > 0)
+	{
+		Warnings.Add(MakeShared<FJsonValueString>(FString::Printf(
+			TEXT("The write changed the node's pins and %d edge(s) were dropped; removedEdges lists them for connect_nodes."), RemovedEdges.Num())));
+	}
 	if (Errors.Num() > 0)
 	{
 		TArray<TSharedPtr<FJsonValue>> ErrorArray;
@@ -1527,6 +1578,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 			Errors.Num(), PropertiesToSet.Num(), *NodeName, *FString::Join(Errors, TEXT("; "))));
 	}
 	Result->SetBoolField(TEXT("success"), Errors.Num() == 0);
+	if (Warnings.Num() > 0) Result->SetArrayField(TEXT("warnings"), Warnings);
 
 	if (PreviousSettings->Values.Num() > 0)
 	{
@@ -1538,12 +1590,13 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 		Payload->SetStringField(TEXT("nodeName"), NodeName);
 		Payload->SetObjectField(TEXT("settings"), PreviousSettings);
 		MCPSetRollback(Result, TEXT("set_pcg_node_settings"), Payload);
-		Result->SetBoolField(TEXT("rollbackLossy"), UncapturedCount > 0 || Recreated.Num() > 0);
+		Result->SetBoolField(TEXT("rollbackLossy"), UncapturedCount > 0 || Recreated.Num() > 0 || RemovedEdges.Num() > 0);
 		FString Note;
+		if (RemovedEdges.Num() > 0) Note = TEXT("The edges in removedEdges do not come back with the settings; replay them with connect_nodes.");
 		if (UncapturedCount > 0)
 		{
-			Note = FString::Printf(
-				TEXT("%d written propert(ies) could not be captured from the original object, or belong to a recreated instance, and are excluded from the rollback. previousProperties contains only the values the inverse can restore."),
+			Note += FString::Printf(
+				TEXT(" %d written propert(ies) could not be captured from the original object, or belong to a recreated instance, and are excluded from the rollback. previousProperties contains only the values the inverse can restore."),
 				UncapturedCount);
 		}
 		if (Recreated.Num() > 0)

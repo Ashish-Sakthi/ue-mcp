@@ -181,4 +181,57 @@ bool FMCPPCGSelectorSyntaxTest::RunTest(const FString& Parameters)
 	return true;
 }
 
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGSelectorReplaceTest,
+	"UE.MCP.PCG.Authoring.SelectorReplaceAndDroppedEdges",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGSelectorReplaceTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGGraphAuthoringTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGAuthoring") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+	const FString GraphPath = NewGraph(Registry);
+	UPCGGraph* Graph = GraphPath.IsEmpty() ? nullptr : LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	if (!TestNotNull(TEXT("the graph loads"), Graph)) return false;
+	const FString Maths = AddNode(Registry, GraphPath, TEXT("PCGMetadataMathsSettings"));
+	if (!TestFalse(TEXT("a maths node is added"), Maths.IsEmpty())) return false;
+
+	// An object replaces the whole selector: ExtraNames from the previous value do not carry over.
+	auto Settings = MakeShared<FJsonObject>();
+	Settings->SetStringField(TEXT("InputSource1"), TEXT("$Position.X"));
+	TestTrue(TEXT("a selector with an extra name is written"), Ok(WriteSettings(Registry, GraphPath, Maths, Settings)));
+	auto Replacement = MakeShared<FJsonObject>();
+	Replacement->SetStringField(TEXT("Selection"), TEXT("Attribute"));
+	Replacement->SetStringField(TEXT("AttributeName"), TEXT("@Last"));
+	Settings = MakeShared<FJsonObject>();
+	Settings->SetObjectField(TEXT("InputSource1"), Replacement);
+	const TSharedPtr<FJsonObject> Replaced = WriteSettings(Registry, GraphPath, Maths, Settings);
+	TestTrue(TEXT("the object write succeeds"), Ok(Replaced));
+	TestEqual(TEXT("no stale extra name survives"), SelectorText(Graph, Maths, TEXT("InputSource1")), FString(TEXT("@Last")));
+	const TSharedPtr<FJsonObject>* Resolved = nullptr;
+	TestTrue(TEXT("resolvedSelectors echoes the stored selector"),
+		Replaced->TryGetObjectField(TEXT("resolvedSelectors"), Resolved) && (*Resolved)->GetStringField(TEXT("InputSource1")) == TEXT("@Last"));
+
+	// A ternary op wired on InC, switched to a unary op, loses that pin and reports the edge.
+	Settings = MakeShared<FJsonObject>();
+	Settings->SetStringField(TEXT("Operation"), TEXT("MulAdd"));
+	TestTrue(TEXT("MulAdd is written"), Ok(WriteSettings(Registry, GraphPath, Maths, Settings)));
+	auto Connect = MakeShared<FJsonObject>();
+	Connect->SetStringField(TEXT("assetPath"), GraphPath);
+	Connect->SetStringField(TEXT("sourceNode"), Graph->GetInputNode()->GetName());
+	Connect->SetStringField(TEXT("targetNode"), Maths);
+	Connect->SetStringField(TEXT("targetPin"), TEXT("InC"));
+	if (!TestTrue(TEXT("InC is wired"), Ok(Invoke(Registry, TEXT("connect_pcg_nodes"), Connect)))) return false;
+	Settings = MakeShared<FJsonObject>();
+	Settings->SetStringField(TEXT("Operation"), TEXT("Sign"));
+	const TSharedPtr<FJsonObject> Unary = WriteSettings(Registry, GraphPath, Maths, Settings);
+	TestTrue(TEXT("Sign is written"), Ok(Unary));
+	const TArray<TSharedPtr<FJsonValue>>* Removed = nullptr;
+	TestTrue(TEXT("the dropped InC edge is reported"), Unary->TryGetArrayField(TEXT("removedEdges"), Removed) && Removed->Num() == 1);
+	TestTrue(TEXT("a warning names it"), Unary->HasField(TEXT("warnings")));
+	return true;
+}
+
 #endif
