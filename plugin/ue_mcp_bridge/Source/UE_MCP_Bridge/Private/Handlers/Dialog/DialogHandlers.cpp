@@ -286,6 +286,25 @@ namespace MCPDialogPolicy
 		return false;
 	}
 
+	/** The first response keyword whose synonyms carry Label, so a refusal can name it (#1421). */
+	static bool ResponseForButtonLabel(const FString& Label, EAppReturnType::Type& OutAnswer)
+	{
+		const FString Want = Normalise(Label);
+		for (EAppReturnType::Type Candidate : { EAppReturnType::Yes, EAppReturnType::No, EAppReturnType::Ok, EAppReturnType::Cancel,
+			EAppReturnType::Retry, EAppReturnType::Continue, EAppReturnType::YesAll, EAppReturnType::NoAll })
+		{
+			for (const FString& Synonym : SynonymsFor(Candidate))
+			{
+				if (Normalise(Synonym) == Want)
+				{
+					OutAnswer = Candidate;
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	/** The response keyword a label names on some message dialog, for reporting. */
 	static bool ResponseNamedByLabel(const FString& Label, EAppReturnType::Type& OutAnswer)
 	{
@@ -676,8 +695,16 @@ TSharedPtr<FJsonValue> FDialogHandlers::SetDialogPolicy(const TSharedPtr<FJsonOb
 		Response = ParseResponseType(ResponseStr, bValidResponse);
 		if (!bValidResponse)
 		{
+			// A button label passed as the response is refused with the keyword that presses it (#1421).
+			EAppReturnType::Type Mapped = EAppReturnType::Cancel;
+			if (MCPDialogPolicy::ResponseForButtonLabel(ResponseStr, Mapped))
+			{
+				return MCPError(FString::Printf(
+					TEXT("Unknown response '%s'. That is a button label, not a response keyword: response '%s' presses it, or pass buttonLabel '%s' to press it by name. Valid responses are %s."),
+					*ResponseStr, *ResponseTypeToString(Mapped), *ResponseStr, *ValidResponseList()));
+			}
 			return MCPError(FString::Printf(
-				TEXT("Unknown response '%s'. Valid responses are %s."),
+				TEXT("Unknown response '%s'. Valid responses are %s. To press a button by its label, pass buttonLabel instead."),
 				*ResponseStr, *ValidResponseList()));
 		}
 	}
