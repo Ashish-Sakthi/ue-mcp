@@ -114,7 +114,7 @@ namespace MCPJsonProperty
 			FWriteOwnerScope Scope(NewObj);
 			for (const auto& Pair : (*Fields)->Values)
 			{
-				FProperty* Field = FindMemberProperty(Cls, Pair.Key);
+				FProperty* Field = FindMemberProperty(Cls, FString(*Pair.Key));
 				FString E;
 				if (!Field)
 				{
