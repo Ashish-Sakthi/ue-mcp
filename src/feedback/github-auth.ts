@@ -12,6 +12,16 @@ function clientId(): string {
   return readEnv("oauthClientId") || DEFAULT_CLIENT_ID;
 }
 
+/** GitHub's OAuth origin: UE_MCP_GITHUB_OAUTH, else https://github.com. */
+function githubOAuthBase(): string {
+  return (readEnv("githubOAuth")?.trim() || "https://github.com").replace(/\/+$/, "");
+}
+
+/** The GitHub REST API origin: UE_MCP_GITHUB_API, else https://api.github.com. */
+export function githubApiBase(): string {
+  return (readEnv("githubApi")?.trim() || "https://api.github.com").replace(/\/+$/, "");
+}
+
 /** Where the GitHub and registry tokens are kept: UE_MCP_AUTH_DIR, else ~/.ue-mcp. */
 export function authDir(): string {
   return readEnv("authDir") || userDir();
@@ -80,7 +90,7 @@ async function clearPending(): Promise<void> {
 }
 
 export async function startDeviceFlow(): Promise<PendingDeviceFlow> {
-  const res = await fetch("https://github.com/login/device/code", {
+  const res = await fetch(`${githubOAuthBase()}/login/device/code`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -104,7 +114,8 @@ export async function startDeviceFlow(): Promise<PendingDeviceFlow> {
     user_code: data.user_code,
     verification_uri: data.verification_uri,
     expires_at: Math.floor(Date.now() / 1000) + data.expires_in,
-    interval: Math.max(data.interval, 5),
+    // GitHub's floor. Another origin is someone else's server and sets its own.
+    interval: readEnv("githubOAuth")?.trim() ? data.interval : Math.max(data.interval, 5),
   };
   await writePending(pending);
   return pending;
@@ -119,7 +130,7 @@ export type ExchangeResult =
 export async function tryExchangeDeviceCode(
   pending: PendingDeviceFlow,
 ): Promise<ExchangeResult> {
-  const res = await fetch("https://github.com/login/oauth/access_token", {
+  const res = await fetch(`${githubOAuthBase()}/login/oauth/access_token`, {
     method: "POST",
     headers: {
       Accept: "application/json",
@@ -152,7 +163,7 @@ export async function tryExchangeDeviceCode(
     throw new Error(`Device code exchange failed: ${data.error || "unknown"}`);
   }
 
-  const userRes = await fetch("https://api.github.com/user", {
+  const userRes = await fetch(`${githubApiBase()}/user`, {
     headers: {
       Authorization: `token ${data.access_token}`,
       Accept: "application/vnd.github+json",
