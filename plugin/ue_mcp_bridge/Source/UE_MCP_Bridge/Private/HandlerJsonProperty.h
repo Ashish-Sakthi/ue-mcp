@@ -53,17 +53,25 @@ namespace MCPJsonProperty
 		return SetJsonOnProperty(Prop, ValueAddr, InValue, OutError);
 	}
 
-	/** A struct or class member by its name or, for a UserDefinedStruct, its
-	 *  display name. */
+	/** A struct or class member by its name, its display name (UserDefinedStruct
+	 *  members), or the Python spelling: snake_case, and a bool without its b
+	 *  prefix (display_name, in_cycle). Exact matches win. */
 	inline FProperty* FindMemberProperty(const UStruct* Struct, const FString& Name)
 	{
 		if (!Struct) return nullptr;
 		if (FProperty* Exact = Struct->FindPropertyByName(FName(*Name))) return Exact;
+		auto Fold = [](const FString& In) { return In.Replace(TEXT("_"), TEXT("")).ToLower(); };
+		const FString Wanted = Fold(Name);
+		FProperty* Loose = nullptr;
 		for (TFieldIterator<FProperty> It(Struct); It; ++It)
 		{
 			if (It->GetAuthoredName().Equals(Name, ESearchCase::IgnoreCase)) return *It;
+			if (Loose) continue;
+			const FString Authored = Fold(It->GetAuthoredName());
+			const bool bBool = It->IsA<FBoolProperty>();
+			if (Authored == Wanted || (bBool && Authored == TEXT("b") + Wanted)) Loose = *It;
 		}
-		return nullptr;
+		return Loose;
 	}
 
 	// {instanceClass, properties} on an Instanced / EditInlineNew object
@@ -503,8 +511,15 @@ namespace MCPJsonProperty
 			{
 				for (const auto& Pair : (*SubObj)->Values)
 				{
-					FProperty* SubProp = StructProp->Struct->FindPropertyByName(FName(*Pair.Key));
-					if (!SubProp) { OutError = FString::Printf(TEXT("struct field '%s' not found"), *Pair.Key); return false; }
+					FProperty* SubProp = FindMemberProperty(StructProp->Struct, Pair.Key);
+					if (!SubProp)
+					{
+						TArray<FString> Fields;
+						for (TFieldIterator<FProperty> It(StructProp->Struct); It; ++It) Fields.Add(It->GetAuthoredName());
+						OutError = FString::Printf(TEXT("struct %s has no field '%s'. Fields: [%s]"),
+							*StructProp->Struct->GetName(), *Pair.Key, *FString::Join(Fields, TEXT(", ")));
+						return false;
+					}
 					void* SubAddr = SubProp->ContainerPtrToValuePtr<void>(ValueAddr);
 					FString E;
 					if (!SetJsonOnProperty(SubProp, SubAddr, Pair.Value, E))
@@ -1521,7 +1536,7 @@ namespace MCPJsonProperty
 			const FString& Token = Seg.Name;
 			const FString& PathToken = Parts[i];
 
-			FProperty* Prop = ContainerStruct->FindPropertyByName(FName(*Token));
+			FProperty* Prop = FindMemberProperty(ContainerStruct, Token);
 			if (!Prop) { OutError = FString::Printf(TEXT("property '%s' not found at '%s'"), *Token, *DottedName); return false; }
 			void* ValueAddr = Prop->ContainerPtrToValuePtr<void>(Container);
 
