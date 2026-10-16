@@ -1,5 +1,6 @@
 // Channel-level read and write on any Level Sequence section, addressed by
-// track and channel name through the section's channel proxy (#1407).
+// track and channel name through the section's channel proxy (#1407), plus
+// section removal (#1232).
 
 #include "SequencerHandlers.h"
 #include "SequencerHandlers_Internal.h"
@@ -14,6 +15,7 @@
 #include "Tracks/MovieSceneMaterialParameterCollectionTrack.h"
 #include "Materials/MaterialParameterCollection.h"
 #include "Editor.h"
+#include "ScopedTransaction.h"
 
 namespace UEMCP::SequencerChannels
 {
@@ -548,3 +550,59 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetChannelKeys(const TSharedPtr<FJson
 	return MCPResult(Result);
 }
 
+// remove_sequence_section (#1232): delete one section from a track by index.
+TSharedPtr<FJsonValue> FSequencerHandlers::RemoveSection(const TSharedPtr<FJsonObject>& Params)
+{
+	using namespace UEMCP::SequencerTracks;
+	using namespace UEMCP::SequencerChannels;
+	FSectionSelector Sel;
+	Sel.Read(Params);
+
+	if (auto PieErr = MCPRefuseDuringPlayInEditor(TEXT("remove_sequence_section"))) return PieErr;
+
+	FResolvedSection R;
+	if (TSharedPtr<FJsonValue> Err = ResolveSection(Params, Sel, R)) return Err;
+	if (!Sel.bHasSectionIndex)
+	{
+		return MCPError(TEXT("Pass sectionIndex: removing a section by default would pick one for you"));
+	}
+
+	const FFrameRate Tick = R.MovieScene->GetTickResolution();
+	const FFrameRate Display = R.MovieScene->GetDisplayRate();
+	TSharedPtr<FJsonObject> RemovedRange = MakeShared<FJsonObject>();
+	UEMCP::SequencerInfo::SetTimingRangeFields(*RemovedRange, R.Section->GetRange(), Tick, Display);
+	const FString RemovedClass = R.Section->GetClass()->GetName();
+	const int32 Before = R.Track->GetAllSections().Num();
+
+	{
+		// One transaction, so the editor undo of it is the inverse.
+		FScopedTransaction Transaction(NSLOCTEXT("UEMCP", "RemoveSequenceSection", "Remove Sequence Section"));
+		R.Track->Modify();
+		R.Section->Modify();
+		R.Track->RemoveSection(*R.Section);
+	}
+	R.Sequence->GetOutermost()->MarkPackageDirty();
+
+	const int32 After = R.Track->GetAllSections().Num();
+	if (After != Before - 1)
+	{
+		return MCPError(FString::Printf(TEXT("The track still holds %d section(s) after the removal (had %d)"), After, Before));
+	}
+
+	auto Result = MCPSuccess();
+	MCPSetUpdated(Result);
+	Result->SetStringField(TEXT("sequencePath"), R.Sequence->GetPathName());
+	Result->SetObjectField(TEXT("track"), DescribeTrack(R.Track));
+	if (R.Binding.IsValid()) Result->SetStringField(TEXT("bindingGuid"), R.Binding.ToString());
+	Result->SetNumberField(TEXT("removedSectionIndex"), Sel.SectionIndex);
+	Result->SetStringField(TEXT("removedSectionClass"), RemovedClass);
+	Result->SetObjectField(TEXT("removedRange"), RemovedRange);
+	Result->SetNumberField(TEXT("sectionCountBefore"), Before);
+	Result->SetNumberField(TEXT("sectionCount"), After);
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetNumberField(TEXT("steps"), 1);
+	Payload->SetStringField(TEXT("direction"), TEXT("undo"));
+	MCPSetRollback(Result, TEXT("undo_redo_steps"), Payload);
+	Result->SetStringField(TEXT("rollbackNote"), TEXT("The rollback is the editor undo of this removal's transaction, so it restores the section only while that transaction is still the latest on the undo stack."));
+	return MCPResult(Result);
+}

@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1081,
+  "handlerCount": 1083,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -16725,6 +16725,35 @@
         }
       ]
     },
+    "get_sequence_runtime_bindings": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "auto (default: PIE when running, else editor) | pie | editor"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE instance index when several clients run"
+        },
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": false,
+          "description": "Report only actors playing this sequence"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Report only the LevelSequenceActor with this label or name"
+        }
+      ]
+    },
     "get_skeleton_info": {
       "category": "animation",
       "params": [
@@ -26171,6 +26200,69 @@
         }
       ]
     },
+    "remove_sequence_section": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "trackType",
+          "type": "string",
+          "required": false,
+          "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+        },
+        {
+          "name": "trackName",
+          "type": "string",
+          "required": false,
+          "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+        },
+        {
+          "name": "trackIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Which matching track, when several match (default 0)"
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Look in this binding's tracks instead of the root tracks"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Look in the binding with this name"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "sectionIndex",
+          "type": "integer",
+          "required": true,
+          "description": "Index of the section to remove, as get_sequence_info lists them"
+        }
+      ]
+    },
     "remove_smart_object_slot": {
       "category": "gameplay",
       "params": [
@@ -34148,14 +34240,14 @@
           "name": "keyframes",
           "type": "array",
           "required": true,
-          "description": "Keys to add, as [{seconds, value}]",
+          "description": "Keys to add, as [{seconds, value, interpolation?}]",
           "items": "object"
         },
         {
           "name": "interpolation",
           "type": "string",
           "required": false,
-          "description": "cubic (default) | linear"
+          "description": "cubic (default) | linear | constant; a key's own interpolation wins"
         }
       ]
     },

@@ -4,6 +4,7 @@ import { classifyAction } from "../../src/dispatch/locking.js";
 import { readHandlerFile } from "../../scripts/lib/cpp-registrations.mjs";
 
 const channels = readHandlerFile("SequencerHandlers_Channels.cpp");
+const bindings = readHandlerFile("SequencerHandlers_Bindings.cpp");
 const sequencer = readHandlerFile("SequencerHandlers.cpp");
 
 function body(source: string, fn: string, next?: string): string {
@@ -27,6 +28,7 @@ describe("sequencer channel actions (#1407)", () => {
   it("classifies the reader as a read and the writer as a mutation", () => {
     expect(classifyAction("editor.get_sequence_channel_keys", { sequencePath: "/Game/S", trackType: "MPC" }).mutates).toBe(false);
     expect(classifyAction("editor.set_sequence_channel_keys", { sequencePath: "/Game/S", trackType: "MPC", channel: "Intensity" }).mutates).toBe(true);
+    expect(classifyAction("editor.remove_sequence_section", { sequencePath: "/Game/S", trackType: "Transform", sectionIndex: 1 }).mutates).toBe(true);
   });
 
   it("reads keys without writing to the section", () => {
@@ -36,7 +38,7 @@ describe("sequencer channel actions (#1407)", () => {
   });
 
   it("validates every key before it touches the section, and reads the channel back", () => {
-    const set = body(channels, "SetChannelKeys");
+    const set = body(channels, "SetChannelKeys", "RemoveSection");
     const firstWrite = set.indexOf("R.Section->Modify()");
     for (const guard of ["needs a time", "must be a number or a boolean", "is not cubic, linear or constant"]) {
       expect(set.indexOf(guard)).toBeGreaterThan(-1);
@@ -51,5 +53,30 @@ describe("sequencer channel actions (#1407)", () => {
     for (const name of ["GetScalarParameterNamesAndCurves", "GetColorParameterNamesAndCurves", 'TEXT(".R")', "MaterialParameterCollection"]) {
       expect(header).toContain(name);
     }
+  });
+
+  it("keys with constant interpolation in set_sequence_keyframes (#1232)", () => {
+    const keys = body(sequencer, "SetKeyframes");
+    expect(keys).toContain("AddConstantKey");
+    expect(keys).toContain("Unknown interpolation");
+  });
+
+  it("removes a section inside a transaction whose undo is the rollback (#1232)", () => {
+    const remove = body(channels, "RemoveSection");
+    expect(remove).toContain("FScopedTransaction");
+    expect(remove).toContain('MCPSetRollback(Result, TEXT("undo_redo_steps")');
+    expect(remove).toContain("Pass sectionIndex");
+  });
+});
+
+describe("sequencer runtime bindings (#1232)", () => {
+  it("advertises runtime bindings as a read", () => {
+    expect(classifyAction("editor.get_sequence_runtime_bindings", {}).mutates).toBe(false);
+  });
+
+  it("asks each runtime player, not the editor, what a binding resolved to", () => {
+    const runtime = body(bindings, "GetRuntimeBindings");
+    expect(runtime).toContain("Player->GetBoundObjects(");
+    expect(runtime).toContain("TransformOrigin");
   });
 });

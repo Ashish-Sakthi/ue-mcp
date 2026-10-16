@@ -626,4 +626,46 @@ namespace UEMCP::SequencerTracks
 		}
 	}
 
+	/** Class and transform of a spawnable's template actor, or null when it has none. */
+	inline TSharedPtr<FJsonObject> DescribeTemplate(const UObject* Template)
+	{
+		if (!Template) return nullptr;
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetStringField(TEXT("class"), Template->GetClass()->GetName());
+		Obj->SetStringField(TEXT("path"), Template->GetPathName());
+		if (const AActor* Actor = Cast<AActor>(Template))
+		{
+			const FTransform T = Actor->GetRootComponent() ? Actor->GetRootComponent()->GetRelativeTransform() : Actor->GetActorTransform();
+			Obj->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(T.GetLocation()));
+			Obj->SetObjectField(TEXT("rotation"), MCPRotatorToJsonObject(T.Rotator()));
+			Obj->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(T.GetScale3D()));
+		}
+		return Obj;
+	}
+
+	/** Spawnables authored as custom bindings (UE 5.5+) carry their template on the binding object. */
+	inline void AppendCustomBindingTemplates(ULevelSequence* Sequence, UMovieScene* MovieScene, TArray<TSharedPtr<FJsonValue>>& Bindings)
+	{
+#if UE_MCP_HAS_5_5_API
+		const FMovieSceneBindingReferences* Refs = Sequence ? Sequence->GetBindingReferences() : nullptr;
+		if (!Refs) return;
+		for (const TSharedPtr<FJsonValue>& Value : Bindings)
+		{
+			TSharedPtr<FJsonObject> Obj = Value->AsObject();
+			FGuid Guid;
+			if (!Obj.IsValid() || !FGuid::Parse(Obj->GetStringField(TEXT("guid")), Guid)) continue;
+			const UMovieSceneCustomBinding* Custom = Refs->GetCustomBinding(Guid, 0);
+			if (!Custom) continue;
+			Obj->SetStringField(TEXT("customBinding"), Custom->GetClass()->GetName());
+			if (const FObjectProperty* Prop = CastField<FObjectProperty>(Custom->GetClass()->FindPropertyByName(TEXT("ActorTemplate"))))
+			{
+				if (TSharedPtr<FJsonObject> Template = DescribeTemplate(Prop->GetObjectPropertyValue_InContainer(Custom)))
+				{
+					Obj->SetObjectField(TEXT("template"), Template);
+					Obj->SetStringField(TEXT("type"), TEXT("spawnable"));
+				}
+			}
+		}
+#endif
+	}
 }

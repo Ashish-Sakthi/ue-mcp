@@ -143,8 +143,8 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		ActorPathParam(),
 		MCPParam::Optional(TEXT("sectionIndex"), EType::Integer, TEXT("Target section index (default 0)")),
 		MCPParam::Required(TEXT("channel"), EType::String, TEXT("Location.X/Y/Z or Rotation.X/Y/Z (also x/y/z, yaw/pitch/roll) on a Transform track; the float channel on Fade or Float")),
-		MCPParam::Required(TEXT("keyframes"), EType::Array, TEXT("Keys to add, as [{seconds, value}]")).Items(EType::Object),
-		MCPParam::Optional(TEXT("interpolation"), EType::String, TEXT("cubic (default) | linear")),
+		MCPParam::Required(TEXT("keyframes"), EType::Array, TEXT("Keys to add, as [{seconds, value, interpolation?}]")).Items(EType::Object),
+		MCPParam::Optional(TEXT("interpolation"), EType::String, TEXT("cubic (default) | linear | constant; a key's own interpolation wins")),
 	});
 
 	// #1407: the section a channel action addresses is a track picked by type
@@ -181,6 +181,25 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("defaultValue"), EType::Any, TEXT("Value the channel holds where it has no keys")),
 		MCPParam::Optional(TEXT("clearDefault"), EType::Boolean, TEXT("Remove the channel's default value")),
 		MCPParam::Optional(TEXT("parameterType"), EType::String, TEXT("scalar | bool | vector | vector2d | color: adds a missing parameter to a parameter section. Inferred from the collection on a Material Parameter Collection track")),
+	});
+	Registry.RegisterHandler(TEXT("remove_sequence_section"), &RemoveSection, {
+		SequencePathParam(TEXT("Level Sequence asset path"), true),
+		MCPParam::Optional(TEXT("trackType"), EType::String, TEXT("Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName")),
+		MCPParam::Optional(TEXT("trackName"), EType::String, TEXT("Track display name; for a Material Parameter Collection track also the collection's name or path")),
+		MCPParam::Optional(TEXT("trackIndex"), EType::Integer, TEXT("Which matching track, when several match (default 0)")),
+		MCPParam::Optional(TEXT("bindingGuid"), EType::String, TEXT("Look in this binding's tracks instead of the root tracks")),
+		MCPParam::Optional(TEXT("bindingName"), EType::String, TEXT("Look in the binding with this name")),
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Required(TEXT("sectionIndex"), EType::Integer, TEXT("Index of the section to remove, as get_sequence_info lists them")),
+	});
+
+	// #1232: runtime players and what each of their bindings resolved to.
+	Registry.RegisterHandler(TEXT("get_sequence_runtime_bindings"), &GetRuntimeBindings, {
+		MCPParam::Optional(TEXT("world"), EType::String, TEXT("auto (default: PIE when running, else editor) | pie | editor")),
+		MCPParam::Optional(TEXT("pieInstance"), EType::Number, TEXT("PIE instance index when several clients run")),
+		MCPParam::Optional(TEXT("sequencePath"), EType::String, TEXT("Report only actors playing this sequence")),
+		MCPParam::Optional(TEXT("actorLabel"), EType::String, TEXT("Report only the LevelSequenceActor with this label or name")),
 	});
 }
 
@@ -339,6 +358,15 @@ TSharedPtr<FJsonValue> FSequencerHandlers::ReadSequenceInfo(const TSharedPtr<FJs
 				TickResolution,
 				DisplayRate);
 
+			// Blend type, activity and row decide how overlapping sections combine (#1232).
+			const FOptionalMovieSceneBlendType Blend = Section->GetBlendType();
+			if (Blend.IsValid())
+			{
+				SObj->SetStringField(TEXT("blendType"), StaticEnum<EMovieSceneBlendType>()->GetNameStringByValue((int64)Blend.Get()));
+			}
+			SObj->SetBoolField(TEXT("isActive"), Section->IsActive());
+			SObj->SetNumberField(TEXT("rowIndex"), Section->GetRowIndex());
+
 			if (UMovieScene3DAttachSection* Attach = Cast<UMovieScene3DAttachSection>(Section))
 			{
 				SObj->SetStringField(TEXT("attachSocket"), Attach->AttachSocketName.ToString());
@@ -455,6 +483,18 @@ TSharedPtr<FJsonValue> FSequencerHandlers::ReadSequenceInfo(const TSharedPtr<FJs
 					ChannelObj->SetNumberField(TEXT("keyCount"), KeyCount);
 					ChannelObj->SetArrayField(TEXT("keyTimes"), KeyTimesArr);
 					ChannelObj->SetBoolField(TEXT("keyTimesTruncated"), bKeyTimesTruncated);
+					// The value a channel holds with no keys, which is what a constant
+					// transform with zero keys evaluates to (#1232).
+					UEMCP::SequencerTracks::FChannelRef DefaultRef;
+					DefaultRef.Channel = Channel;
+					DefaultRef.Kind = UEMCP::SequencerTracks::ChannelKindOf(Entry.GetChannelTypeName());
+					double DefaultValue = 0.0;
+					const bool bHasDefault = UEMCP::SequencerTracks::ReadDefault(DefaultRef, DefaultValue);
+					ChannelObj->SetBoolField(TEXT("hasDefault"), bHasDefault);
+					if (bHasDefault)
+					{
+						ChannelObj->SetField(TEXT("default"), UEMCP::SequencerTracks::KindValue(DefaultRef.Kind, DefaultValue));
+					}
 					ChannelsArr.Add(MakeShared<FJsonValueObject>(ChannelObj));
 				}
 
@@ -556,13 +596,23 @@ TSharedPtr<FJsonValue> FSequencerHandlers::ReadSequenceInfo(const TSharedPtr<FJs
 	{
 		const FMovieScenePossessable& Possessable = MovieScene->GetPossessable(i);
 		AppendBinding(Possessable.GetName(), Possessable.GetGuid(), TEXT("possessable"));
+		if (Possessable.GetParent().IsValid())
+		{
+			BindingsArray.Last()->AsObject()->SetStringField(TEXT("parentGuid"), Possessable.GetParent().ToString());
+		}
 	}
 
 	for (int32 i = 0; i < MovieScene->GetSpawnableCount(); ++i)
 	{
 		const FMovieSceneSpawnable& Spawnable = MovieScene->GetSpawnable(i);
 		AppendBinding(Spawnable.GetName(), Spawnable.GetGuid(), TEXT("spawnable"));
+		// The template's transform is where the spawned actor starts (#1232).
+		if (TSharedPtr<FJsonObject> Template = UEMCP::SequencerTracks::DescribeTemplate(Spawnable.GetObjectTemplate()))
+		{
+			BindingsArray.Last()->AsObject()->SetObjectField(TEXT("template"), Template);
+		}
 	}
+	UEMCP::SequencerTracks::AppendCustomBindingTemplates(Sequence, MovieScene, BindingsArray);
 	Result->SetArrayField(TEXT("bindings"), BindingsArray);
 	Result->SetNumberField(TEXT("bindingCount"), BindingsArray.Num());
 
@@ -1247,9 +1297,20 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddSection(const TSharedPtr<FJsonObje
 		if (!ResolveActorBinding(Sequence, MovieScene, CameraActor, CamGuid, Err)) return MCPError(Err);
 	}
 
-	UMovieSceneSection* Section = Track->CreateNewSection();
-	if (!Section) return MCPError(TEXT("Failed to create section"));
-	Track->AddSection(*Section);
+	// A track that arrives with a section of its own gets that section rather
+	// than a second, overlapping one (#1232).
+	UMovieSceneSection* Section = nullptr;
+	const bool bReusedDefaultSection = bTrackCreated && Track->GetAllSections().Num() == 1;
+	if (bReusedDefaultSection)
+	{
+		Section = Track->GetAllSections()[0];
+	}
+	else
+	{
+		Section = Track->CreateNewSection();
+		if (!Section) return MCPError(TEXT("Failed to create section"));
+		Track->AddSection(*Section);
+	}
 
 	const FFrameRate Tick = MovieScene->GetTickResolution();
 	if (bHasStart || bHasEnd)
@@ -1260,7 +1321,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddSection(const TSharedPtr<FJsonObje
 	}
 
 	// CameraCut: bind to the camera actor's possessable resolved above.
-	if (!CameraActorLabel.IsEmpty())
+	if (CamGuid.IsValid())
 	{
 		if (UMovieSceneCameraCutSection* CutSection = Cast<UMovieSceneCameraCutSection>(Section))
 		{
@@ -1288,17 +1349,23 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddSection(const TSharedPtr<FJsonObje
 	MCPSetCreated(Result);
 	Result->SetStringField(TEXT("sequencePath"), Path);
 	Result->SetStringField(TEXT("trackType"), TrackType);
-	if (!ActorLabel.IsEmpty()) Result->SetStringField(TEXT("bindingGuid"), BindingGuid.ToString());
+	if (BindingGuid.IsValid()) Result->SetStringField(TEXT("bindingGuid"), BindingGuid.ToString());
 	Result->SetNumberField(TEXT("sectionIndex"), SectionIndex);
+	Result->SetNumberField(TEXT("sectionCount"), Track->GetAllSections().Num());
+	Result->SetBoolField(TEXT("trackCreated"), bTrackCreated);
+	Result->SetBoolField(TEXT("reusedDefaultSection"), bReusedDefaultSection);
 	Result->SetArrayField(TEXT("channels"), ChannelNames);
+	TSharedPtr<FJsonObject> RangeObj = MakeShared<FJsonObject>();
+	UEMCP::SequencerInfo::SetTimingRangeFields(*RangeObj, Section->GetRange(), Tick, MovieScene->GetDisplayRate());
+	Result->SetObjectField(TEXT("range"), RangeObj);
 
 	// Same reason as add_sequence_track: nothing in the bridge removes a
 	// MovieScene section, a track, or a possessable binding, and this call can
 	// create all three. There is no method to name, so none is named.
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
-		TEXT("No action removes a MovieScene section, and this call also creates the track and the actor binding when they were absent. ")
-		TEXT("Nothing can take any of the three back out, so no rollback is offered. editor(get_sequence_info) reports what the sequence holds."));
+		TEXT("editor(remove_sequence_section) removes the section by sectionIndex, but this call can also create the track and the actor binding, ")
+		TEXT("and nothing removes those, so no automatic rollback is offered. editor(get_sequence_info) reports what the sequence holds."));
 	return MCPResult(Result);
 }
 
@@ -1322,9 +1389,23 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetKeyframes(const TSharedPtr<FJsonOb
 	const FString ActorPath = OptionalString(Params, TEXT("actorPath"));
 	int32 SectionIndex = 0;
 	TryGetNumberParam(Params, TEXT("sectionIndex"), SectionIndex);
-	const bool bLinear = OptionalString(Params, TEXT("interpolation"), TEXT("cubic")).Equals(TEXT("linear"), ESearchCase::IgnoreCase);
+	const FString InterpText = OptionalString(Params, TEXT("interpolation"), TEXT("cubic"));
 
 	if (auto PieErr = MCPRefuseDuringPlayInEditor(TEXT("set_sequence_keyframes"))) return PieErr;
+
+	// cubic | linear | constant, per call and overridable per key (#1232).
+	ERichCurveInterpMode DefaultInterp = RCIM_Cubic;
+	if (!UEMCP::SequencerTracks::ParseInterp(InterpText, DefaultInterp))
+	{
+		return MCPError(FString::Printf(TEXT("Unknown interpolation '%s'. Use cubic, linear or constant."), *InterpText));
+	}
+	auto KeyInterp = [DefaultInterp](const TSharedPtr<FJsonObject>& Kf)
+	{
+		ERichCurveInterpMode Mode = DefaultInterp;
+		FString PerKey;
+		if (Kf->TryGetStringField(TEXT("interpolation"), PerKey)) UEMCP::SequencerTracks::ParseInterp(PerKey, Mode);
+		return Mode;
+	};
 
 	TSharedPtr<FJsonValue> LoadErr;
 	ULevelSequence* Sequence = UEMCP::SequencerTracks::LoadSequence(Path, bHasPath, LoadErr);
@@ -1440,7 +1521,9 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetKeyframes(const TSharedPtr<FJsonOb
 					++DuplicateFrameWrites;
 				}
 
-				if (bLinear) DoubleChannels[i]->AddLinearKey(Frame, Val);
+				const ERichCurveInterpMode Mode = KeyInterp(*Kf);
+				if (Mode == RCIM_Constant) DoubleChannels[i]->AddConstantKey(Frame, Val);
+				else if (Mode == RCIM_Linear) DoubleChannels[i]->AddLinearKey(Frame, Val);
 				else DoubleChannels[i]->AddCubicKey(Frame, Val);
 				++KeysAdded;
 			}
@@ -1495,7 +1578,9 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetKeyframes(const TSharedPtr<FJsonOb
 					++DuplicateFrameWrites;
 				}
 
-				if (bLinear) FloatChannels[ChosenIdx]->AddLinearKey(Frame, (float)Val);
+				const ERichCurveInterpMode Mode = KeyInterp(*Kf);
+				if (Mode == RCIM_Constant) FloatChannels[ChosenIdx]->AddConstantKey(Frame, (float)Val);
+				else if (Mode == RCIM_Linear) FloatChannels[ChosenIdx]->AddLinearKey(Frame, (float)Val);
 				else FloatChannels[ChosenIdx]->AddCubicKey(Frame, (float)Val);
 				++KeysAdded;
 			}
@@ -1540,24 +1625,24 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetKeyframes(const TSharedPtr<FJsonOb
 		Payload->SetNumberField(TEXT("sectionIndex"), SectionIndex);
 		if (!ActorLabel.IsEmpty()) Payload->SetStringField(TEXT("actorLabel"), ActorLabel);
 		if (!ActorPath.IsEmpty()) Payload->SetStringField(TEXT("actorPath"), ActorPath);
-		Payload->SetStringField(TEXT("interpolation"), bLinear ? TEXT("linear") : TEXT("cubic"));
+		Payload->SetStringField(TEXT("interpolation"), UEMCP::SequencerTracks::InterpName(DefaultInterp));
 		Payload->SetArrayField(TEXT("keyframes"), OverwrittenKeys);
 		MCPSetRollback(Result, TEXT("set_sequence_keyframes"), Payload);
 		Result->SetBoolField(TEXT("rollbackLossy"), true);
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
 			TEXT("The rollback writes the %d previous key value(s) back over the frames this call replaced. It does NOT remove the %d key(s) ")
-			TEXT("this call created on frames that had none - no action removes a key from a Level Sequence channel - and it re-adds every ")
+			TEXT("this call created on frames that had none (editor(set_sequence_channel_keys) with clearExisting rewrites a whole channel), and it re-adds every ")
 			TEXT("restored key with '%s' ")
 			TEXT("interpolation rather than the tangents each one originally carried."),
-			OverwrittenKeys.Num(), NewKeyFrames, bLinear ? TEXT("linear") : TEXT("cubic")));
+			OverwrittenKeys.Num(), NewKeyFrames, UEMCP::SequencerTracks::InterpName(DefaultInterp)));
 	}
 	else
 	{
 		Result->SetBoolField(TEXT("rollbackPossible"), false);
 		Result->SetStringField(TEXT("rollbackNote"), FString::Printf(
-			TEXT("Every one of the %d key(s) this call wrote landed on a frame that had none, so there is no previous value to restore, and ")
-			TEXT("no action removes a key from a Level Sequence channel. editor(get_sequence_info) with includeSectionDetails reports the key ")
-			TEXT("times a channel holds."),
+			TEXT("Every one of the %d key(s) this call wrote landed on a frame that had none, so there is no previous value to restore. ")
+			TEXT("editor(set_sequence_channel_keys) rewrites a whole channel and returns its own rollback; editor(get_sequence_channel_keys) ")
+			TEXT("reports the keys a channel holds."),
 			NewKeyFrames));
 	}
 	return MCPResult(Result);

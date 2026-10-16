@@ -23,7 +23,10 @@ private:
 	static TSharedPtr<FJsonValue> SetPlaybackRange(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> AddSection(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetKeyframes(const TSharedPtr<FJsonObject>& Params);
-	// #1407: channel keys on any section (SequencerHandlers_Channels.cpp).
+	// #1407/#1232: channel keys on any section, and section removal (SequencerHandlers_Channels.cpp).
 	static TSharedPtr<FJsonValue> GetChannelKeys(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetChannelKeys(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> RemoveSection(const TSharedPtr<FJsonObject>& Params);
+	// #1232: runtime players and their bindings (SequencerHandlers_Bindings.cpp).
+	static TSharedPtr<FJsonValue> GetRuntimeBindings(const TSharedPtr<FJsonObject>& Params);
 };
