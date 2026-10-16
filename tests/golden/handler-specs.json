@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1133,
+  "handlerCount": 1136,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -580,6 +580,29 @@
             "fields",
             "data"
           ]
+        }
+      ]
+    },
+    "add_effect_component": {
+      "category": "gas",
+      "params": [
+        {
+          "name": "effectPath",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffect Blueprint asset path"
+        },
+        {
+          "name": "componentClass",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffectComponent class: a name such as TargetTagsGameplayEffectComponent, or a class path"
+        },
+        {
+          "name": "properties",
+          "type": "object",
+          "required": false,
+          "description": "Property values to write onto the component, keyed by property name"
         }
       ]
     },
@@ -10500,7 +10523,13 @@
           "name": "durationPolicy",
           "type": "string",
           "required": false,
-          "description": "Echoed back as durationPolicy (default Instant); it is not written onto the effect"
+          "description": "Instant (default) | Infinite | HasDuration, written onto the effect's class defaults"
+        },
+        {
+          "name": "durationMagnitude",
+          "type": "number",
+          "required": false,
+          "description": "Duration in seconds; only with durationPolicy HasDuration"
         }
       ],
       "contractExempt": "Creates, compiles and saves a Blueprint under the contract values; nothing it reads fails first"
@@ -27441,6 +27470,23 @@
         }
       ]
     },
+    "remove_effect_component": {
+      "category": "gas",
+      "params": [
+        {
+          "name": "effectPath",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffect Blueprint asset path"
+        },
+        {
+          "name": "componentClass",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffectComponent class to remove: a name such as TargetTagsGameplayEffectComponent, or a class path"
+        }
+      ]
+    },
     "remove_effect_cue": {
       "category": "gas",
       "params": [
@@ -33003,6 +33049,31 @@
           "type": "boolean",
           "required": false,
           "description": "Target every actor"
+        }
+      ]
+    },
+    "set_effect_granted_tags": {
+      "category": "gas",
+      "params": [
+        {
+          "name": "effectPath",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffect Blueprint asset path"
+        },
+        {
+          "name": "tags",
+          "type": "array",
+          "required": true,
+          "description": "Registered tags the effect grants its target, written whole",
+          "items": "string"
+        },
+        {
+          "name": "removedTags",
+          "type": "array",
+          "required": false,
+          "description": "Inherited tags to drop from a parent effect's grants, written whole",
+          "items": "string"
         }
       ]
     },

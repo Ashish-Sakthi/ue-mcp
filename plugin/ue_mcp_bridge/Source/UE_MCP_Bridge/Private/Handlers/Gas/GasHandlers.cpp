@@ -97,8 +97,23 @@ void FGasHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 
 	Registry.RegisterHandler(TEXT("create_gameplay_effect"), &CreateGameplayEffect, {
 		BlueprintName(), BlueprintFolder(TEXT("Content folder (default /Game/GAS/Effects)")), BlueprintOnConflict(),
-		MCPParam::Optional(TEXT("durationPolicy"), EType::String, TEXT("Echoed back as durationPolicy (default Instant); it is not written onto the effect")),
+		MCPParam::Optional(TEXT("durationPolicy"), EType::String, TEXT("Instant (default) | Infinite | HasDuration, written onto the effect's class defaults")),
+		MCPParam::Optional(TEXT("durationMagnitude"), EType::Number, TEXT("Duration in seconds; only with durationPolicy HasDuration")),
 	}, CreatesBlueprint);
+	Registry.RegisterHandler(TEXT("add_effect_component"), &AddEffectComponent, {
+		MCPParam::Required(TEXT("effectPath"), EType::String, TEXT("GameplayEffect Blueprint asset path")),
+		MCPParam::Required(TEXT("componentClass"), EType::String, TEXT("GameplayEffectComponent class: a name such as TargetTagsGameplayEffectComponent, or a class path")),
+		MCPParam::Optional(TEXT("properties"), EType::Object, TEXT("Property values to write onto the component, keyed by property name")),
+	});
+	Registry.RegisterHandler(TEXT("remove_effect_component"), &RemoveEffectComponent, {
+		MCPParam::Required(TEXT("effectPath"), EType::String, TEXT("GameplayEffect Blueprint asset path")),
+		MCPParam::Required(TEXT("componentClass"), EType::String, TEXT("GameplayEffectComponent class to remove: a name such as TargetTagsGameplayEffectComponent, or a class path")),
+	});
+	Registry.RegisterHandler(TEXT("set_effect_granted_tags"), &SetEffectGrantedTags, {
+		MCPParam::Required(TEXT("effectPath"), EType::String, TEXT("GameplayEffect Blueprint asset path")),
+		MCPParam::Required(TEXT("tags"), EType::Array, TEXT("Registered tags the effect grants its target, written whole")).Items(EType::String),
+		MCPParam::Optional(TEXT("removedTags"), EType::Array, TEXT("Inherited tags to drop from a parent effect's grants, written whole")).Items(EType::String),
+	});
 	Registry.RegisterHandler(TEXT("get_gas_info"), &GetGasInfo, {
 		MCPParam::Required(TEXT("blueprintPath"), EType::String, TEXT("Blueprint asset path to inspect")),
 	});
@@ -317,7 +332,8 @@ TSharedPtr<FJsonValue> FGasHandlers::CreateGasBlueprint(
 	const FString& DefaultPackagePath,
 	UClass* ParentClass,
 	const FString& FriendlyType,
-	TFunction<void(TSharedPtr<FJsonObject>&)> ExtraResultFields)
+	TFunction<void(TSharedPtr<FJsonObject>&)> ExtraResultFields,
+	TFunction<void(UBlueprint*)> ConfigureBeforeSave)
 {
 	FString Name;
 	if (auto Err = RequireString(Params, TEXT("name"), Name)) return Err;
@@ -339,6 +355,7 @@ TSharedPtr<FJsonValue> FGasHandlers::CreateGasBlueprint(
 
 	NewBlueprint->ParentClass = ParentClass;
 	FKismetEditorUtilities::CompileBlueprint(NewBlueprint);
+	if (ConfigureBeforeSave) ConfigureBeforeSave(NewBlueprint);
 
 	FString SaveError;
 	const bool bSaved = SaveAssetPackageChecked(NewBlueprint, SaveError);
@@ -358,14 +375,48 @@ TSharedPtr<FJsonValue> FGasHandlers::CreateGameplayEffect(const TSharedPtr<FJson
 {
 	UE_LOG(LogMCPBridge, Log, TEXT("[UE-MCP] CreateGameplayEffect called"));
 
-	const FString DurationPolicy = OptionalString(Params, TEXT("durationPolicy"), TEXT("Instant"));
-	UClass* Cls = FindObject<UClass>(nullptr, TEXT("/Script/GameplayAbilities.GameplayEffect"));
+	const FString DurationPolicyName = OptionalString(Params, TEXT("durationPolicy"), TEXT("Instant"));
+	const bool bHasMagnitude = HasParam(Params, TEXT("durationMagnitude"));
+	const double DurationMagnitude = OptionalNumber(Params, TEXT("durationMagnitude"), 0.0);
 
+	// Written onto the class defaults, which is what an applied effect reads (#1423).
+	EGameplayEffectDurationType Policy = EGameplayEffectDurationType::Instant;
+	if (!ParseDurationPolicy(DurationPolicyName, Policy))
+	{
+		return MCPError(FString::Printf(
+			TEXT("Unknown durationPolicy '%s'. Valid values are Instant, Infinite and HasDuration."), *DurationPolicyName));
+	}
+	if (bHasMagnitude && Policy != EGameplayEffectDurationType::HasDuration)
+	{
+		return MCPError(TEXT("durationMagnitude applies only to durationPolicy HasDuration."));
+	}
+
+	UGameplayEffect* Configured = nullptr;
 	return CreateGasBlueprint(
-		Params, TEXT("/Game/GAS/Effects"), Cls, TEXT("GameplayEffect"),
-		[&DurationPolicy](TSharedPtr<FJsonObject>& R)
+		Params, TEXT("/Game/GAS/Effects"), UGameplayEffect::StaticClass(), TEXT("GameplayEffect"),
+		[&Configured, &DurationPolicyName](TSharedPtr<FJsonObject>& R)
 		{
-			R->SetStringField(TEXT("durationPolicy"), DurationPolicy);
+			// Read back off the saved class defaults rather than echoing the request.
+			R->SetStringField(TEXT("durationPolicy"), Configured ? DurationPolicyToString(Configured->DurationPolicy) : DurationPolicyName);
+			float Seconds = 0.f;
+			if (Configured && Configured->DurationPolicy == EGameplayEffectDurationType::HasDuration
+				&& Configured->DurationMagnitude.GetStaticMagnitudeIfPossible(1.f, Seconds))
+			{
+				R->SetNumberField(TEXT("durationMagnitude"), Seconds);
+			}
+		},
+		[&Configured, Policy, bHasMagnitude, DurationMagnitude](UBlueprint* Blueprint)
+		{
+			UGameplayEffect* GE = Blueprint && Blueprint->GeneratedClass
+				? Cast<UGameplayEffect>(Blueprint->GeneratedClass->GetDefaultObject()) : nullptr;
+			if (!GE) return;
+			GE->DurationPolicy = Policy;
+			if (bHasMagnitude)
+			{
+				GE->DurationMagnitude = FGameplayEffectModifierMagnitude(FScalableFloat(static_cast<float>(DurationMagnitude)));
+			}
+			GE->MarkPackageDirty();
+			Configured = GE;
 		});
 }
 
@@ -428,6 +479,10 @@ TSharedPtr<FJsonValue> FGasHandlers::GetGasInfo(const TSharedPtr<FJsonObject>& P
 	// Check if this is a GameplayEffect subclass
 	UClass* GEClass = FindObject<UClass>(nullptr, TEXT("/Script/GameplayAbilities.GameplayEffect"));
 	Result->SetBoolField(TEXT("isGameplayEffect"), GEClass && Blueprint->GeneratedClass->IsChildOf(GEClass));
+	if (const UGameplayEffect* Effect = Cast<UGameplayEffect>(CDO))
+	{
+		Result->SetObjectField(TEXT("effect"), DescribeEffect(Effect));
+	}
 
 	// Check if this is a GameplayAbility subclass
 	UClass* GAClass = FindObject<UClass>(nullptr, TEXT("/Script/GameplayAbilities.GameplayAbility"));
