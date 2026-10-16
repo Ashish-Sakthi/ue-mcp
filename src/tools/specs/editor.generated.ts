@@ -432,6 +432,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "When the level exists: skip (default) returns it untouched, error refuses"
+      },
+      {
+        "name": "worldPartition",
+        "type": "boolean",
+        "required": false,
+        "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
       }
     ],
     "contractExempt": "creates and opens a level"
@@ -758,7 +764,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "maxLines",
         "type": "integer",
         "required": false,
-        "description": "How far back into the ring buffer to read (default 100)"
+        "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
       },
       {
         "name": "filter",
@@ -1421,6 +1427,18 @@ export const handlerSpecs: HandlerSpecs = {
         "aliases": [
           "path"
         ]
+      },
+      {
+        "name": "saveFirst",
+        "type": "boolean",
+        "required": false,
+        "description": "For a map: save the open map's unsaved packages before switching (default false)"
+      },
+      {
+        "name": "discardUnsaved",
+        "type": "boolean",
+        "required": false,
+        "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
       }
     ]
   },
@@ -2880,7 +2898,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   configure_pie: "Params: numClients?, netMode?, runUnderOneProcess?, launchSeparateServer?, newWindowWidth?, newWindowHeight?",
   cook_content: "Params: platform?",
   create_level_sequence: "Params: name, packagePath?, onConflict?",
-  create_new_level: "Params: levelPath, templateLevel?, onConflict?",
+  create_new_level: "Params: levelPath, templateLevel?, onConflict?, worldPartition?",
   describe_object: "Params: objectPath (or path, or assetPath), includeProperties?, includeValues?, propertyNames?",
   end_editor_transaction: "Params: none",
   end_profile_region: "Params: regionName",
@@ -2924,7 +2942,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   list_pie_instances: "Params: none",
   list_trace_channels: "Params: filter?, enabledOnly?",
   list_windows: "Params: windowId?, maxTexts?, maxTextChars?, maxButtons?",
-  open_asset: "Params: assetPath (or path)",
+  open_asset: "Params: assetPath (or path), saveFirst?, discardUnsaved?",
   open_settings: "Params: container?, category?, section?",
   open_tab: "Params: tabId",
   pause_insights_trace: "Params: paused?",
@@ -3022,6 +3040,7 @@ export const schema: Record<string, z.ZodType> = {
   direction: z.string().optional().describe("undo (default) | redo"),
   directory: z.string().optional().describe("Package path validated recursively (default /Game/). Not with assetPath or assetPaths"),
   disable: z.union([z.array(z.string()), z.string()]).optional().describe("Channels to turn off, as an array or a comma-separated string"),
+  discardUnsaved: z.boolean().optional().describe("For a map: switch even though the open map has unsaved changes, discarding them (default false)"),
   dryRun: z.boolean().optional().describe("Report the targets without touching them (default TRUE; pass false to apply)"),
   enable: z.union([z.array(z.string()), z.string()]).optional().describe("Channels to turn on, as an array or a comma-separated string"),
   enabled: z.boolean().optional().describe("Hide editor-only overlays (default true); false shows them again (set_game_view). Realtime update on every level viewport (default true) (set_realtime)"),
@@ -3083,7 +3102,7 @@ export const schema: Record<string, z.ZodType> = {
   maxDistance: z.number().optional().describe("Max ray length in cm (default 200000)"),
   maxEntries: z.number().optional().describe("Cap on entries returned (default 50)"),
   maxFrames: z.number().optional().describe("Refuse a range with more frames than this (default 300, max 5000)"),
-  maxLines: z.number().int().optional().describe("Messages to return (default 200) (get_message_log). How far back into the ring buffer to read (default 100) (get_output_log)"),
+  maxLines: z.number().int().optional().describe("Messages to return (default 200) (get_message_log). How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given) (get_output_log)"),
   maxLogChars: z.number().optional().describe("Keep only the last N characters of logged output"),
   maxResults: z.number().int().optional().describe("Cap on matching lines collected out of the 4096-line ring buffer (default 4096)"),
   maxTargets: z.number().int().optional().describe("Upper bound on resolved actor and component targets; a larger set is refused rather than truncated"),
@@ -3136,6 +3155,7 @@ export const schema: Record<string, z.ZodType> = {
   rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Camera rotation (capture_scene_png, set_viewport_camera). Fixed camera rotation (render_sequence_frames). Destination rotation; omit to keep the current one (teleport_runtime_actor)"),
   runUnderOneProcess: z.boolean().optional().describe("Run every client in the editor process"),
   save: z.boolean().optional().describe("Save the package to disk after the write (default true; false leaves it dirty)"),
+  saveFirst: z.boolean().optional().describe("For a map: save the open map's unsaved packages before switching (default false)"),
   seconds: z.number().optional().describe("Playhead position in seconds. Pass exactly one of seconds and frame"),
   section: z.string().optional().describe("Settings section, e.g. Physics, or a combined Engine.Physics"),
   sectionIndex: z.number().int().optional().describe("Target section index (default 0)"),
@@ -3169,6 +3189,7 @@ export const schema: Record<string, z.ZodType> = {
   windowId: z.number().int().optional().describe("Window to close, by the id list_windows reported (close_window). Describe only this window, by the id list_windows or list_dialogs reported (list_windows). Window to press a button on, by the id list_windows reported (press_window_button)"),
   world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
   worldContextParam: z.string().optional().describe("UObject* parameter to fill with the selected world; detected from WorldContext metadata and for WorldContextObject when omitted"),
+  worldPartition: z.boolean().optional().describe("Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"),
   worldPath: z.string().optional().describe("Exact PIE UWorld path or name to capture"),
   x: z.number().optional().describe("Viewport pixel X"),
   y: z.number().optional().describe("Viewport pixel Y"),

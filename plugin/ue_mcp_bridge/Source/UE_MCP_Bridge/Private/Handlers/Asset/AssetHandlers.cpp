@@ -452,7 +452,13 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("Delete referenced assets too, closing open editors (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("bulk_rename_assets"), &BulkRename, {
-		MCPParam::Required(TEXT("renames"), EType::Array, TEXT("Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}")).Items(EType::Object),
+		MCPParam::Required(TEXT("renames"), EType::Array, TEXT("Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused")).Items(EType::Object).WithFields({
+			MCPParam::OptionalField(TEXT("sourcePath"), EType::String, TEXT("Asset to move, with destinationPath or with newPackagePath + newName")),
+			MCPParam::OptionalField(TEXT("destinationPath"), EType::String, TEXT("Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused")),
+			MCPParam::OptionalField(TEXT("assetPath"), EType::String, TEXT("Asset to rename in place, with newName")),
+			MCPParam::OptionalField(TEXT("newPackagePath"), EType::String, TEXT("Destination folder, with sourcePath and newName")),
+			MCPParam::OptionalField(TEXT("newName"), EType::String, TEXT("New asset name, with assetPath or with sourcePath + newPackagePath")),
+		}),
 	});
 	// #908: bounded redirector clean-up after a move. Timeout raised because a
 	// fix-up loads and resaves every referencing package.
@@ -613,7 +619,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("factoryClass"), EType::String, TEXT("UFactory subclass by name or /Script path (default: picked by extension)")),
 		MCPParam::Optional(TEXT("factoryProperties"), EType::Object, TEXT("Factory properties by UPROPERTY name or dotted path, set before the import")),
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the imported assets (default false)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each imported asset and report saved per asset (default true; false leaves them dirty)")),
 		MCPParam::Optional(TEXT("automated"), EType::Boolean, TEXT("Suppress interactive dialogs (default true)")),
 	});
 
@@ -3036,6 +3042,63 @@ TSharedPtr<FJsonValue> FAssetHandlers::BulkRename(const TSharedPtr<FJsonObject>&
 	if (!TryGetArrayParam(Params, TEXT("renames"), Items) || !Items)
 	{
 		return MCPError(TEXT("Missing 'renames' array parameter"));
+	}
+
+	// Every item must be exactly one documented shape; an unknown or mixed key used to rename to the wrong path (#1291).
+	{
+		IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+		TArray<TSharedPtr<FJsonValue>> Problems;
+		for (int32 Index = 0; Index < Items->Num(); ++Index)
+		{
+			const TSharedPtr<FJsonObject>* EntryPtr = nullptr;
+			FString Problem;
+			if (!(*Items)[Index].IsValid() || !(*Items)[Index]->TryGetObject(EntryPtr) || !EntryPtr || !EntryPtr->IsValid())
+			{
+				Problem = TEXT("not an object");
+			}
+			else
+			{
+				TSet<FString> Keys;
+				for (const auto& Field : (*EntryPtr)->Values)
+				{
+					const TPair<FString, TSharedPtr<FJsonValue>> Pair(Field.Key, Field.Value);
+					Keys.Add(Pair.Key);
+				}
+				auto IsShape = [&Keys](std::initializer_list<const TCHAR*> Shape)
+				{
+					if (Keys.Num() != (int32)Shape.size()) return false;
+					for (const TCHAR* Key : Shape) if (!Keys.Contains(Key)) return false;
+					return true;
+				};
+				FString Destination;
+				if (!IsShape({ TEXT("sourcePath"), TEXT("destinationPath") })
+					&& !IsShape({ TEXT("assetPath"), TEXT("newName") })
+					&& !IsShape({ TEXT("sourcePath"), TEXT("newPackagePath"), TEXT("newName") }))
+				{
+					Problem = FString::Printf(TEXT("keys {%s} are not one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}"),
+						*FString::Join(Keys.Array(), TEXT(", ")));
+				}
+				else if ((*EntryPtr)->TryGetStringField(TEXT("destinationPath"), Destination)
+					&& !Destination.Contains(TEXT(".")) && Registry.PathExists(FName(*Destination)))
+				{
+					Problem = FString::Printf(TEXT("destinationPath '%s' names an existing folder; give the full package path including the asset name"), *Destination);
+				}
+			}
+			if (!Problem.IsEmpty())
+			{
+				TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+				Row->SetNumberField(TEXT("index"), Index);
+				Row->SetStringField(TEXT("problem"), Problem);
+				Problems.Add(MakeShared<FJsonValueObject>(Row));
+			}
+		}
+		if (Problems.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Refusal = MCPErrorObject(FString::Printf(
+				TEXT("%d rename item(s) do not match a rename shape. Nothing was renamed."), Problems.Num()));
+			Refusal->SetArrayField(TEXT("invalidItems"), Problems);
+			return MCPResult(Refusal);
+		}
 	}
 
 	TArray<FAssetRenameData> BatchRenames;

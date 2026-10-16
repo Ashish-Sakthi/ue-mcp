@@ -6608,8 +6608,40 @@
           "name": "renames",
           "type": "array",
           "required": true,
-          "description": "Rename descriptors: {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}",
-          "items": "object"
+          "description": "Rename descriptors, each exactly one of {sourcePath, destinationPath}, {assetPath, newName} or {sourcePath, newPackagePath, newName}; any other key is refused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourcePath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to move, with destinationPath or with newPackagePath + newName"
+            },
+            {
+              "name": "destinationPath",
+              "type": "string",
+              "required": false,
+              "description": "Full destination package path including the asset name, e.g. /Game/Props/SM_Rock; a path naming an existing folder is refused"
+            },
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": false,
+              "description": "Asset to rename in place, with newName"
+            },
+            {
+              "name": "newPackagePath",
+              "type": "string",
+              "required": false,
+              "description": "Destination folder, with sourcePath and newName"
+            },
+            {
+              "name": "newName",
+              "type": "string",
+              "required": false,
+              "description": "New asset name, with assetPath or with sourcePath + newPackagePath"
+            }
+          ]
         }
       ]
     },
@@ -10479,6 +10511,12 @@
           "type": "string",
           "required": false,
           "description": "When the level exists: skip (default) returns it untouched, error refuses"
+        },
+        {
+          "name": "worldPartition",
+          "type": "boolean",
+          "required": false,
+          "description": "Create a blank World Partition level with one file per actor (default false); a templateLevel decides this itself"
         }
       ],
       "contractExempt": "creates and opens a level"
@@ -16183,7 +16221,7 @@
           "name": "maxLines",
           "type": "integer",
           "required": false,
-          "description": "How far back into the ring buffer to read (default 100)"
+          "description": "How far back into the ring buffer to read (default 100, or the whole 4096-line buffer when filter or category is given)"
         },
         {
           "name": "filter",
@@ -17301,7 +17339,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported assets (default false)"
+          "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
         },
         {
           "name": "automated",
@@ -20444,6 +20482,21 @@
           "type": "string",
           "required": true,
           "description": "Map package to open"
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the open map and its dirty external actor packages before switching (default false)",
+          "aliases": [
+            "saveCurrent"
+          ]
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "Switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ],
       "contractExempt": "Ends any play session, collects garbage and swaps the open map before the contract path can fail"
@@ -21898,6 +21951,18 @@
           "aliases": [
             "path"
           ]
+        },
+        {
+          "name": "saveFirst",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: save the open map's unsaved packages before switching (default false)"
+        },
+        {
+          "name": "discardUnsaved",
+          "type": "boolean",
+          "required": false,
+          "description": "For a map: switch even though the open map has unsaved changes, discarding them (default false)"
         }
       ]
     },
@@ -22210,6 +22275,19 @@
               "type": "string",
               "required": false,
               "description": "Actor label"
+            },
+            {
+              "name": "tags",
+              "type": "array",
+              "required": false,
+              "description": "Actor tags to add",
+              "items": "string"
+            },
+            {
+              "name": "parentLabel",
+              "type": "string",
+              "required": false,
+              "description": "Label of the actor to attach to, keeping world transform; may name an actor later in the batch"
             }
           ]
         }
