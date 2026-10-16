@@ -145,6 +145,9 @@ private:
 	static TSharedPtr<FJsonValue> PieStartIgnoringBlueprintErrors(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> CaptureScreenshot(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetViewportCamera(const TSharedPtr<FJsonObject>& Params);
+	// The actor a level viewport is piloting or cinematically locked to, or
+	// nullptr. A locked view snaps back to that actor on the next tick (#1361).
+	static TSharedPtr<FJsonObject> DescribeViewportCameraLock(class FLevelEditorViewportClient* ViewportClient);
 	static TSharedPtr<FJsonValue> Undo(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> Redo(const TSharedPtr<FJsonObject>& Params);
 

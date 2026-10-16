@@ -28247,7 +28247,19 @@
           "name": "entryPoint",
           "type": "string",
           "required": false,
-          "description": "Function in the file to call after loading it under a run name other than __main__, so its main guard does not fire; its return value comes back as result"
+          "description": "Function in the file to call after loading it under runName (default ue_mcp_entry, so its main guard does not fire); its return value comes back as result"
+        },
+        {
+          "name": "runName",
+          "type": "string",
+          "required": false,
+          "description": "Module name to run the file under through runpy, with sys.argv set to the file plus args. __main__ makes an if __name__ == '__main__' guard fire"
+        },
+        {
+          "name": "asMain",
+          "type": "boolean",
+          "required": false,
+          "description": "Shorthand for runName __main__ (default false)"
         },
         {
           "name": "args",
