@@ -8,7 +8,7 @@
  * to send rather than dispatched.
  */
 import { describe, expect, it, vi } from "vitest";
-import { resolveEpicToolInput, type EpicInputSchema } from "../../src/surface/epic-input.js";
+import { expandRefPath, resolveEpicToolInput, type EpicInputSchema } from "../../src/surface/epic-input.js";
 import { widgetTool } from "../../src/tools/widget.js";
 import type { ToolContext } from "../../src/core/types.js";
 
@@ -42,26 +42,38 @@ const ADD_WIDGET: EpicInputSchema = {
 };
 
 const ASSET = "/Game/_Project/UI/Computer/Core/WBP_ComputerTaskbar";
+/** The object path a reference is sent as: a bare package path is expanded (#1289). */
+const OBJECT = `${ASSET}.WBP_ComputerTaskbar`;
 
 describe("wrapped engine tool input envelope", () => {
   it("fills the tool's single asset reference from the canonical assetPath", () => {
     expect(resolveEpicToolInput(GET_WIDGETS_NAME, GET_WIDGETS, { assetPath: ASSET })).toEqual({
-      input: { widgetBlueprint: { refPath: ASSET } },
+      input: { widgetBlueprint: { refPath: OBJECT } },
     });
   });
 
   it("accepts the asset reference spelled as a plain string or as JSON", () => {
     expect(resolveEpicToolInput(GET_WIDGETS_NAME, GET_WIDGETS, { widgetBlueprint: ASSET })).toEqual({
-      input: { widgetBlueprint: { refPath: ASSET } },
+      input: { widgetBlueprint: { refPath: OBJECT } },
     });
     expect(resolveEpicToolInput(GET_WIDGETS_NAME, GET_WIDGETS, { widgetBlueprint: JSON.stringify({ refPath: ASSET }) })).toEqual({
-      input: { widgetBlueprint: { refPath: ASSET } },
+      input: { widgetBlueprint: { refPath: OBJECT } },
     });
   });
 
-  it("leaves an explicit input untouched and lets it win over a top-level value", () => {
-    const explicit = { widgetBlueprint: { refPath: "/Game/UI/WBP_Explicit" } };
+  it("lets an explicit input win over a top-level value", () => {
+    const explicit = { widgetBlueprint: { refPath: "/Game/UI/WBP_Explicit.WBP_Explicit" } };
     expect(resolveEpicToolInput(GET_WIDGETS_NAME, GET_WIDGETS, { input: explicit, assetPath: ASSET })).toEqual({ input: explicit });
+  });
+
+  it("expands a bare package path on every reference, flat or in input (#1289)", () => {
+    expect(resolveEpicToolInput(GET_WIDGETS_NAME, GET_WIDGETS, { input: { widgetBlueprint: { refPath: "/Game/UI/WBP_A" } } }))
+      .toEqual({ input: { widgetBlueprint: { refPath: "/Game/UI/WBP_A.WBP_A" } } });
+    expect(expandRefPath("/Game/PCG/SG_Sites")).toBe("/Game/PCG/SG_Sites.SG_Sites");
+    expect(expandRefPath("/Game/PCG/SG_Sites.SG_Sites")).toBe("/Game/PCG/SG_Sites.SG_Sites");
+    expect(expandRefPath("/Game/Maps/L.L:PersistentLevel.Actor_1")).toBe("/Game/Maps/L.L:PersistentLevel.Actor_1");
+    expect(expandRefPath("/Script/UMG.Button")).toBe("/Script/UMG.Button");
+    expect(expandRefPath("Actor_1")).toBe("Actor_1");
   });
 
   it("passes a raw inputJson straight through", () => {
@@ -79,7 +91,7 @@ describe("wrapped engine tool input envelope", () => {
     });
     expect(resolved).toEqual({
       input: {
-        widgetBlueprint: { refPath: ASSET },
+        widgetBlueprint: { refPath: OBJECT },
         parentWidget: "HorizontalBox_59",
         widgetClass: "/Script/UMG.Button",
         widgetDisplayName: "StartButton",
@@ -118,7 +130,7 @@ describe("wrapped engine tool input envelope", () => {
       {
         toolset: "UMGToolSet.UMGToolSet",
         tool: "UMGToolSet.UMGToolSet.GetWidgets",
-        input: { widgetBlueprint: { refPath: ASSET } },
+        input: { widgetBlueprint: { refPath: OBJECT } },
       },
       undefined,
     );
