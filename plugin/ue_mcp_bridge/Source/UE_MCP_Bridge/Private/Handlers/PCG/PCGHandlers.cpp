@@ -791,6 +791,18 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("PCGGraphInstance asset path")).Alias(TEXT("path")),
 		MCPParam::Required(TEXT("overrides"), EType::Object, TEXT("{parameterName: value}; null clears that override")),
 	});
+	// #1309: generated output of any actor's PCG component.
+	Registry.RegisterHandler(TEXT("read_pcg_generated_output"), &ReadGeneratedOutput, {
+		SpecActorLabel, SpecActorPath,
+		MCPParam::Optional(TEXT("componentName"), EType::String, TEXT("Only this PCG component (default: every PCG component on the actor)")),
+		MCPParam::Optional(TEXT("pin"), EType::String, TEXT("Only data on this output pin")),
+		MCPParam::Optional(TEXT("attributes"), EType::Array, TEXT("Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)")).Items(EType::String),
+		MCPParam::Optional(TEXT("offset"), EType::Integer, TEXT("First entry to return (default 0)")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Entries to return per data (default 100, max 10000)")),
+		MCPParam::Optional(TEXT("nodeName"), EType::String, TEXT("Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+)")),
+		MCPParam::Optional(TEXT("graphPath"), EType::String, TEXT("Graph holding nodeName, for a node in a subgraph (default: the component's graph)")),
+		MCPParam::Optional(TEXT("includeLocalComponents"), EType::Boolean, TEXT("Also read a partitioned component's local components (default true)")),
+	}, ActorChoice);
 	// #1318: the graph's own pins, on its input or output node.
 	Registry.RegisterHandler(TEXT("set_pcg_graph_pins"), &SetGraphPins, {
 		GraphPath(),

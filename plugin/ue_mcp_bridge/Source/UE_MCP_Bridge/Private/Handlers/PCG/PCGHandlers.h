@@ -56,6 +56,9 @@ private:
 	static void ExportUserParameterNode(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
 	static bool ImportUserParameterNode(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
 
+	// issue #1309 - the data a component generated, or one node's output under inspection.
+	static TSharedPtr<FJsonValue> ReadGeneratedOutput(const TSharedPtr<FJsonObject>& Params);
+
 	static void ExportSubgraphSettings(const class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node);
 	static bool ImportSubgraphSettings(class UPCGSettings* Settings, const TSharedPtr<FJsonObject>& Node, FString& Error);
 };

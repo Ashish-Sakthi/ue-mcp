@@ -527,6 +527,85 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "read_pcg_generated_output": {
+    "category": "pcg",
+    "params": [
+      {
+        "name": "actorLabel",
+        "type": "string",
+        "required": false,
+        "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+      },
+      {
+        "name": "actorPath",
+        "type": "string",
+        "required": false,
+        "description": "Full actor object path; the unambiguous selector"
+      },
+      {
+        "name": "componentName",
+        "type": "string",
+        "required": false,
+        "description": "Only this PCG component (default: every PCG component on the actor)"
+      },
+      {
+        "name": "pin",
+        "type": "string",
+        "required": false,
+        "description": "Only data on this output pin"
+      },
+      {
+        "name": "attributes",
+        "type": "array",
+        "required": false,
+        "description": "Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)",
+        "items": "string"
+      },
+      {
+        "name": "offset",
+        "type": "integer",
+        "required": false,
+        "description": "First entry to return (default 0)"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "Entries to return per data (default 100, max 10000)"
+      },
+      {
+        "name": "nodeName",
+        "type": "string",
+        "required": false,
+        "description": "Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+)"
+      },
+      {
+        "name": "graphPath",
+        "type": "string",
+        "required": false,
+        "description": "Graph holding nodeName, for a node in a subgraph (default: the component's graph)"
+      },
+      {
+        "name": "includeLocalComponents",
+        "type": "boolean",
+        "required": false,
+        "description": "Also read a partitioned component's local components (default true)"
+      }
+    ],
+    "choices": [
+      {
+        "mode": "exactlyOne",
+        "branches": [
+          [
+            "actorLabel"
+          ],
+          [
+            "actorPath"
+          ]
+        ]
+      }
+    ]
+  },
   "read_pcg_graph": {
     "category": "pcg",
     "params": [
@@ -977,6 +1056,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_pcg_components: "Params: none",
   import_pcg_graph: "Params: assetPath (or path), nodes, connections?, replace?, removeNodes?, removeConnections?",
   list_pcg_graphs: "Params: cursor?, limit?",
+  read_pcg_generated_output: "Params: actorLabel OR actorPath, componentName?, pin?, attributes?, offset?, limit?, nodeName?, graphPath?, includeLocalComponents?",
   read_pcg_graph: "Params: assetPath (or path)",
   read_pcg_node_settings: "Params: assetPath (or path), nodeName",
   remove_pcg_node: "Params: assetPath (or path), nodeName",
@@ -999,27 +1079,32 @@ export const schema: Record<string, z.ZodType> = {
   assetName: z.string().optional().describe("Asset name (default: <LevelName>_PCG)"),
   assetPath: z.string().optional().describe("PCGGraph asset path (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_graph_parameters, set_pcg_graph_pins, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). The PCG data asset's own path (an object path, or an existing asset's package path, updated in place), or else the folder for it (default: the level's folder) (export_level_to_pcg_asset). PCGGraphInstance asset path (set_pcg_graph_instance_overrides)"),
   assetPaths: z.array(z.string()).optional().describe("PCG data assets to re-export from their source levels"),
+  attributes: z.array(z.string()).optional().describe("Selectors to read per entry: $Position, $Density, $Position.Z, MyAttr (default: the point properties and every metadata attribute)"),
+  componentName: z.string().optional().describe("Only this PCG component (default: every PCG component on the actor)"),
   connections: z.array(z.record(z.unknown())).optional().describe("[{from, fromPin?, to, toPin?}]"),
   cursor: z.string().optional().describe("Resume a paged read: pass back the 'nextCursor' from the previous page, unmodified"),
   entries: z.array(z.object({ mesh: z.string().describe("StaticMesh, package or object path; an entry without one is skipped, and one that does not load refuses the call"), weight: z.number().optional().describe("Relative pick weight (default 1), truncated to a whole number") })).optional().describe("Weighted mesh entries"),
   extent: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Half-size of the volume box {x,y,z} before scale (default 500 on each axis)"),
   graphParameters: z.array(z.object({ name: z.string().describe("Parameter name"), type: z.string().optional().describe("bool | int32 | int64 | float | double | name | string | text | vector | vector2d | vector4 | rotator | transform | quat | color | object | class | enum | struct; required for a new parameter, and a different type retypes an existing one"), typeObject: z.string().optional().describe("Class for object/class (default Object), the enum for enum, the struct for struct"), default: z.unknown().optional().describe("Default value, JSON or UE export text") })).optional().describe("Parameters to add or change, by name"),
-  graphPath: z.string().optional().describe("PCGGraph to assign to the volume's component (add_pcg_volume). PCGGraph or PCGGraphInstance the instance runs (create_pcg_graph_instance). PCGGraph to assign (default: re-apply the component's current graph) (toggle_pcg_graph)"),
+  graphPath: z.string().optional().describe("PCGGraph to assign to the volume's component (add_pcg_volume). PCGGraph or PCGGraphInstance the instance runs (create_pcg_graph_instance). Graph holding nodeName, for a node in a subgraph (default: the component's graph) (read_pcg_generated_output). PCGGraph to assign (default: re-apply the component's current graph) (toggle_pcg_graph)"),
+  includeLocalComponents: z.boolean().optional().describe("Also read a partitioned component's local components (default true)"),
   includeSettings: z.boolean().optional().describe("Include per-node editable settings in the response (default true)"),
   label: z.string().optional().describe("Editor label. Also the idempotency key: an existing actor with this label is reported rather than duplicated"),
   levelPath: z.string().optional().describe("Saved level (.umap) to export, package or object path"),
-  limit: z.number().int().optional().describe("Rows to return on this page (default 200, max 2000)"),
+  limit: z.number().int().optional().describe("Rows to return on this page (default 200, max 2000) (list_pcg_graphs). Entries to return per data (default 100, max 10000) (read_pcg_generated_output)"),
   location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("World location {x,y,z} (default origin); wins over transform.location"),
   mode: z.string().optional().describe("append (default: add, or update a pin with the same label) | replace (the pins become exactly this list) | remove (labels only)"),
   name: z.string().optional().describe("Engine name for the node (default: engine-assigned). An existing node of the same class with this name is reported as existed; another class is refused (add_pcg_node). Graph asset name (create_pcg_graph). Graph instance asset name (create_pcg_graph_instance)"),
-  nodeName: z.string().optional().describe("Engine name of the node, as read_graph reports it (read_pcg_node_settings, remove_pcg_node, set_pcg_node_settings, set_static_mesh_spawner_meshes). Engine name of the Subgraph node, as read_graph reports it (set_pcg_subgraph). Engine name of the Subgraph node (set_pcg_subgraph_parameters). Only this node (default: every node in the graph) (unwrap_pcg_instance_nodes)"),
+  nodeName: z.string().optional().describe("Read this node's output from inspection instead of the component's final output; turns inspection on when it is off (UE 5.8+) (read_pcg_generated_output). Engine name of the node, as read_graph reports it (read_pcg_node_settings, remove_pcg_node, set_pcg_node_settings, set_static_mesh_spawner_meshes). Engine name of the Subgraph node, as read_graph reports it (set_pcg_subgraph). Engine name of the Subgraph node (set_pcg_subgraph_parameters). Only this node (default: every node in the graph) (unwrap_pcg_instance_nodes)"),
   nodes: z.array(z.record(z.unknown())).optional().describe("[{name, class, posX?, posY?, settings?, subgraph?, parameter?}]"),
   nodeType: z.string().optional().describe("PCG settings class of the node to add"),
+  offset: z.number().int().optional().describe("First entry to return (default 0)"),
   onConflict: z.string().optional().describe("When the label exists: skip (default, report it) | error (add_pcg_volume). When the graph exists: skip (default, report it) | error (create_pcg_graph). When the asset exists: skip (default, report it) | error (create_pcg_graph_instance)"),
   overrides: z.record(z.unknown()).optional().describe("{parameterName: value} overrides to set on the new instance (create_pcg_graph_instance). {parameterName: value}; null clears that override (set_pcg_graph_instance_overrides)"),
   packagePath: z.string().optional().describe("Folder for the new graph (default /Game/PCG) (create_pcg_graph). Folder for the new instance (default /Game/PCG) (create_pcg_graph_instance)"),
   parameters: z.record(z.unknown()).optional().describe("{parameterName: value}; null clears that override"),
   path: z.string().optional().describe("Alias for assetPath (add_pcg_node, connect_pcg_nodes, disconnect_pcg_nodes, export_pcg_graph, import_pcg_graph, read_pcg_graph, read_pcg_node_settings, remove_pcg_node, set_pcg_graph_instance_overrides, set_pcg_graph_parameters, set_pcg_graph_pins, set_pcg_node_settings, set_pcg_subgraph, set_pcg_subgraph_parameters, set_static_mesh_spawner_meshes, unwrap_pcg_instance_nodes). Alias for packagePath (create_pcg_graph)"),
+  pin: z.string().optional().describe("Only data on this output pin"),
   pins: z.array(z.object({ label: z.string().describe("Pin label; edges are wired by it"), type: z.string().optional().describe("EPCGDataType name: Any (default for a new pin), Point, Spatial, Param, PolyLine, Surface...; omitted keeps an existing pin's type"), tooltip: z.string().optional().describe("Pin tooltip"), allowMultipleData: z.boolean().optional().describe("Accept more than one data (default true)"), allowMultipleConnections: z.boolean().optional().describe("Accept more than one edge (default true)") })).optional().describe("Pins matched by label"),
   posX: z.number().optional().describe("Graph editor X position for the new node"),
   posY: z.number().optional().describe("Graph editor Y position for the new node"),
