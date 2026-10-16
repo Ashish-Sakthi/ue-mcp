@@ -74,9 +74,6 @@ Conventions:
   "main": "dist/index.js",
   "files": ["dist", "ue-mcp.plugin.yml", "knowledge", "README.md"],
   "keywords": ["unreal-engine"],
-  "peerDependencies": {
-    "ue-mcp": ">=1.0.65"
-  },
   "devDependencies": {
     "ue-mcp": "^1.0.65",
     "typescript": "^5.7.0"
@@ -87,7 +84,7 @@ Conventions:
 }
 ```
 
-`UeMcpTask` (and the types you import alongside it) come from `ue-mcp/task` - a thin, server-free entry point that the consumer's installed `ue-mcp` already provides. That's why `ue-mcp` is a **peer** dependency: the running server supplies the copy at load time, so your task extends the same base class the server uses. The matching **dev** dependency is only there to type-check your build. You never depend on the underlying flow runtime directly - it stays an implementation detail behind `ue-mcp/task`.
+`UeMcpTask` (and the types you import alongside it) come from `ue-mcp/task` - a thin, server-free entry point. The running server answers every `ue-mcp` and `ue-mcp/*` import a plugin makes with its own package, so your task extends the same base class the server uses and the user needs no copy of ue-mcp in `node_modules`. The **dev** dependency is only there to type-check your build. Do not declare a `peerDependencies` range on `ue-mcp`: npm admits a prerelease only when a range names the same `major.minor.patch`, so `>=1.0.65` rejects `1.4.0-beta.1` and the install fails with ERESOLVE. `minServerVersion` in `ue-mcp.plugin.yml` is the version gate. You never depend on the underlying flow runtime directly - it stays an implementation detail behind `ue-mcp/task`.
 
 ## `ue-mcp.plugin.yml`
 
@@ -117,7 +114,7 @@ The key under each category is the **bare** action name. The loader prepends you
 
 `knowledge:` and `flows:` are optional - omit them when you have nothing to attach. A plugin can ship a single action and nothing else.
 
-Param schemas under `schema:` accept these types: `string`, `number`, `boolean`, `object`, `array`. Non-required params become optional at the top level of the host category tool's schema. A native C++ handler declares its parameters in C++ instead, with required names, integers, enums, ranges and nested fields, and every call is checked against them; see [Typed contracts](plugins-native-modules.md#typed-contracts).
+Param schemas under `schema:` accept these types: `string`, `number`, `boolean`, `object`, `array`. Every param is optional at the top level of the host category tool's schema, because one schema serves all of that category's actions. `required: true` holds on the action itself: `describe_action` and the action's signature report it as required, and a call to that action without it is refused before your task runs. Never name a parameter `action`, `timeoutMs`, `select`, `omit`, `editor` or `toEditor`: the dispatcher consumes those before any handler runs, so such a parameter could never arrive, and the server drops the action that declares one at load with the reason in `project(get_status)`. The bridge refuses the same names in a C++ contract. A native C++ handler declares its parameters in C++ instead, with required names, integers, enums, ranges and nested fields, and every call is checked against them; see [Typed contracts](plugins-native-modules.md#typed-contracts).
 
 `type` is optional. Omit it for a param that genuinely has no single type, and the param accepts any JSON value:
 
@@ -263,3 +260,33 @@ ue-mcp plugin install <your-package-name>
 ```
 
 Before publishing, confirm your plugin passes every [validation rule](plugins-troubleshooting.md#validation-rules).
+
+### The registry listing
+
+`ue-mcp plugin publish [dir]` creates or updates your listing on the plugin registry. Log in once with `ue-mcp login`.
+
+- **Slug.** A listing that already names your package keeps its slug. `--slug` creates a new listing's slug; changing an existing one also needs `--rename`.
+- **Derived on every publish.** `provides` comes from `ue-mcp.plugin.yml`: `tools` for a native module, `inject:` or `provides:`, `flows` for a non-empty `flows:`, and `skills` when `skills/` has a skill. `ueVersions` comes from `nativeModule.supportedEngineVersions`.
+- **Curated text.** Put it in the manifest so it moves with the code, or pass it as flags (`--tagline`, `--description`, `--category`). `--tags-from-keywords` sets the tags from `package.json` `keywords`. Anything you set neither way keeps the listing's current value.
+
+  ```yaml
+  registry:
+    tagline: Voxel terrain authoring for ue-mcp
+    description: Create, stamp and query voxel terrain from the editor.
+    category: landscape
+    tags: [voxel, terrain]
+  ```
+
+- **README.** `--readme snapshot` (the default) stores your README.md, and the listing shows that copy until the next publish. `--readme live` stores none, and the listing renders the README from your public repository each time it is viewed.
+- **`--dry-run`** prints each field the publish would change, the slug first, and posts nothing.
+
+In CI, publish the listing right after the package:
+
+```yaml
+- run: npm publish
+- run: npx ue-mcp plugin publish .
+  env:
+    UE_MCP_PUBLISH_TOKEN: ${{ secrets.UE_MCP_PUBLISH_TOKEN }}
+```
+
+Mint the token on the registry's account page.

@@ -5,7 +5,7 @@ import { resolveServerMode } from "./daemon/server-mode.js";
 import { startVersionCheck } from "./core/version-check.js";
 import { startFlowHttpServer } from "./flow/http-server.js";
 import { packageVersion } from "./core/package-root.js";
-import { findCliCommand, runCliCommand } from "./cli/cli-commands.js";
+import { formatTopLevelUsage, routeTopLevel, runCliCommand } from "./cli/cli-commands.js";
 import { createRuntime } from "./server/runtime.js";
 import { createMcpServer } from "./server/mcp-server.js";
 
@@ -40,10 +40,17 @@ async function main() {
   await server.connect(new StdioServerTransport());
 }
 
-// A first argument naming a command runs it; anything else starts the server.
-const command = findCliCommand(process.argv[2]);
-if (command) {
-  void runCliCommand(command, process.argv.slice(3));
+// A first argument naming a command runs it; help and stray flags print usage;
+// anything else starts the server.
+const route = routeTopLevel(process.argv.slice(2));
+if (route.kind === "help") {
+  console.log(formatTopLevelUsage());
+  process.exit(0);
+} else if (route.kind === "unknown-flags") {
+  console.error(`Unknown flag${route.flags.length > 1 ? "s" : ""}: ${route.flags.join(", ")}\n\n${formatTopLevelUsage()}`);
+  process.exit(2);
+} else if (route.kind === "command") {
+  void runCliCommand(route.command, route.argv);
 } else if (resolveServerMode(projectArgs()).mode === "daemon") {
   // Relay to the project's daemon, which owns the editor connection and
   // outlives editor restarts. A daemon that cannot be started falls back to

@@ -47,6 +47,8 @@ const SYNONYM_GROUPS: string[][] = [
   ["preview", "thumbnail", "lit"],
   ["config", "setting", "property", "param", "parameter"],
   ["nudge", "clockwise", "counterclockwise", "viewpoint"],
+  ["open", "switch", "load", "travel"],
+  ["map", "level", "umap"],
 ];
 
 // Words too common to discriminate between actions, so they must not

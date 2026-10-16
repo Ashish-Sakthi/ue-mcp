@@ -41,4 +41,10 @@ describe("asset.import_file", () => {
     expect(assetTool.schema.factoryProperties.safeParse({ bUseProvidedImportOptions: true }).success).toBe(true);
     expect(assetTool.schema.factoryProperties.safeParse("bUseProvidedImportOptions=true").success).toBe(false);
   });
+
+  it("saves by default and says so per asset (#1280)", () => {
+    const save = handlerSpecs.import_file.params.find((p) => p.name === "save");
+    expect(save?.description).toContain("default true");
+    expect(assetTool.actions.import_file.description).toContain("saved by default");
+  });
 });

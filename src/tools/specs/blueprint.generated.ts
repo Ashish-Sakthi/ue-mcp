@@ -259,6 +259,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "object",
         "required": false,
         "description": "Node-specific settings, such as functionName and className for a CallFunction node"
+      },
+      {
+        "name": "deferCompile",
+        "type": "boolean",
+        "required": false,
+        "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
       }
     ]
   },
@@ -587,6 +593,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "boolean",
         "required": false,
         "description": "Break every existing link on the target pin first"
+      },
+      {
+        "name": "deferCompile",
+        "type": "boolean",
+        "required": false,
+        "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
       }
     ]
   },
@@ -860,6 +872,12 @@ export const handlerSpecs: HandlerSpecs = {
         "aliases": [
           "nodeName"
         ]
+      },
+      {
+        "name": "deferCompile",
+        "type": "boolean",
+        "required": false,
+        "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
       }
     ]
   },
@@ -2889,6 +2907,12 @@ export const handlerSpecs: HandlerSpecs = {
         "aliases": [
           "defaultValue"
         ]
+      },
+      {
+        "name": "deferCompile",
+        "type": "boolean",
+        "required": false,
+        "description": "Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"
       }
     ]
   },
@@ -3036,7 +3060,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   add_event_dispatcher: "Params: blueprintPath, name, parameters?",
   add_function_parameter: "Params: assetPath (or path), functionName, parameterName, parameterType?, isOutput?",
   add_local_variable: "Params: assetPath (or path), functionName, name, varType? (or type)",
-  add_node: "Params: assetPath (or path), graphName?, nodeClass, nodeParams?",
+  add_node: "Params: assetPath (or path), graphName?, nodeClass, nodeParams?, deferCompile?",
   add_timeline_track: "Params: assetPath (or path), timelineName, trackName, trackType?, keyframes?",
   add_variable: "Params: assetPath (or path), name, varType? (or type), onConflict?, category?, tooltip?, instanceEditable?",
   audit_blueprint_dead_code: "Params: directory?, assetPaths?, recursive?, includeLevelScripts?, scanReferencers?, maxBlueprints?, maxSamples?, limit?, dumpToFile?, outputPath?",
@@ -3044,7 +3068,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   cleanup_graph: "Params: assetPath (or path), graphName?",
   compile_blueprint: "Params: assetPath (or path)",
   compile_blueprints: "Params: assetPaths, save?",
-  connect_pins: "Params: assetPath (or path), graphName?, graphSelector?, sourceNodeId (or sourceNode), sourcePin (or sourcePinName), targetNodeId (or targetNode), targetPin (or targetPinName), breakExistingSource?, breakExistingTarget?",
+  connect_pins: "Params: assetPath (or path), graphName?, graphSelector?, sourceNodeId (or sourceNode), sourcePin (or sourcePinName), targetNodeId (or targetNode), targetPin (or targetPinName), breakExistingSource?, breakExistingTarget?, deferCompile?",
   connect_pins_batch: "Params: assetPath (or path), graphName?, connections",
   create_blueprint: "Params: assetPath (or path) OR name + packagePath, parentClass?, onConflict?",
   create_blueprint_interface: "Params: assetPath (or path), onConflict?",
@@ -3053,7 +3077,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   delete_function: "Params: assetPath (or path), functionName",
   delete_graph: "Params: assetPath (or path), graphName?, graphSelector?, force?",
   delete_macro: "Params: assetPath (or path), macroName",
-  delete_node: "Params: assetPath (or path), graphName?, graphSelector?, nodeId (or nodeName)",
+  delete_node: "Params: assetPath (or path), graphName?, graphSelector?, nodeId (or nodeName), deferCompile?",
   delete_variable: "Params: assetPath (or path), name",
   diff_blueprint: "Params: assetPath (or path), otherPath, fromRevision?, toRevision?",
   disconnect_pins: "Params: assetPath (or path), graphName?, graphSelector?, nodeId (or nodeName), pinName, linkedNodeId?, linkedPinName?",
@@ -3118,7 +3142,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_enum_metadata: "Params: assetPath (or path), bitflags?, entries?",
   set_function_properties: "Params: assetPath (or path), functionName, pure?, isConst?, accessSpecifier?, category?, tooltip?, keywords?, compactNodeTitle?, callInEditor?, threadSafe?, deprecated?, deprecationMessage?",
   set_node_position: "Params: assetPath (or path), graphName?, nodeId (or nodeName), posX?, posY?",
-  set_node_property: "Params: assetPath (or path), graphName?, nodeId (or nodeName), propertyName (or pinName), value (or defaultValue)",
+  set_node_property: "Params: assetPath (or path), graphName?, nodeId (or nodeName), propertyName (or pinName), value (or defaultValue), deferCompile?",
   set_struct_field_default: "Params: assetPath (or path), defaultValue, fieldName?, fieldGuid?",
   set_variable_default: "Params: assetPath (or path), name, value, propagateToInstances?",
   set_variable_properties: "Params: assetPath (or path), name, editFlag?, instanceEditable?, private?, category?, tooltip?, exposeOnSpawn?",
@@ -3152,6 +3176,7 @@ export const schema: Record<string, z.ZodType> = {
   connections: z.array(z.record(z.unknown())).optional().describe("[{sourceNode, sourcePin, targetNode, targetPin}]"),
   cursor: z.string().optional().describe("Resume a paged read: pass back the nextCursor from the previous page, unmodified"),
   defaultValue: z.unknown().optional().describe("Default value as Unreal export text; an empty string clears it (edit_graph_parameters, edit_local_variable, set_struct_field_default). Alias for value (set_node_property)"),
+  deferCompile: z.boolean().optional().describe("Skip this write's compile (default false) so a sequence of node writes compiles once, with blueprint(compile), at the end"),
   deprecated: z.boolean().optional().describe("Mark the function deprecated so its call sites warn"),
   deprecationMessage: z.string().optional().describe("Text shown at a deprecated function's call sites"),
   destinationPath: z.string().optional().describe("Full destination asset path"),

@@ -216,6 +216,32 @@ If the editor starts but the bridge doesn't appear in the Output Log:
 - **"Asset not found"** - asset paths should use the `/Game/` prefix (e.g., `/Game/Blueprints/BP_Player`), not filesystem paths.
 - **Timeout** - the default timeout is 30 seconds, and some actions set their own (`widget(add_widget)` allows 120s, project builds 300s). A timeout is not a failed call: see [A call timed out - did it happen or not?](#a-call-timed-out-did-it-happen-or-not) before retrying.
 
+## Line Traces From a Python Script
+
+A script run with `editor(run_python_file)` cannot use the engine's trace functions the way the docs suggest. `unreal.SystemLibrary.line_trace_single` takes a `TraceTypeQuery` (`unreal.TraceTypeQuery.TRACE_TYPE_QUERY1` and so on), not a `CollisionChannel`, so passing `unreal.CollisionChannel.ECC_WORLD_STATIC` fails with "Failed to convert parameter 'trace_channel'", and `unreal.World` has no trace methods at all.
+
+The bridge plugin exposes the same query `level(line_trace)` runs, callable from Python:
+
+```python
+import unreal
+
+hit = unreal.MCPTraceLibrary.line_trace(
+    unreal.Vector(0, 0, 10000),   # start
+    unreal.Vector(0, 0, -10000),  # end
+    "pie",                        # world: pie (default), editor or auto
+    0,                            # pie_instance: -1 for the first PIE world
+    "WorldStatic",                # channel: the project's channel names
+    False,                        # trace_complex
+)
+if hit.error:
+    raise RuntimeError(hit.error)
+if hit.hit:
+    ground_z = hit.impact_point.z
+    print(hit.actor_path, hit.component_name, hit.physical_material)
+```
+
+The result carries `hit`, `location`, `impact_point`, `impact_normal`, `distance`, `actor_path`, `actor_label`, `component_name`, `physical_material`, `world` and `error` (empty when the trace ran). The class exists once the plugin's editor module is loaded, which is the case whenever the bridge is connected.
+
 ## Asset Path Issues
 
 UE-MCP expects Unreal-style asset paths:

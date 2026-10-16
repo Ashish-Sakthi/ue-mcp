@@ -9,6 +9,7 @@
 #include "EngineUtils.h"
 #include "Engine/World.h"
 #include "GameFramework/Actor.h"
+#include "Components/SceneComponent.h"
 #include "HandlerResult.h"
 #include "HandlerParams.h"
 
@@ -517,4 +518,17 @@ inline void MCPNoteLoadedOnlyEnumeration(UWorld* World, TSharedPtr<FJsonObject> 
 	Result->SetBoolField(TEXT("partitionedWorld"), true);
 	Result->SetStringField(TEXT("enumerationNote"),
 		TEXT("This is a World Partition map and only LOADED actors were enumerated. An actor whose cell is not streamed in is invisible to every world query, including this one. Use level(list_actor_descs) to see the unloaded ones and level(load_actor_descs) to pin them first."));
+}
+
+// Tell the editor a scripted move has finished the way a Details-panel edit does. PostEditMove
+// alone leaves listeners that refresh on property changes, a PCG component among them, unaware
+// that the actor moved, so its next generate was skipped as up to date (#1315).
+inline void MCPNotifyEditorMove(AActor* Actor)
+{
+	USceneComponent* Root = Actor ? Actor->GetRootComponent() : nullptr;
+	if (!Root) return;
+	FProperty* Location = FindFProperty<FProperty>(USceneComponent::StaticClass(), USceneComponent::GetRelativeLocationPropertyName());
+	if (!Location) return;
+	FPropertyChangedEvent Changed(Location, EPropertyChangeType::ValueSet);
+	Root->PostEditChangeProperty(Changed);
 }

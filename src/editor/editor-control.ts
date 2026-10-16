@@ -968,6 +968,8 @@ export interface StopEditorResult {
    *  binaries, and what was done about them. Present only when there is
    *  something to report. */
   crashReporters?: CrashReporterCleanup;
+  /** The editor this call asked to quit: its project and pid, so a stop that hit the wrong target shows it (#1278). */
+  stopped?: { project: string | null; pid: number | null };
 }
 
 /**
@@ -995,6 +997,8 @@ async function withCrashReporterCleanup(
 export interface RestartEditorResult {
   success: boolean;
   message: string;
+  /** The editor the stop half quit, when it quit one (#1278). */
+  stopped?: { project: string | null; pid: number | null };
   state?: EngineState;
   timeline?: ReadyPhase[];
   elapsedSeconds?: number;
@@ -1336,9 +1340,10 @@ export async function stopEditor(
       return withCrashReporterCleanup({
         success: true,
         message:
-          "Editor quit itself via the bridge." +
+          `Editor quit itself via the bridge (project ${projectPath ?? "unknown"}, pid ${exitPid ?? "unknown"}).` +
           (ownership.healed ? ` ${ownership.healed}` : "") +
           remainingNote,
+        stopped: { project: projectPath, pid: exitPid },
         ...(remaining.length > 0 ? { remainingInstances: remaining } : {}),
         // Reported whenever a dialog was in the way, including when answering
         // it is what let the stop through, so the caller can always see which
@@ -1382,8 +1387,9 @@ export async function restartEditor(
   }
 
   const startResult = await startEditor(project, undefined, undefined, { openDisplay });
+  const stopped = stopResult.stopped ? { stopped: stopResult.stopped } : {};
   if (!startResult.success) {
-    return startResult;
+    return { ...startResult, ...stopped };
   }
 
   // Reconnect the bridge if provided
@@ -1395,5 +1401,5 @@ export async function restartEditor(
     }
   }
 
-  return startResult;
+  return { ...startResult, ...stopped };
 }

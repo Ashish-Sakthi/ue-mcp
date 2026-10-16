@@ -4,6 +4,7 @@ import { buildProject } from "../editor/editor-build.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { findUProject, isUProjectPath } from "../config/uproject-path.js";
 import { RESET, BOLD, GREEN, RED, CYAN } from "./ui/ansi.js";
+import type { CliUsage } from "./cli-main.js";
 
 function targetUProject(argv: string[]): string | null {
   // --editor names one of the editors this server drives; it wins over the
@@ -48,6 +49,13 @@ async function main(argv: string[]) {
     process.exit(1);
   }
 }
+
+export const usage: CliUsage = {
+  usage: "ue-mcp build [project] [flags]",
+  summary: "Build the project's editor target.",
+  strict: true,
+  flags: [{ name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" }],
+};
 
 /** Entry point for `ue-mcp build [project] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {

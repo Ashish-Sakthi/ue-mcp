@@ -5,6 +5,7 @@ import { ProjectContext } from "../config/project.js";
 import { BOLD, CYAN, DIM, GREEN, RED, RESET, fail, info, ok, warn } from "./ui/ansi.js";
 import { checkboxSelect, singleSelect, type CheckboxItem } from "./ui/select.js";
 import { runFeedbackAuthStep } from "./auth-cli.js";
+import type { CliUsage } from "./cli-main.js";
 import { getInstalledHooks } from "../config/user-state.js";
 import { coreSkillsInstalled } from "../extensions/skills.js";
 import { detectMcpClients, isProjectScopedClient, ueMcpServerArgs } from "../integrations/claude-code/mcp-client-config.js";
@@ -364,15 +365,38 @@ function firstPositional(argv: string[]): string | undefined {
   return undefined;
 }
 
-/**
- * Entry point for `ue-mcp init [project] [--editor <name-or-path>]`.
- *
- * `--yes` runs without prompts; `--json` prints one JSON result on stdout.
- * Flags: --project, --clients=<ids>, --install=auto|source|binary, --binaries,
- * --disable=<categories>, --context, --[no-]feedback, --[no-]hook,
- * --[no-]skills, --[no-]native-tools, --native-exclude, --[no-]pin, --command,
- * --dry-run.
- */
+const toggle = (name: string, description: string) => [
+  { name: `--${name}`, description },
+  { name: `--no-${name}`, description: `Opposite of --${name}` },
+];
+
+export const usage: CliUsage = {
+  usage: "ue-mcp init [project] [flags]",
+  summary: "Set up ue-mcp in a project. Interactive unless --yes or --json is given.",
+  strict: true,
+  flags: [
+    { name: "--project", value: "<path>", description: "The .uproject (or its directory)" },
+    { name: "--yes", description: "Run without prompts; unset flags keep the project's current state" },
+    { name: "-y", description: "Same as --yes" },
+    { name: "--json", description: "Run without prompts and print one JSON result" },
+    { name: "--dry-run", description: "With --yes: print the plan, write nothing" },
+    { name: "--clients", value: "<ids>", description: "MCP clients to configure, comma separated" },
+    { name: "--install", value: "<auto|source|binary>", description: "How the bridge is installed" },
+    { name: "--binaries", value: "<dir-or-url>", description: "Prebuilt bridge binaries to install" },
+    { name: "--disable", value: "<categories>", description: "Tool categories to turn off, comma separated" },
+    { name: "--context", value: "<micro|lean|full>", description: "Context strategy" },
+    { name: "--native-exclude", value: "<categories>", description: "Categories that skip native Epic tools" },
+    { name: "--command", value: "<cmd>", description: "Launcher the client config uses instead of npx" },
+    ...toggle("feedback", "Enable the feedback(submit) tool"),
+    ...toggle("hook", "Install the feedback nudge hook"),
+    ...toggle("skills", "Install the bundled Claude Code skills"),
+    ...toggle("native-tools", "Wrap native Epic tools"),
+    ...toggle("pin", "Pin the client config to this exact version"),
+    { name: "--editor", value: "<name-or-path>", description: "Target one of the editors this server drives" },
+  ],
+};
+
+/** Entry point for `ue-mcp init [project] [--editor <name-or-path>]`. */
 export async function run(argv: string[]): Promise<number | void> {
   try {
     return await init(argv);

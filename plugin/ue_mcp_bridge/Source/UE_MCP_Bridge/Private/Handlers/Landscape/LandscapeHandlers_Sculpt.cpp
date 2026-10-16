@@ -4393,7 +4393,7 @@ TSharedPtr<FJsonValue> FLandscapeHandlers::ProjectGeoCoordinates(const TSharedPt
 	Bounds->SetNumberField(TEXT("maxY"), Extent.Max.Y);
 	Result->SetObjectField(TEXT("quadExtent"), Bounds);
 	Result->SetStringField(TEXT("note"),
-		TEXT("The mapping stretches the given latitude/longitude box across the landscape's whole quad extent, which is only true if the landscape was built for that box - plan it with landscape(plan_real_world_landscape) and pass the same boundsLatLon here. Distances come from a local tangent plane on WGS84 at the box centre latitude, not a datum reprojection."));
+		TEXT("The mapping stretches the given latitude/longitude box across the landscape's whole quad extent, which is only true if the landscape was built for that box - plan it with landscape(plan_real_world) and pass the same boundsLatLon here. Distances come from a local tangent plane on WGS84 at the box centre latitude, not a datum reprojection."));
 	return MCPResult(Result);
 }
 
