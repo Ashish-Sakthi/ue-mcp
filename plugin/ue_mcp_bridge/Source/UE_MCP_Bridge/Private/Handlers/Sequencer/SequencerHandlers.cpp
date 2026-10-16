@@ -8,6 +8,7 @@
 #include "MovieSceneTimeUnit.h"
 
 #include "HandlerSequencerPlayhead.h"
+#include "HandlerSequencerTracks.h"
 #include "HandlerAssetCreate.h"
 #include "LevelSequence.h"
 #include "LevelSequenceActor.h"
@@ -58,7 +59,11 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	};
 	auto TrackTypeParam = []()
 	{
-		return MCPParam::Required(TEXT("trackType"), EType::String, TEXT("Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"));
+		return MCPParam::Required(TEXT("trackType"), EType::String, TEXT("Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"));
+	};
+	auto MPCParam = []()
+	{
+		return MCPParam::Optional(TEXT("materialParameterCollection"), EType::String, TEXT("Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"));
 	};
 	auto ActorLabelParam = []()
 	{
@@ -83,6 +88,7 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		TrackTypeParam(),
 		ActorLabelParam(),
 		ActorPathParam(),
+		MPCParam(),
 	});
 	Registry.RegisterHandler(TEXT("play_sequence"), &SequenceControl, {
 		SequencePathParam(TEXT("Level Sequence to open and drive; omit to drive the one already open"), false),
@@ -128,6 +134,7 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("endSeconds"), EType::Number, TEXT("Section end in seconds (default one second after the start)")),
 		MCPParam::Optional(TEXT("cameraActorLabel"), EType::String, TEXT("Camera actor to bind a CameraCut section to")),
 		MCPParam::Optional(TEXT("cameraActorPath"), EType::String, TEXT("Full object path of the camera actor. Wins over cameraActorLabel")),
+		MPCParam(),
 	});
 	Registry.RegisterHandler(TEXT("set_sequence_keyframes"), &SetKeyframes, {
 		SequencePathParam(TEXT("Level Sequence asset path"), true),
@@ -139,25 +146,47 @@ void FSequencerHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("keyframes"), EType::Array, TEXT("Keys to add, as [{seconds, value}]")).Items(EType::Object),
 		MCPParam::Optional(TEXT("interpolation"), EType::String, TEXT("cubic (default) | linear")),
 	});
+
+	// #1407: the section a channel action addresses is a track picked by type
+	// and/or name among the root tracks or one binding's tracks.
+	Registry.RegisterHandler(TEXT("get_sequence_channel_keys"), &GetChannelKeys, {
+		SequencePathParam(TEXT("Level Sequence asset path"), true),
+		MCPParam::Optional(TEXT("trackType"), EType::String, TEXT("Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName")),
+		MCPParam::Optional(TEXT("trackName"), EType::String, TEXT("Track display name; for a Material Parameter Collection track also the collection's name or path")),
+		MCPParam::Optional(TEXT("trackIndex"), EType::Integer, TEXT("Which matching track, when several match (default 0)")),
+		MCPParam::Optional(TEXT("bindingGuid"), EType::String, TEXT("Look in this binding's tracks instead of the root tracks")),
+		MCPParam::Optional(TEXT("bindingName"), EType::String, TEXT("Look in the binding with this name")),
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Optional(TEXT("sectionIndex"), EType::Integer, TEXT("Section index on the track (default 0)")),
+		MCPParam::Optional(TEXT("channel"), EType::String, TEXT("Channel name (Location.X, a parameter name such as Intensity or Tint.R); omit for every channel on the section")),
+		MCPParam::Optional(TEXT("sampleStartFrame"), EType::Number, TEXT("Also evaluate the channel from this display frame")),
+		MCPParam::Optional(TEXT("sampleEndFrame"), EType::Number, TEXT("Last display frame to evaluate, inclusive")),
+		MCPParam::Optional(TEXT("sampleStep"), EType::Number, TEXT("Display frames between samples (default 1)")),
+	});
+	Registry.RegisterHandler(TEXT("set_sequence_channel_keys"), &SetChannelKeys, {
+		SequencePathParam(TEXT("Level Sequence asset path"), true),
+		MCPParam::Optional(TEXT("trackType"), EType::String, TEXT("Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName")),
+		MCPParam::Optional(TEXT("trackName"), EType::String, TEXT("Track display name; for a Material Parameter Collection track also the collection's name or path")),
+		MCPParam::Optional(TEXT("trackIndex"), EType::Integer, TEXT("Which matching track, when several match (default 0)")),
+		MCPParam::Optional(TEXT("bindingGuid"), EType::String, TEXT("Look in this binding's tracks instead of the root tracks")),
+		MCPParam::Optional(TEXT("bindingName"), EType::String, TEXT("Look in the binding with this name")),
+		ActorLabelParam(),
+		ActorPathParam(),
+		MCPParam::Optional(TEXT("sectionIndex"), EType::Integer, TEXT("Section index on the track (default 0)")),
+		MCPParam::Required(TEXT("channel"), EType::String, TEXT("Channel name: Location.X, a parameter name such as Intensity, or Tint.R for a vector or color parameter")),
+		MCPParam::Optional(TEXT("keyframes"), EType::Array, TEXT("Keys as [{seconds | frame | tick, value, interpolation?}]; frame is a display frame, value a number or boolean")).Items(EType::Object),
+		MCPParam::Optional(TEXT("interpolation"), EType::String, TEXT("cubic (default) | linear | constant, for keys without their own")),
+		MCPParam::Optional(TEXT("clearExisting"), EType::Boolean, TEXT("Delete the channel's keys before writing (default false)")),
+		MCPParam::Optional(TEXT("defaultValue"), EType::Any, TEXT("Value the channel holds where it has no keys")),
+		MCPParam::Optional(TEXT("clearDefault"), EType::Boolean, TEXT("Remove the channel's default value")),
+		MCPParam::Optional(TEXT("parameterType"), EType::String, TEXT("scalar | bool | vector | vector2d | color: adds a missing parameter to a parameter section. Inferred from the collection on a Material Parameter Collection track")),
+	});
 }
 
 // ─── #548 sequencer authoring helpers ────────────────────────────────
 namespace
 {
-	// `assetPath` and `path` reach the spec'd handlers as `sequencePath`, renamed
-	// by the registry (#1057), so the path is read by the caller.
-	ULevelSequence* LoadSequence(const FString& Path, bool bHasPath, TSharedPtr<FJsonValue>& OutError)
-	{
-		if (!bHasPath)
-		{
-			OutError = MCPError(TEXT("Missing 'sequencePath' parameter"));
-			return nullptr;
-		}
-		ULevelSequence* Seq = LoadAssetByPath<ULevelSequence>(Path);
-		if (!Seq) OutError = MCPAssetLoadError(Path, TEXT("LevelSequence"));
-		return Seq;
-	}
-
 	// Resolve (creating if needed) the possessable binding GUID for an actor the
 	// caller already selected. #983: the selection happens through
 	// MCPResolveActor at the call site, so a duplicated label is refused before
@@ -177,34 +206,6 @@ namespace
 		OutGuid = MovieScene->AddPossessable(ActorLabel, TargetActor->GetClass());
 		Sequence->BindPossessableObject(OutGuid, *TargetActor, World);
 		return true;
-	}
-
-	UClass* ResolveTrackClass(const FString& TrackType)
-	{
-		if (TrackType.Equals(TEXT("Transform"), ESearchCase::IgnoreCase)) return UMovieScene3DTransformTrack::StaticClass();
-		if (TrackType.Equals(TEXT("Float"), ESearchCase::IgnoreCase)) return UMovieSceneFloatTrack::StaticClass();
-		if (TrackType.Equals(TEXT("SkeletalAnimation"), ESearchCase::IgnoreCase)) return UMovieSceneSkeletalAnimationTrack::StaticClass();
-		if (TrackType.Equals(TEXT("CameraCut"), ESearchCase::IgnoreCase)) return UMovieSceneCameraCutTrack::StaticClass();
-		if (TrackType.Equals(TEXT("Audio"), ESearchCase::IgnoreCase)) return UMovieSceneAudioTrack::StaticClass();
-		if (TrackType.Equals(TEXT("Event"), ESearchCase::IgnoreCase)) return UMovieSceneEventTrack::StaticClass();
-		if (TrackType.Equals(TEXT("Fade"), ESearchCase::IgnoreCase)) return UMovieSceneFadeTrack::StaticClass();
-		return nullptr;
-	}
-
-	// Map a friendly channel name to the canonical transform channel name.
-	FString CanonicalTransformChannel(const FString& In)
-	{
-		const FString L = In.ToLower();
-		if (L == TEXT("x") || L == TEXT("location.x")) return TEXT("Location.X");
-		if (L == TEXT("y") || L == TEXT("location.y")) return TEXT("Location.Y");
-		if (L == TEXT("z") || L == TEXT("location.z")) return TEXT("Location.Z");
-		if (L == TEXT("roll") || L == TEXT("rotation.x")) return TEXT("Rotation.X");
-		if (L == TEXT("pitch") || L == TEXT("rotation.y")) return TEXT("Rotation.Y");
-		if (L == TEXT("yaw") || L == TEXT("rotation.z")) return TEXT("Rotation.Z");
-		if (L == TEXT("scale.x")) return TEXT("Scale.X");
-		if (L == TEXT("scale.y")) return TEXT("Scale.Y");
-		if (L == TEXT("scale.z")) return TEXT("Scale.Z");
-		return In;
 	}
 }
 
@@ -586,6 +587,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddTrack(const TSharedPtr<FJsonObject
 	// Check if we should add to an actor binding or as a master track
 	FString ActorLabel = OptionalString(Params, TEXT("actorLabel"));
 	const FString ActorPath = OptionalString(Params, TEXT("actorPath"));
+	const FString MPCPath = OptionalString(Params, TEXT("materialParameterCollection"));
 
 	if (PathErr) return PathErr;
 	if (TrackTypeErr) return TrackTypeErr;
@@ -603,40 +605,39 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddTrack(const TSharedPtr<FJsonObject
 		return MCPError(TEXT("LevelSequence has no MovieScene"));
 	}
 
-	// Determine track class from type name
-	UClass* TrackClass = nullptr;
-	if (TrackType.Equals(TEXT("Transform"), ESearchCase::IgnoreCase))
+	UClass* TrackClass = UEMCP::SequencerTracks::ResolveTrackClass(TrackType);
+	if (!TrackClass)
 	{
-		TrackClass = UMovieScene3DTransformTrack::StaticClass();
+		return MCPError(FString::Printf(TEXT("Unknown track type: '%s'. Use %s."), *TrackType, *UEMCP::SequencerTracks::TrackTypeHelp()));
 	}
-	else if (TrackType.Equals(TEXT("Float"), ESearchCase::IgnoreCase))
+
+	// A Material Parameter Collection track animates one collection, so the
+	// collection is part of the track's identity (#1407).
+	const bool bIsMPCTrack = TrackClass->IsChildOf(UMovieSceneMaterialParameterCollectionTrack::StaticClass());
+	UMaterialParameterCollection* MPC = nullptr;
+	if (bIsMPCTrack)
 	{
-		TrackClass = UMovieSceneFloatTrack::StaticClass();
+		if (MPCPath.IsEmpty())
+		{
+			return MCPError(TEXT("A MaterialParameterCollection track needs 'materialParameterCollection', the collection asset it animates"));
+		}
+		MPC = LoadAssetByPath<UMaterialParameterCollection>(MPCPath);
+		if (!MPC) return MCPAssetLoadError(MPCPath, TEXT("MaterialParameterCollection"));
 	}
-	else if (TrackType.Equals(TEXT("SkeletalAnimation"), ESearchCase::IgnoreCase))
+	auto MatchesTrack = [&](UMovieSceneTrack* T)
 	{
-		TrackClass = UMovieSceneSkeletalAnimationTrack::StaticClass();
-	}
-	else if (TrackType.Equals(TEXT("CameraCut"), ESearchCase::IgnoreCase))
+		if (!T || !T->IsA(TrackClass)) return false;
+		if (!bIsMPCTrack) return true;
+		UMovieSceneMaterialParameterCollectionTrack* MPCTrack = Cast<UMovieSceneMaterialParameterCollectionTrack>(T);
+		return MPCTrack && MPCTrack->MPC == MPC;
+	};
+	auto ConfigureNewTrack = [&](UMovieSceneTrack* T)
 	{
-		TrackClass = UMovieSceneCameraCutTrack::StaticClass();
-	}
-	else if (TrackType.Equals(TEXT("Audio"), ESearchCase::IgnoreCase))
-	{
-		TrackClass = UMovieSceneAudioTrack::StaticClass();
-	}
-	else if (TrackType.Equals(TEXT("Event"), ESearchCase::IgnoreCase))
-	{
-		TrackClass = UMovieSceneEventTrack::StaticClass();
-	}
-	else if (TrackType.Equals(TEXT("Fade"), ESearchCase::IgnoreCase))
-	{
-		TrackClass = UMovieSceneFadeTrack::StaticClass();
-	}
-	else
-	{
-		return MCPError(FString::Printf(TEXT("Unknown track type: '%s'. Use Transform, Float, SkeletalAnimation, CameraCut, Audio, Event, or Fade."), *TrackType));
-	}
+		if (UMovieSceneMaterialParameterCollectionTrack* MPCTrack = Cast<UMovieSceneMaterialParameterCollectionTrack>(T))
+		{
+			MPCTrack->MPC = MPC;
+		}
+	};
 
 	auto Result = MCPSuccess();
 
@@ -688,7 +689,15 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddTrack(const TSharedPtr<FJsonObject
 		}
 
 		// Idempotency: existing track of this class on binding?
-		if (UMovieSceneTrack* ExistingTrack = MovieScene->FindTrack(TrackClass, BindingGuid))
+		UMovieSceneTrack* ExistingTrack = nullptr;
+		if (const FMovieSceneBinding* Binding = MovieScene->FindBinding(BindingGuid))
+		{
+			for (UMovieSceneTrack* T : Binding->GetTracks())
+			{
+				if (MatchesTrack(T)) { ExistingTrack = T; break; }
+			}
+		}
+		if (ExistingTrack)
 		{
 			MCPSetExisted(Result);
 			Result->SetStringField(TEXT("actorLabel"), ActorLabel);
@@ -706,6 +715,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddTrack(const TSharedPtr<FJsonObject
 		{
 			return MCPError(FString::Printf(TEXT("Failed to add %s track to actor '%s'"), *TrackType, *ActorLabel));
 		}
+		ConfigureNewTrack(NewTrack);
 
 		MCPSetCreated(Result);
 		Result->SetStringField(TEXT("actorLabel"), ActorLabel);
@@ -721,7 +731,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddTrack(const TSharedPtr<FJsonObject
 		TArray<UMovieSceneTrack*> MasterTracks = MovieScene->GetTracks();
 		for (UMovieSceneTrack* T : MasterTracks)
 		{
-			if (T && T->IsA(TrackClass))
+			if (MatchesTrack(T))
 			{
 				MCPSetExisted(Result);
 				Result->SetStringField(TEXT("trackType"), TrackType);
@@ -737,6 +747,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddTrack(const TSharedPtr<FJsonObject
 		{
 			return MCPError(FString::Printf(TEXT("Failed to add master %s track"), *TrackType));
 		}
+		ConfigureNewTrack(NewTrack);
 
 		MCPSetCreated(Result);
 		Result->SetStringField(TEXT("trackType"), TrackType);
@@ -1046,7 +1057,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetPlaybackRange(const TSharedPtr<FJs
 	const bool bHasEnd = TryGetNumberParam(Params, TEXT("endSeconds"), EndSeconds);
 
 	TSharedPtr<FJsonValue> LoadErr;
-	ULevelSequence* Sequence = LoadSequence(Path, bHasPath, LoadErr);
+	ULevelSequence* Sequence = UEMCP::SequencerTracks::LoadSequence(Path, bHasPath, LoadErr);
 	if (!Sequence) return LoadErr;
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene) return MCPError(TEXT("Sequence has no MovieScene"));
@@ -1157,18 +1168,39 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddSection(const TSharedPtr<FJsonObje
 	double StartSeconds = 0.0, EndSeconds = 0.0;
 	const bool bHasStart = TryGetNumberParam(Params, TEXT("startSeconds"), StartSeconds);
 	const bool bHasEnd = TryGetNumberParam(Params, TEXT("endSeconds"), EndSeconds);
+	const FString MPCPath = OptionalString(Params, TEXT("materialParameterCollection"));
 
 	TSharedPtr<FJsonValue> LoadErr;
-	ULevelSequence* Sequence = LoadSequence(Path, bHasPath, LoadErr);
+	ULevelSequence* Sequence = UEMCP::SequencerTracks::LoadSequence(Path, bHasPath, LoadErr);
 	if (!Sequence) return LoadErr;
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene) return MCPError(TEXT("Sequence has no MovieScene"));
 
 	if (TrackTypeErr) return TrackTypeErr;
-	UClass* TrackClass = ResolveTrackClass(TrackType);
-	if (!TrackClass) return MCPError(FString::Printf(TEXT("Unknown track type: '%s'"), *TrackType));
+	UClass* TrackClass = UEMCP::SequencerTracks::ResolveTrackClass(TrackType);
+	if (!TrackClass) return MCPError(FString::Printf(TEXT("Unknown track type: '%s'. Use %s."), *TrackType, *UEMCP::SequencerTracks::TrackTypeHelp()));
+
+	// An MPC track is identified by its collection as well as its class (#1407).
+	UMaterialParameterCollection* MPC = nullptr;
+	if (TrackClass->IsChildOf(UMovieSceneMaterialParameterCollectionTrack::StaticClass()))
+	{
+		if (MPCPath.IsEmpty())
+		{
+			return MCPError(TEXT("A MaterialParameterCollection track needs 'materialParameterCollection', the collection asset it animates"));
+		}
+		MPC = LoadAssetByPath<UMaterialParameterCollection>(MPCPath);
+		if (!MPC) return MCPAssetLoadError(MPCPath, TEXT("MaterialParameterCollection"));
+	}
+	auto MatchesTrack = [&](UMovieSceneTrack* T)
+	{
+		if (!T || !T->IsA(TrackClass)) return false;
+		if (!MPC) return true;
+		UMovieSceneMaterialParameterCollectionTrack* MPCTrack = Cast<UMovieSceneMaterialParameterCollectionTrack>(T);
+		return MPCTrack && MPCTrack->MPC == MPC;
+	};
 
 	UMovieSceneTrack* Track = nullptr;
+	bool bTrackCreated = false;
 	FGuid BindingGuid;
 	if (!ActorLabel.IsEmpty() || !ActorPath.IsEmpty())
 	{
@@ -1177,18 +1209,28 @@ TSharedPtr<FJsonValue> FSequencerHandlers::AddSection(const TSharedPtr<FJsonObje
 		AActor* BoundActor = MCPResolveActor(BindingWorld, Params, ActorErr);
 		if (!BoundActor) return ActorErr;
 		if (!ResolveActorBinding(Sequence, MovieScene, BoundActor, BindingGuid, Err)) return MCPError(Err);
-		Track = MovieScene->FindTrack(TrackClass, BindingGuid);
-		if (!Track) Track = MovieScene->AddTrack(TrackClass, BindingGuid);
+		if (const FMovieSceneBinding* Binding = MovieScene->FindBinding(BindingGuid))
+		{
+			for (UMovieSceneTrack* T : Binding->GetTracks())
+			{
+				if (MatchesTrack(T)) { Track = T; break; }
+			}
+		}
+		if (!Track) { Track = MovieScene->AddTrack(TrackClass, BindingGuid); bTrackCreated = Track != nullptr; }
 	}
 	else
 	{
 		for (UMovieSceneTrack* T : MovieScene->GetTracks())
 		{
-			if (T && T->IsA(TrackClass)) { Track = T; break; }
+			if (MatchesTrack(T)) { Track = T; break; }
 		}
-		if (!Track) Track = MovieScene->AddTrack(TrackClass);
+		if (!Track) { Track = MovieScene->AddTrack(TrackClass); bTrackCreated = Track != nullptr; }
 	}
 	if (!Track) return MCPError(FString::Printf(TEXT("Failed to resolve/add %s track"), *TrackType));
+	if (bTrackCreated && MPC)
+	{
+		if (UMovieSceneMaterialParameterCollectionTrack* MPCTrack = Cast<UMovieSceneMaterialParameterCollectionTrack>(Track)) MPCTrack->MPC = MPC;
+	}
 
 	// Resolve the camera binding up front so a bad cameraActorLabel fails before
 	// we create an orphan section.
@@ -1285,13 +1327,13 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetKeyframes(const TSharedPtr<FJsonOb
 	if (auto PieErr = MCPRefuseDuringPlayInEditor(TEXT("set_sequence_keyframes"))) return PieErr;
 
 	TSharedPtr<FJsonValue> LoadErr;
-	ULevelSequence* Sequence = LoadSequence(Path, bHasPath, LoadErr);
+	ULevelSequence* Sequence = UEMCP::SequencerTracks::LoadSequence(Path, bHasPath, LoadErr);
 	if (!Sequence) return LoadErr;
 	UMovieScene* MovieScene = Sequence->GetMovieScene();
 	if (!MovieScene) return MCPError(TEXT("Sequence has no MovieScene"));
 
 	if (TrackTypeErr) return TrackTypeErr;
-	UClass* TrackClass = ResolveTrackClass(TrackType);
+	UClass* TrackClass = UEMCP::SequencerTracks::ResolveTrackClass(TrackType);
 	if (!TrackClass) return MCPError(FString::Printf(TEXT("Unknown track type: '%s'"), *TrackType));
 
 	if (ChannelErr) return ChannelErr;
@@ -1329,7 +1371,7 @@ TSharedPtr<FJsonValue> FSequencerHandlers::SetKeyframes(const TSharedPtr<FJsonOb
 	}
 	UMovieSceneSection* Section = Sections[SectionIndex];
 
-	const FString Canonical = CanonicalTransformChannel(ChannelName);
+	const FString Canonical = UEMCP::SequencerTracks::CanonicalTransformChannel(ChannelName);
 	const FFrameRate Tick = MovieScene->GetTickResolution();
 	Section->Modify();
 

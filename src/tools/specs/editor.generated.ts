@@ -26,7 +26,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "trackType",
         "type": "string",
         "required": true,
-        "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+        "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
       },
       {
         "name": "actorLabel",
@@ -63,6 +63,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "Full object path of the camera actor. Wins over cameraActorLabel"
+      },
+      {
+        "name": "materialParameterCollection",
+        "type": "string",
+        "required": false,
+        "description": "Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"
       }
     ]
   },
@@ -82,7 +88,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "trackType",
         "type": "string",
         "required": true,
-        "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+        "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
       },
       {
         "name": "actorLabel",
@@ -95,6 +101,12 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "string",
         "required": false,
         "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+      },
+      {
+        "name": "materialParameterCollection",
+        "type": "string",
+        "required": false,
+        "description": "Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"
       }
     ]
   },
@@ -878,6 +890,93 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "number",
         "required": false,
         "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+      }
+    ]
+  },
+  "get_sequence_channel_keys": {
+    "category": "editor",
+    "params": [
+      {
+        "name": "sequencePath",
+        "type": "string",
+        "required": true,
+        "description": "Level Sequence asset path",
+        "aliases": [
+          "assetPath",
+          "path"
+        ]
+      },
+      {
+        "name": "trackType",
+        "type": "string",
+        "required": false,
+        "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+      },
+      {
+        "name": "trackName",
+        "type": "string",
+        "required": false,
+        "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+      },
+      {
+        "name": "trackIndex",
+        "type": "integer",
+        "required": false,
+        "description": "Which matching track, when several match (default 0)"
+      },
+      {
+        "name": "bindingGuid",
+        "type": "string",
+        "required": false,
+        "description": "Look in this binding's tracks instead of the root tracks"
+      },
+      {
+        "name": "bindingName",
+        "type": "string",
+        "required": false,
+        "description": "Look in the binding with this name"
+      },
+      {
+        "name": "actorLabel",
+        "type": "string",
+        "required": false,
+        "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+      },
+      {
+        "name": "actorPath",
+        "type": "string",
+        "required": false,
+        "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+      },
+      {
+        "name": "sectionIndex",
+        "type": "integer",
+        "required": false,
+        "description": "Section index on the track (default 0)"
+      },
+      {
+        "name": "channel",
+        "type": "string",
+        "required": false,
+        "description": "Channel name (Location.X, a parameter name such as Intensity or Tint.R); omit for every channel on the section"
+      },
+      {
+        "name": "sampleStartFrame",
+        "type": "number",
+        "required": false,
+        "description": "Also evaluate the channel from this display frame"
+      },
+      {
+        "name": "sampleEndFrame",
+        "type": "number",
+        "required": false,
+        "description": "Last display frame to evaluate, inclusive"
+      },
+      {
+        "name": "sampleStep",
+        "type": "number",
+        "required": false,
+        "description": "Display frames between samples (default 1)"
       }
     ]
   },
@@ -2355,6 +2454,112 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "set_sequence_channel_keys": {
+    "category": "editor",
+    "params": [
+      {
+        "name": "sequencePath",
+        "type": "string",
+        "required": true,
+        "description": "Level Sequence asset path",
+        "aliases": [
+          "assetPath",
+          "path"
+        ]
+      },
+      {
+        "name": "trackType",
+        "type": "string",
+        "required": false,
+        "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+      },
+      {
+        "name": "trackName",
+        "type": "string",
+        "required": false,
+        "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+      },
+      {
+        "name": "trackIndex",
+        "type": "integer",
+        "required": false,
+        "description": "Which matching track, when several match (default 0)"
+      },
+      {
+        "name": "bindingGuid",
+        "type": "string",
+        "required": false,
+        "description": "Look in this binding's tracks instead of the root tracks"
+      },
+      {
+        "name": "bindingName",
+        "type": "string",
+        "required": false,
+        "description": "Look in the binding with this name"
+      },
+      {
+        "name": "actorLabel",
+        "type": "string",
+        "required": false,
+        "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+      },
+      {
+        "name": "actorPath",
+        "type": "string",
+        "required": false,
+        "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+      },
+      {
+        "name": "sectionIndex",
+        "type": "integer",
+        "required": false,
+        "description": "Section index on the track (default 0)"
+      },
+      {
+        "name": "channel",
+        "type": "string",
+        "required": true,
+        "description": "Channel name: Location.X, a parameter name such as Intensity, or Tint.R for a vector or color parameter"
+      },
+      {
+        "name": "keyframes",
+        "type": "array",
+        "required": false,
+        "description": "Keys as [{seconds | frame | tick, value, interpolation?}]; frame is a display frame, value a number or boolean",
+        "items": "object"
+      },
+      {
+        "name": "interpolation",
+        "type": "string",
+        "required": false,
+        "description": "cubic (default) | linear | constant, for keys without their own"
+      },
+      {
+        "name": "clearExisting",
+        "type": "boolean",
+        "required": false,
+        "description": "Delete the channel's keys before writing (default false)"
+      },
+      {
+        "name": "defaultValue",
+        "type": "any",
+        "required": false,
+        "description": "Value the channel holds where it has no keys"
+      },
+      {
+        "name": "clearDefault",
+        "type": "boolean",
+        "required": false,
+        "description": "Remove the channel's default value"
+      },
+      {
+        "name": "parameterType",
+        "type": "string",
+        "required": false,
+        "description": "scalar | bool | vector | vector2d | color: adds a missing parameter to a parameter section. Inferred from the collection on a Material Parameter Collection track"
+      }
+    ]
+  },
   "set_sequence_keyframes": {
     "category": "editor",
     "params": [
@@ -2372,7 +2577,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "trackType",
         "type": "string",
         "required": true,
-        "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+        "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
       },
       {
         "name": "actorLabel",
@@ -2783,8 +2988,8 @@ export const handlerSpecs: HandlerSpecs = {
 
 /** The Params: clause of each spec'd bridge method. */
 export const paramsClauses: Readonly<Record<string, string>> = {
-  add_sequence_section: "Params: sequencePath (or assetPath, or path), trackType, actorLabel?, actorPath?, startSeconds?, endSeconds?, cameraActorLabel?, cameraActorPath?",
-  add_sequence_track: "Params: assetPath (or path), trackType, actorLabel?, actorPath?",
+  add_sequence_section: "Params: sequencePath (or assetPath, or path), trackType, actorLabel?, actorPath?, startSeconds?, endSeconds?, cameraActorLabel?, cameraActorPath?, materialParameterCollection?",
+  add_sequence_track: "Params: assetPath (or path), trackType, actorLabel?, actorPath?, materialParameterCollection?",
   add_trace_bookmark: "Params: bookmarkName",
   begin_editor_transaction: "Params: description? (or label)",
   begin_profile_region: "Params: regionName, regionCategory?",
@@ -2824,6 +3029,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_property: "Params: objectPath (or path, or assetPath), propertyName",
   get_runtime_value: "Params: actorLabel?, actorPath?, propertyName, world?, pieInstance?",
   get_runtime_values: "Params: classFilter?, componentName?, paths, world?, pieInstance?",
+  get_sequence_channel_keys: "Params: sequencePath (or assetPath, or path), trackType?, trackName?, trackIndex?, bindingGuid?, bindingName?, actorLabel?, actorPath?, sectionIndex?, channel?, sampleStartFrame?, sampleEndFrame?, sampleStep?",
   get_sequence_info: "Params: assetPath (or path), includeSectionDetails?",
   get_standalone_status: "Params: none",
   get_transaction_history: "Params: maxEntries?",
@@ -2875,6 +3081,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_realtime: "Params: enabled?",
   set_runtime_visibility: "Params: hidden, actorLabels OR actorPaths OR actorClass, componentNames?, componentClasses?, affectActor?, affectComponents?, propagateToChildren?, matchSubclasses?, maxTargets?, dryRun?, world?, pieInstance?",
   set_scalability: "Params: level?",
+  set_sequence_channel_keys: "Params: sequencePath (or assetPath, or path), trackType?, trackName?, trackIndex?, bindingGuid?, bindingName?, actorLabel?, actorPath?, sectionIndex?, channel, keyframes?, interpolation?, clearExisting?, defaultValue?, clearDefault?, parameterType?",
   set_sequence_keyframes: "Params: sequencePath (or assetPath, or path), trackType, actorLabel?, actorPath?, sectionIndex?, channel, keyframes, interpolation?",
   set_sequence_playback_range: "Params: sequencePath (or assetPath, or path), startSeconds, endSeconds",
   set_trace_channels: "Params: enable?, disable?",
@@ -2905,9 +3112,11 @@ export const schema: Record<string, z.ZodType> = {
   affectComponents: z.boolean().optional().describe("Hide or show matched components (default true with a component filter)"),
   allViewports: z.boolean().optional().describe("Redraw every level viewport rather than one (default false)"),
   args: z.union([z.record(z.string(), z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))])), z.array(z.string()), z.array(z.object({ name: z.string(), value: z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))]).optional() })), z.string()], { errorMap: () => ({ message: "args must be an object mapping parameter name to value (e.g. {\"bEnabled\": true}), an array of positional strings, an entry list ([{\"name\": \"bEnabled\", \"value\": true}]), or a string" }) }).optional().describe("Function arguments: an object mapping parameter name to value (a struct value takes a JSON object such as {X,Y,Z} or export text), an entry list [{name, value}], or a JSON string of either (invoke_function, invoke_object_function, invoke_static_function). Positional arguments, as sys.argv[1:] or, with entryPoint, the call's arguments: a list of strings, a JSON array string, or one string. A parameter map is refused (run_python_file)"),
-  assetPath: z.string().optional().describe("Alias for sequencePath (add_sequence_section, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_keyframes, set_sequence_playback_range). Level Sequence asset path (add_sequence_track, get_sequence_info). Alias for objectPath (describe_object, get_property, set_property). Asset to open in its editor (open_asset). One exact package or object path to validate (validate_assets)"),
+  assetPath: z.string().optional().describe("Alias for sequencePath (add_sequence_section, get_sequence_channel_keys, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_channel_keys, set_sequence_keyframes, set_sequence_playback_range). Level Sequence asset path (add_sequence_track, get_sequence_info). Alias for objectPath (describe_object, get_property, set_property). Asset to open in its editor (open_asset). One exact package or object path to validate (validate_assets)"),
   assetPaths: z.array(z.string()).optional().describe("Exact package or object paths to validate"),
   assetRegistryTimeoutSeconds: z.number().optional().describe("start only: how long to wait for that scan (default 180)"),
+  bindingGuid: z.string().optional().describe("Look in this binding's tracks instead of the root tracks"),
+  bindingName: z.string().optional().describe("Look in the binding with this name"),
   bones: z.array(z.string()).optional().describe("Bone or socket names; omit for every bone up to limit"),
   bookmark: z.boolean().optional().describe("Also drop a trace bookmark at the stall (default true)"),
   bookmarkName: z.string().optional().describe("Label for the timeline marker"),
@@ -2919,10 +3128,12 @@ export const schema: Record<string, z.ZodType> = {
   cameraSpeed: z.number().optional().describe("Viewport camera speed, greater than 0"),
   captureLog: z.boolean().optional().describe("false drops everything the script logged except its errors (default true)"),
   category: z.string().optional().describe("Case-insensitive substring the log category must contain (get_output_log). Settings category, e.g. Engine (open_settings)"),
-  channel: z.string().optional().describe("Location.X/Y/Z or Rotation.X/Y/Z (also x/y/z, yaw/pitch/roll) on a Transform track; the float channel on Fade or Float"),
+  channel: z.string().optional().describe("Channel name (Location.X, a parameter name such as Intensity or Tint.R); omit for every channel on the section (get_sequence_channel_keys). Channel name: Location.X, a parameter name such as Intensity, or Tint.R for a vector or color parameter (set_sequence_channel_keys). Location.X/Y/Z or Rotation.X/Y/Z (also x/y/z, yaw/pitch/roll) on a Transform track; the float channel on Fade or Float (set_sequence_keyframes)"),
   channels: z.union([z.array(z.string()), z.string()]).optional().describe("Trace channels or a preset, as an array or a comma-separated string. Passing it (or traceFile) adds -trace and -tracefile (launch_standalone_game). Trace channels or a preset, as an array or a comma-separated string (default 'default'). list_trace_channels lists what this build registers (start_insights_trace)"),
   classFilter: z.string().optional().describe("Actor or component class name substring; omit to match every actor"),
   className: z.string().optional().describe("Class to search for: a short name, a /Script path, a generated class name (WBP_Hud_C) or a Blueprint asset path (find_object). UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path (invoke_static_function)"),
+  clearDefault: z.boolean().optional().describe("Remove the channel's default value"),
+  clearExisting: z.boolean().optional().describe("Delete the channel's keys before writing (default false)"),
   command: z.string().optional().describe("Console command to run in the editor world (execute_command). Full console command; wins over name (run_stat_command)"),
   commitDeletes: z.boolean().optional().describe("Use the editor's dirty-package save, which deletes the packages of deleted World Partition actors and reports written and deleted files (default false)"),
   component: z.string().optional().describe("Component subobject name to call the function on instead of the actor"),
@@ -2935,6 +3146,7 @@ export const schema: Record<string, z.ZodType> = {
   cursor: z.string().optional().describe("Resume a paged read: pass back the nextCursor from the previous page, unmodified"),
   customMode: z.number().int().optional().describe("0-255, only with mode=custom"),
   cvars: z.union([z.array(z.object({ name: z.string().describe("Console variable name"), value: z.unknown().describe("Value to set; numbers and booleans are written as text") })), z.record(z.unknown())]).optional().describe("Console variables to set, as [{name, value}] or a {name: value} object"),
+  defaultValue: z.unknown().optional().describe("Value the channel holds where it has no keys"),
   deferToNextTick: z.boolean().optional().describe("Queue the call for the next engine tick, outside the editor script-execution guard, so a replicated UFUNCTION routes normally; return and out values are not reported"),
   description: z.string().optional().describe("Undo-stack label for the transaction (default MCP Edit)"),
   dialogAction: z.string().optional().describe("escape | close: dismiss the dialog without pressing a button, for a modal offering none that fits"),
@@ -2983,10 +3195,10 @@ export const schema: Record<string, z.ZodType> = {
   includeValues: z.boolean().optional().describe("Include current property values (default false)"),
   index: z.number().optional().describe("Which open transaction to cancel (default 0)"),
   inputMode: z.string().optional().describe("gameOnly (default) | gameAndUI | uiOnly"),
-  interpolation: z.string().optional().describe("cubic (default) | linear"),
+  interpolation: z.string().optional().describe("cubic (default) | linear | constant, for keys without their own (set_sequence_channel_keys). cubic (default) | linear (set_sequence_keyframes)"),
   invalidateHitProxies: z.boolean().optional().describe("Also invalidate hit proxies, needed before a hit test (default true)"),
   items: z.array(z.object({ index: z.number().describe("Row index from list_dialogs"), checked: z.boolean().describe("Whether the row ends up ticked") })).optional().describe("The dialog's own tickable rows to set before the button is pressed; indices come from list_dialogs, and rows left out keep their state"),
-  keyframes: z.array(z.record(z.unknown())).optional().describe("Keys to add, as [{seconds, value}]"),
+  keyframes: z.array(z.record(z.unknown())).optional().describe("Keys as [{seconds | frame | tick, value, interpolation?}]; frame is a display frame, value a number or boolean (set_sequence_channel_keys). Keys to add, as [{seconds, value}] (set_sequence_keyframes)"),
   kwargs: z.record(z.unknown()).optional().describe("Keyword arguments for the entryPoint call"),
   label: z.string().optional().describe("Alias for description"),
   latentTimeoutSeconds: z.number().optional().describe("How long one test's latent command queue may take before it is reported abandoned (default 5, max 120)"),
@@ -2998,6 +3210,7 @@ export const schema: Record<string, z.ZodType> = {
   logName: z.string().optional().describe("Listing to read (MapCheck, AssetCheck, PIE, LoadErrors...); omit to list the registered ones"),
   mapName: z.string().optional().describe("Map to open in the standalone process"),
   matchSubclasses: z.boolean().optional().describe("Match subclasses of actorClass and componentClasses (default true)"),
+  materialParameterCollection: z.string().optional().describe("Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"),
   maxDistance: z.number().optional().describe("Max ray length in cm (default 200000)"),
   maxEntries: z.number().optional().describe("Cap on entries returned (default 50)"),
   maxFrames: z.number().optional().describe("Refuse a range with more frames than this (default 300, max 5000)"),
@@ -3023,7 +3236,8 @@ export const schema: Record<string, z.ZodType> = {
   outputDir: z.string().optional().describe("Absolute or project-relative directory for the frames (default Saved/SequenceFrames/<sequence>)"),
   outputPath: z.string().optional().describe("Absolute or project-relative PNG path to write, e.g. Saved/Screenshots/cap.png (capture_scene_png). Alias for filename (capture_screenshot)"),
   packagePath: z.string().optional().describe("Destination folder (default /Game/Cinematics)"),
-  path: z.string().optional().describe("Alias for sequencePath (add_sequence_section, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_keyframes, set_sequence_playback_range). Alias for assetPath (add_sequence_track, get_sequence_info, open_asset). Alias for objectPath (describe_object, get_property, set_property). Alias for filePath (run_python_file)"),
+  parameterType: z.string().optional().describe("scalar | bool | vector | vector2d | color: adds a missing parameter to a parameter section. Inferred from the collection on a Material Parameter Collection track"),
+  path: z.string().optional().describe("Alias for sequencePath (add_sequence_section, get_sequence_channel_keys, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_channel_keys, set_sequence_keyframes, set_sequence_playback_range). Alias for assetPath (add_sequence_track, get_sequence_info, open_asset). Alias for objectPath (describe_object, get_property, set_property). Alias for filePath (run_python_file)"),
   paths: z.array(z.string()).optional().describe("Dotted property or function paths to evaluate per match. A function segment may carry literal arguments, e.g. GetBalance(gold, 2)"),
   pattern: z.string().optional().describe("Exact pattern of the policy to clear; omit to clear every policy (clear_dialog_policy). Substring matched against every registered console variable. Pass at least one of name, names and pattern (get_cvars). Case-insensitive substring of the library class name (list_function_libraries). Substring matched case-insensitively against the dialog title and message (set_dialog_policy)"),
   paused: z.boolean().optional().describe("true pauses the running trace, false resumes it (default true)"),
@@ -3051,12 +3265,15 @@ export const schema: Record<string, z.ZodType> = {
   rollbackToken: z.string().optional().describe("Token from a non-dry-run set_runtime_visibility, valid for that PIE session only"),
   rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Camera rotation (capture_scene_png, set_viewport_camera). Fixed camera rotation (render_sequence_frames). Destination rotation; omit to keep the current one (teleport_runtime_actor)"),
   runUnderOneProcess: z.boolean().optional().describe("Run every client in the editor process"),
+  sampleEndFrame: z.number().optional().describe("Last display frame to evaluate, inclusive"),
+  sampleStartFrame: z.number().optional().describe("Also evaluate the channel from this display frame"),
+  sampleStep: z.number().optional().describe("Display frames between samples (default 1)"),
   save: z.boolean().optional().describe("Save the package to disk after the write (default true; false leaves it dirty)"),
   seconds: z.number().optional().describe("Playhead position in seconds. Pass exactly one of seconds and frame"),
   section: z.string().optional().describe("Settings section, e.g. Physics, or a combined Engine.Physics"),
-  sectionIndex: z.number().int().optional().describe("Target section index (default 0)"),
+  sectionIndex: z.number().int().optional().describe("Section index on the track (default 0) (get_sequence_channel_keys, set_sequence_channel_keys). Target section index (default 0) (set_sequence_keyframes)"),
   sequenceAction: z.string().optional().describe("play (default) | pause | stop"),
-  sequencePath: z.string().optional().describe("Level Sequence asset path (add_sequence_section, set_sequence_keyframes, set_sequence_playback_range). Level Sequence to open and drive; omit to drive the one already open (play_sequence). Level Sequence to render (render_sequence_frames). Level Sequence to open and scrub; omit to scrub the one already open (scrub_sequence)"),
+  sequencePath: z.string().optional().describe("Level Sequence asset path (add_sequence_section, get_sequence_channel_keys, set_sequence_channel_keys, set_sequence_keyframes, set_sequence_playback_range). Level Sequence to open and drive; omit to drive the one already open (play_sequence). Level Sequence to render (render_sequence_frames). Level Sequence to open and scrub; omit to scrub the one already open (scrub_sequence)"),
   severity: z.string().optional().describe("Severity-name substring: Error | Warning | PerformanceWarning | Info"),
   showMouseCursor: z.boolean().optional().describe("Show the mouse cursor (default false for gameOnly, true otherwise)"),
   space: z.string().optional().describe("world (default) | component"),
@@ -3072,7 +3289,9 @@ export const schema: Record<string, z.ZodType> = {
   timeUnit: z.string().optional().describe("How to read frame: display (default, the frame numbers Sequencer shows) | tick (the units get_sequence_info's playbackRange reports)"),
   traceFile: z.string().optional().describe(".utrace path for the standalone process to write"),
   traceTarget: z.string().optional().describe("file (default, writes a .utrace) | network (streams to a trace server) | none (memory only)"),
-  trackType: z.string().optional().describe("Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"),
+  trackIndex: z.number().int().optional().describe("Which matching track, when several match (default 0)"),
+  trackName: z.string().optional().describe("Track display name; for a Material Parameter Collection track also the collection's name or path"),
+  trackType: z.string().optional().describe("Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name (add_sequence_section, add_sequence_track, set_sequence_keyframes). Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName (get_sequence_channel_keys, set_sequence_channel_keys)"),
   truncate: z.boolean().optional().describe("Overwrite the target file if it exists (default true)"),
   value: z.unknown().optional().describe("New value as structured JSON, the form get_property returns under value"),
   velocity: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Velocity written to the CharacterMovementComponent"),

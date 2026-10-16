@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1081,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -2263,7 +2263,7 @@
           "name": "trackType",
           "type": "string",
           "required": true,
-          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
         },
         {
           "name": "actorLabel",
@@ -2300,6 +2300,12 @@
           "type": "string",
           "required": false,
           "description": "Full object path of the camera actor. Wins over cameraActorLabel"
+        },
+        {
+          "name": "materialParameterCollection",
+          "type": "string",
+          "required": false,
+          "description": "Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"
         }
       ]
     },
@@ -2319,7 +2325,7 @@
           "name": "trackType",
           "type": "string",
           "required": true,
-          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
         },
         {
           "name": "actorLabel",
@@ -2332,6 +2338,12 @@
           "type": "string",
           "required": false,
           "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "materialParameterCollection",
+          "type": "string",
+          "required": false,
+          "description": "Material Parameter Collection asset a MaterialParameterCollection track animates (required for that track type)"
         }
       ]
     },
@@ -16605,6 +16617,93 @@
     "get_selected_actors": {
       "category": "level",
       "params": []
+    },
+    "get_sequence_channel_keys": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "trackType",
+          "type": "string",
+          "required": false,
+          "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+        },
+        {
+          "name": "trackName",
+          "type": "string",
+          "required": false,
+          "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+        },
+        {
+          "name": "trackIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Which matching track, when several match (default 0)"
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Look in this binding's tracks instead of the root tracks"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Look in the binding with this name"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "sectionIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Section index on the track (default 0)"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "required": false,
+          "description": "Channel name (Location.X, a parameter name such as Intensity or Tint.R); omit for every channel on the section"
+        },
+        {
+          "name": "sampleStartFrame",
+          "type": "number",
+          "required": false,
+          "description": "Also evaluate the channel from this display frame"
+        },
+        {
+          "name": "sampleEndFrame",
+          "type": "number",
+          "required": false,
+          "description": "Last display frame to evaluate, inclusive"
+        },
+        {
+          "name": "sampleStep",
+          "type": "number",
+          "required": false,
+          "description": "Display frames between samples (default 1)"
+        }
+      ]
     },
     "get_sequence_info": {
       "category": "editor",
@@ -33896,6 +33995,112 @@
         }
       ]
     },
+    "set_sequence_channel_keys": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "sequencePath",
+          "type": "string",
+          "required": true,
+          "description": "Level Sequence asset path",
+          "aliases": [
+            "assetPath",
+            "path"
+          ]
+        },
+        {
+          "name": "trackType",
+          "type": "string",
+          "required": false,
+          "description": "Track type or class name (Transform, Fade, MaterialParameterCollection, MovieSceneFloatTrack). Pass this or trackName"
+        },
+        {
+          "name": "trackName",
+          "type": "string",
+          "required": false,
+          "description": "Track display name; for a Material Parameter Collection track also the collection's name or path"
+        },
+        {
+          "name": "trackIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Which matching track, when several match (default 0)"
+        },
+        {
+          "name": "bindingGuid",
+          "type": "string",
+          "required": false,
+          "description": "Look in this binding's tracks instead of the root tracks"
+        },
+        {
+          "name": "bindingName",
+          "type": "string",
+          "required": false,
+          "description": "Look in the binding with this name"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Actor label. Editor labels are not unique, so a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path, the unambiguous selector. Wins over actorLabel"
+        },
+        {
+          "name": "sectionIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Section index on the track (default 0)"
+        },
+        {
+          "name": "channel",
+          "type": "string",
+          "required": true,
+          "description": "Channel name: Location.X, a parameter name such as Intensity, or Tint.R for a vector or color parameter"
+        },
+        {
+          "name": "keyframes",
+          "type": "array",
+          "required": false,
+          "description": "Keys as [{seconds | frame | tick, value, interpolation?}]; frame is a display frame, value a number or boolean",
+          "items": "object"
+        },
+        {
+          "name": "interpolation",
+          "type": "string",
+          "required": false,
+          "description": "cubic (default) | linear | constant, for keys without their own"
+        },
+        {
+          "name": "clearExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Delete the channel's keys before writing (default false)"
+        },
+        {
+          "name": "defaultValue",
+          "type": "any",
+          "required": false,
+          "description": "Value the channel holds where it has no keys"
+        },
+        {
+          "name": "clearDefault",
+          "type": "boolean",
+          "required": false,
+          "description": "Remove the channel's default value"
+        },
+        {
+          "name": "parameterType",
+          "type": "string",
+          "required": false,
+          "description": "scalar | bool | vector | vector2d | color: adds a missing parameter to a parameter section. Inferred from the collection on a Material Parameter Collection track"
+        }
+      ]
+    },
     "set_sequence_keyframes": {
       "category": "editor",
       "params": [
@@ -33913,7 +34118,7 @@
           "name": "trackType",
           "type": "string",
           "required": true,
-          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade"
+          "description": "Transform | Float | SkeletalAnimation | CameraCut | Audio | Event | Fade | MaterialParameterCollection, or a track class name"
         },
         {
           "name": "actorLabel",
