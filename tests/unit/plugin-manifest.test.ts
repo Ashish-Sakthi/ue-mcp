@@ -4,6 +4,7 @@ import {
   prefixedActionName,
   compileSchemaFields,
   parseManifest,
+  manifestActionNames,
 } from "../../src/extensions/manifest.js";
 import { satisfiesMinimum, compareVersions } from "../../src/extensions/version.js";
 
@@ -202,5 +203,36 @@ describe("version comparison", () => {
     expect(satisfiesMinimum("1.0.0", "1.0.0")).toBe(true);
     expect(satisfiesMinimum("1.0.1", "1.0.0")).toBe(true);
     expect(satisfiesMinimum("1.0.0", "1.0.1")).toBe(false);
+  });
+});
+
+describe("manifestActionNames (#1316)", () => {
+  const builtIn = new Set(["level", "editor"]);
+  const handlers = { stamp_set: {}, asset_create: {} };
+
+  it("names native handlers bare in a category the plugin provisions", () => {
+    const m = PluginManifestSchema.parse({
+      actionPrefix: "vox",
+      nativeModule: { uePluginName: "Vox", minBridgeApi: 1, source: "ue", category: "voxel", handlers },
+    });
+    expect(manifestActionNames(m, builtIn)).toEqual(["voxel.stamp_set", "voxel.asset_create"]);
+  });
+
+  it("names native handlers prefixed in a built-in category", () => {
+    const m = PluginManifestSchema.parse({
+      actionPrefix: "vox",
+      nativeModule: { uePluginName: "Vox", minBridgeApi: 1, source: "ue", category: "level", handlers },
+    });
+    expect(manifestActionNames(m, builtIn)).toEqual(["level.vox_stamp_set", "level.vox_asset_create"]);
+  });
+
+  it("adds nothing for native handlers with no category, and keeps inject and provides", () => {
+    const m = PluginManifestSchema.parse({
+      actionPrefix: "vox",
+      inject: { level: { fill: { task: "t" } } },
+      provides: { voxtools: { actions: { scan: { task: "t" } } } },
+      nativeModule: { uePluginName: "Vox", minBridgeApi: 1, source: "ue", handlers },
+    });
+    expect(manifestActionNames(m, builtIn)).toEqual(["level.vox_fill", "voxtools.scan"]);
   });
 });

@@ -26,7 +26,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { spawnSync } from "node:child_process";
-import { loadManifest } from "../extensions/manifest.js";
+import { loadManifest, manifestActionNames } from "../extensions/manifest.js";
 import { satisfiesMinimum } from "../extensions/version.js";
 import { findInstalledPackage } from "../extensions/resolver.js";
 import { pluginSlug, deriveGroups, isGroupEnabled } from "../extensions/plugin-groups.js";
@@ -47,7 +47,6 @@ import {
 } from "../extensions/native-deploy.js";
 import { ALL_TOOLS } from "../tools.js";
 import { readPluginsList, type PluginEntry } from "../extensions/plugins-list.js";
-import { prefixedActionName } from "../extensions/manifest.js";
 import { flowCategoryForCheck } from "../flow/flow-surface.js";
 import { buildMicroGateway } from "../surface/context/micro-context.js";
 import {
@@ -477,12 +476,7 @@ function cmdCheckSkills(args: string[]): void {
   }
   try {
     const { manifest } = loadManifest(dir);
-    for (const [category, actions] of Object.entries(manifest.inject)) {
-      for (const a of Object.keys(actions)) known.add(`${category}.${prefixedActionName(manifest.actionPrefix, a)}`);
-    }
-    for (const [category, spec] of Object.entries(manifest.provides)) {
-      for (const a of Object.keys(spec.actions)) known.add(`${category}.${a}`);
-    }
+    for (const name of manifestActionNames(manifest, new Set(ALL_TOOLS.map((t) => t.name)))) known.add(name);
   } catch (e) {
     note(`no usable ue-mcp.plugin.yml (${(e as Error).message}); checking against core actions only`);
   }

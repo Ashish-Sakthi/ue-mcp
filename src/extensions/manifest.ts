@@ -332,3 +332,26 @@ function zodForDeclaredType(
 export function prefixedActionName(prefix: string, action: string): string {
   return `${prefix}_${action}`;
 }
+
+/**
+ * Every `<category>.<action>` the manifest adds, as a client calls it: inject
+ * actions prefixed, provided actions bare, and native handlers prefixed in a
+ * built-in category or bare in the category the plugin provisions.
+ */
+export function manifestActionNames(manifest: PluginManifest, builtInCategories: ReadonlySet<string>): string[] {
+  const names: string[] = [];
+  for (const [category, actions] of Object.entries(manifest.inject)) {
+    for (const a of Object.keys(actions)) names.push(`${category}.${prefixedActionName(manifest.actionPrefix, a)}`);
+  }
+  for (const [category, spec] of Object.entries(manifest.provides)) {
+    for (const a of Object.keys(spec.actions)) names.push(`${category}.${a}`);
+  }
+  const native = manifest.nativeModule;
+  if (native?.category) {
+    const injected = builtInCategories.has(native.category);
+    for (const h of Object.keys(native.handlers)) {
+      names.push(`${native.category}.${injected ? prefixedActionName(manifest.actionPrefix, h) : h}`);
+    }
+  }
+  return names;
+}
