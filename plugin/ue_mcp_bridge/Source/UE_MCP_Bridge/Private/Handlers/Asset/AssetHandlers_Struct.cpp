@@ -113,19 +113,40 @@ static bool StructEditPropertyHolds(const FProperty* Prop, const UScriptStruct* 
 // Blueprints pick the layout up when they load.
 static void RecompileStructDependents(UUserDefinedStruct* Struct, TSharedPtr<FJsonObject> Res)
 {
+	// The struct edit has already pointed the generated classes' properties at a
+	// STRUCT_REINST_ duplicate, so those no longer name Struct. A Blueprint's own
+	// variable types still do, and they are what decides its layout.
+	auto PinTypeHolds = [Struct](const FEdGraphPinType& Type)
+	{
+		for (const UObject* Obj : { Type.PinSubCategoryObject.Get(), Type.PinValueType.TerminalSubCategoryObject.Get() })
+		{
+			if (Obj == Struct) return true;
+			if (const UScriptStruct* Inner = Cast<UScriptStruct>(Obj))
+			{
+				for (TFieldIterator<FProperty> It(Inner); It; ++It)
+				{
+					if (StructEditPropertyHolds(*It, Struct)) return true;
+				}
+			}
+		}
+		return false;
+	};
+
 	TArray<UBlueprint*> Dependents;
 	for (TObjectIterator<UBlueprint> It; It; ++It)
 	{
 		UBlueprint* BP = *It;
 		if (!BP || !BP->GeneratedClass || BP->HasAnyFlags(RF_ClassDefaultObject | RF_Transient)) continue;
-		for (TFieldIterator<FProperty> P(BP->GeneratedClass, EFieldIteratorFlags::IncludeSuper); P; ++P)
+		bool bHolds = false;
+		for (const FBPVariableDescription& Var : BP->NewVariables)
 		{
-			if (StructEditPropertyHolds(*P, Struct))
-			{
-				Dependents.Add(BP);
-				break;
-			}
+			if (PinTypeHolds(Var.VarType)) { bHolds = true; break; }
 		}
+		for (TFieldIterator<FProperty> P(BP->GeneratedClass, EFieldIteratorFlags::IncludeSuper); P && !bHolds; ++P)
+		{
+			bHolds = StructEditPropertyHolds(*P, Struct);
+		}
+		if (bHolds) Dependents.Add(BP);
 	}
 
 	TArray<TSharedPtr<FJsonValue>> Done;
