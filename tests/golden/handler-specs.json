@@ -16176,10 +16176,23 @@
           "description": "Only this component, by instance name"
         },
         {
+          "name": "relativeTo",
+          "type": "string",
+          "required": false,
+          "description": "Scene component on the same actor (instance name); every scene component and socket row also reports its transform in that component's space"
+        },
+        {
+          "name": "socketNames",
+          "type": "array",
+          "required": false,
+          "description": "Bone or socket names; each component that has sockets reports their component-space transforms",
+          "items": "string"
+        },
+        {
           "name": "world",
           "type": "string",
           "required": false,
-          "description": "World scope: editor (default) | pie"
+          "description": "editor (default) | pie | a world object path such as a Blueprint editor preview world (/Engine/Transient.World_N); with world omitted, an actorPath in another world reads that world"
         },
         {
           "name": "pieInstance",

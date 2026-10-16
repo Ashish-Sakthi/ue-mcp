@@ -4356,6 +4356,11 @@
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/LevelComponentTreeInstanceCountTests.cpp",
           "test": "UE.MCP.Level.ComponentTree.ReportsInstanceCounts"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/LevelComponentTreePreviewWorldTests.cpp",
+          "test": "UE.MCP.Level.ComponentTree.PreviewWorldRelativeAndSockets"
         }
       ]
     },
