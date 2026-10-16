@@ -184,3 +184,11 @@ describe("query_components per-actor state (#1303)", () => {
     expect(bag.fields).toEqual(["mesh", "materials", "customPrimitiveData"]);
   });
 });
+
+describe("Python line trace helper (#1283)", () => {
+  it("is named where a run_python_file caller and a line_trace caller look", async () => {
+    const { levelTool } = await import("../../src/tools/level.js");
+    expect(editorTool.actions.run_python_file.description).toContain("unreal.MCPTraceLibrary.line_trace");
+    expect(levelTool.actions.line_trace.description).toContain("unreal.MCPTraceLibrary.line_trace");
+  });
+});
