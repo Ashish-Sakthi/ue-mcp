@@ -17309,7 +17309,7 @@
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported assets (default false)"
+          "description": "Save each imported asset and report saved per asset (default true; false leaves them dirty)"
         },
         {
           "name": "automated",

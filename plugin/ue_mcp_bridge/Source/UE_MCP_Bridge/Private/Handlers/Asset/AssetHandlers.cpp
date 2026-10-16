@@ -618,7 +618,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("factoryClass"), EType::String, TEXT("UFactory subclass by name or /Script path (default: picked by extension)")),
 		MCPParam::Optional(TEXT("factoryProperties"), EType::Object, TEXT("Factory properties by UPROPERTY name or dotted path, set before the import")),
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the imported assets (default false)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each imported asset and report saved per asset (default true; false leaves them dirty)")),
 		MCPParam::Optional(TEXT("automated"), EType::Boolean, TEXT("Suppress interactive dialogs (default true)")),
 	});
 
