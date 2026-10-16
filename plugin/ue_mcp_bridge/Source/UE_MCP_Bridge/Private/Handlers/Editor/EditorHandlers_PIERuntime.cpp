@@ -319,14 +319,15 @@ namespace
 		// below to export out params.
 		FGCObjectScopeGuard TargetGuard(CallTarget);
 
-		// #973: read the callspace BEFORE the guard opens. That is the only
-		// moment it is observable: inside the guard
-		// GAllowActorScriptExecutionInEditor makes AActor::GetFunctionCallspace
-		// answer Local in its first branch, so a UFUNCTION(Server) runs its
-		// implementation on this copy instead of being sent.
+		// #1217: a target in a running PIE instance is called in that instance's
+		// context without the editor script guard, so an RPC routes the way game
+		// code on that instance would. The guard, which forces every actor
+		// callspace to Local (#973), is only opened for editor-world targets.
+		const bool bNeedsGuard = MCPFunctionCall::NeedsEditorScriptGuard(CallTarget);
 		FString NaturalCallspace;
-		const bool bCallspaceForcedLocal =
-			MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+		const bool bCallspaceForcedLocal = bNeedsGuard
+			&& MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+		if (!bNeedsGuard) NaturalCallspace = MCPFunctionCall::NetCallspaceOf(CallTarget, Func);
 
 		// The opt-in escape from that override: queued for the next engine tick,
 		// the send happens after the guard's scope has ended and the call routes
@@ -351,11 +352,16 @@ namespace
 
 		// #806: an actor whose world never initialised for play (every editor
 		// world) silently skips ProcessEvent unless the function is marked
-		// CallInEditor, leaving the zeroed frame to be exported as the result.
-		// The guard opens that gate for the duration of this call only.
+		// CallInEditor, so that case runs under the guard.
+		bool bUsedEditorGuard = false;
+		MCPFunctionCall::ProcessEventInOwnContext(CallTarget, Func, ParamBuf.GetData(), bUsedEditorGuard);
+		Result->SetStringField(TEXT("callContext"), bUsedEditorGuard ? TEXT("editorScriptGuard") : TEXT("playInstance"));
+		if (const UWorld* PlayWorld = MCPPlayWorldOf(CallTarget))
 		{
-			FEditorScriptExecutionGuard ScriptGuard;
-			CallTarget->ProcessEvent(Func, ParamBuf.GetData());
+			if (const FWorldContext* Ctx = GEngine ? GEngine->GetWorldContextFromWorld(PlayWorld) : nullptr)
+			{
+				Result->SetNumberField(TEXT("callPieInstance"), Ctx->PIEInstance);
+			}
 		}
 
 		if (bCallspaceForcedLocal)
@@ -364,6 +370,11 @@ namespace
 			Result->SetBoolField(TEXT("callspaceForcedLocal"), true);
 			Result->SetStringField(TEXT("warning"),
 				MCPFunctionCall::DescribeForcedLocalCallspace(FunctionName, NaturalCallspace));
+		}
+		else if (!NaturalCallspace.IsEmpty())
+		{
+			Result->SetStringField(TEXT("netCallspace"), NaturalCallspace);
+			Result->SetBoolField(TEXT("callspaceForcedLocal"), false);
 		}
 		// NOTE: UObject* out-params live in ParamBuf, which is raw bytes and
 		// invisible to GC. Guarding them after the fact cannot help - by then a

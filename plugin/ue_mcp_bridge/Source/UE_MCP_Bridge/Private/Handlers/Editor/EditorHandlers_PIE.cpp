@@ -894,11 +894,11 @@ namespace
 		if (bBound)
 		{
 			{
-				// #806: without this guard an actor getter called against the
-				// editor world is skipped and the zeroed frame reads back as a
-				// real value.
-				FEditorScriptExecutionGuard ScriptGuard;
-				Target->ProcessEvent(Fn, Frame.GetData());
+				// #806: an editor-world getter runs under the script guard, or it
+				// is skipped and the zeroed frame reads back as a real value. A
+				// PIE getter runs in its own instance's context (#1217).
+				bool bUsedEditorGuard = false;
+				MCPFunctionCall::ProcessEventInOwnContext(Target, Fn, Frame.GetData(), bUsedEditorGuard);
 			}
 			WritePropertyValue(Out, FieldKey, RetProp, RetProp->ContainerPtrToValuePtr<void>(Frame.GetData()));
 		}
@@ -1495,14 +1495,14 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 	// the world and collects garbage, and CallTarget is read again below.
 	FGCObjectScopeGuard CallTargetGuard(CallTarget);
 
-	// #973: read the callspace BEFORE the guard opens. That is the only moment
-	// it is observable: inside the guard GAllowActorScriptExecutionInEditor
-	// makes AActor::GetFunctionCallspace answer Local in its first branch, so a
-	// UFUNCTION(Server) runs its implementation on this copy instead of being
-	// sent, and the result used to say nothing about it.
+	// #973/#1217: only an editor-world target runs under the script guard, which
+	// forces every actor callspace to Local. Read the callspace before it opens;
+	// a PIE target runs in its own instance's context and routes normally.
+	const bool bNeedsGuard = MCPFunctionCall::NeedsEditorScriptGuard(CallTarget);
 	FString NaturalCallspace;
-	const bool bCallspaceForcedLocal =
-		MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+	const bool bCallspaceForcedLocal = bNeedsGuard
+		&& MCPFunctionCall::WouldForceNetCallspaceLocal(CallTarget, Func, NaturalCallspace);
+	if (!bNeedsGuard) NaturalCallspace = MCPFunctionCall::NetCallspaceOf(CallTarget, Func);
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("actorLabel"), ActorLabel);
@@ -1576,10 +1576,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 	// (X=0,Y=0,Z=0) with success. FEditorScriptExecutionGuard opens the same
 	// gate the editor itself uses for CallInEditor functions, for this call
 	// only, so the placed instance actually runs the function.
-	{
-		FEditorScriptExecutionGuard ScriptGuard;
-		CallTarget->ProcessEvent(Func, ParamBuf.GetData());
-	}
+	bool bUsedEditorGuard = false;
+	MCPFunctionCall::ProcessEventInOwnContext(CallTarget, Func, ParamBuf.GetData(), bUsedEditorGuard);
+	Result->SetStringField(TEXT("callContext"), bUsedEditorGuard ? TEXT("editorScriptGuard") : TEXT("playInstance"));
 
 	if (bCallspaceForcedLocal)
 	{
@@ -1587,6 +1586,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::InvokeFunction(const TSharedPtr<FJsonObj
 		Result->SetBoolField(TEXT("callspaceForcedLocal"), true);
 		Result->SetStringField(TEXT("warning"),
 			MCPFunctionCall::DescribeForcedLocalCallspace(FunctionName, NaturalCallspace));
+	}
+	else if (!NaturalCallspace.IsEmpty())
+	{
+		Result->SetStringField(TEXT("netCallspace"), NaturalCallspace);
+		Result->SetBoolField(TEXT("callspaceForcedLocal"), false);
 	}
 
 	// #885: containers come back as real JSON. Export text renders a
