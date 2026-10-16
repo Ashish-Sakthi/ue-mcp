@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1081,
+  "handlerCount": 1082,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -14282,6 +14282,89 @@
       "category": "project",
       "params": [],
       "contractExempt": "runs the project file generator"
+    },
+    "generate_skeletal_mesh_lods": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": false,
+          "description": "One SkeletalMesh"
+        },
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "SkeletalMeshes, at most 500",
+          "items": "string"
+        },
+        {
+          "name": "directory",
+          "type": "string",
+          "required": false,
+          "description": "Every SkeletalMesh in this folder"
+        },
+        {
+          "name": "recursive",
+          "type": "boolean",
+          "required": false,
+          "description": "With directory, include subfolders (default true)"
+        },
+        {
+          "name": "lodCount",
+          "type": "integer",
+          "required": true,
+          "description": "Total LODs including LOD 0, 1 to 8"
+        },
+        {
+          "name": "trianglePercentages",
+          "type": "array",
+          "required": false,
+          "description": "Triangle percentage of LOD 0 for each LOD after it, lodCount - 1 values above 0 and at most 100 (default the engine's reduction settings)",
+          "items": "number"
+        },
+        {
+          "name": "regenerateImported",
+          "type": "boolean",
+          "required": false,
+          "description": "Also regenerate LODs that were imported rather than generated (default false)"
+        },
+        {
+          "name": "skipExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Skip a mesh already at lodCount (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Report each mesh's LODs and what would happen without changing anything"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save each changed mesh (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ],
+            [
+              "directory"
+            ]
+          ]
+        }
+      ]
     },
     "get_action_value": {
       "category": "gameplay",

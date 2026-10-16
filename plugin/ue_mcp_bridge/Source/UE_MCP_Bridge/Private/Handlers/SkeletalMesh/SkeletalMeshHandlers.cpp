@@ -730,6 +730,18 @@ void FSkeletalMeshHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecSkinLodIndex, SpecProfileName,
 		MCPParam::Optional(TEXT("restoreRawWeights"), EType::Boolean, TEXT("Rollback payloads only: restore the exact uint16 rawWeight values")),
 	});
+	Registry.RegisterHandlerWithTimeout(TEXT("generate_skeletal_mesh_lods"), &GenerateSkeletalMeshLods, 600.0f, {
+		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("One SkeletalMesh")),
+		MCPParam::Optional(TEXT("assetPaths"), EType::Array, TEXT("SkeletalMeshes, at most 500")).Items(EType::String),
+		MCPParam::Optional(TEXT("directory"), EType::String, TEXT("Every SkeletalMesh in this folder")),
+		MCPParam::Optional(TEXT("recursive"), EType::Boolean, TEXT("With directory, include subfolders (default true)")),
+		MCPParam::Required(TEXT("lodCount"), EType::Integer, TEXT("Total LODs including LOD 0, 1 to 8")),
+		MCPParam::Optional(TEXT("trianglePercentages"), EType::Array, TEXT("Triangle percentage of LOD 0 for each LOD after it, lodCount - 1 values above 0 and at most 100 (default the engine's reduction settings)")).Items(EType::Number),
+		MCPParam::Optional(TEXT("regenerateImported"), EType::Boolean, TEXT("Also regenerate LODs that were imported rather than generated (default false)")),
+		MCPParam::Optional(TEXT("skipExisting"), EType::Boolean, TEXT("Skip a mesh already at lodCount (default true)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report each mesh's LODs and what would happen without changing anything")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each changed mesh (default true)")),
+	}, MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("assetPaths") }, { TEXT("directory") } }));
 }
 
 TSharedPtr<FJsonValue> FSkeletalMeshHandlers::ReadSkinWeights(const TSharedPtr<FJsonObject>& Params)
