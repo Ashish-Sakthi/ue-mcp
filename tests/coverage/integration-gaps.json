@@ -1,7 +1,6 @@
 {
   "note": "Surfaces that had no integration test when the integration-coverage gate landed, grandfathered so it could start green. This list only shrinks: the gate fails on an entry that has gained a test (npm run coverage:integration -- --shrink-ratchet) and the release gate fails on any entry that was not here at the merge base. A new surface never goes here; it gets a test or a reasoned exemption in integration-exemptions.json.",
   "gaps": [
-    "actions.local",
     "auth.device-flow",
     "cli.auth",
     "cli.dialog.mode",
@@ -13,26 +12,12 @@
     "cli.feedback.show",
     "cli.init.interactive",
     "cli.resolve",
-    "config.cascade",
-    "config.env-overlay",
     "exports.daemon",
     "exports.guard",
     "exports.task",
     "feedback.routing",
     "feedback.submit.bot",
     "feedback.submit.defer",
-    "feedback.submit.user",
-    "flow.list",
-    "flow.plan",
-    "flow.run.builtin",
-    "gateway.call",
-    "gateway.describe",
-    "gateway.list_categories",
-    "gateway.search",
-    "guards.config",
-    "guards.write-detect",
-    "server.editor-down",
-    "sessions.editor-management",
-    "version-check.notice"
+    "feedback.submit.user"
   ]
 }
