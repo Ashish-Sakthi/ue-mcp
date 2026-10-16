@@ -14,7 +14,7 @@ import type { ActionSpec } from "../../core/types.js";
 import { bp } from "../../surface/category-tool.js";
 
 const S_epic_discover_tests = {"properties":{"bForceRediscover":{"type":"boolean"}}} as const;
-const S_epic_get_section_property_values = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"},"sectionName":{"type":"string"},"propertyNames":{"type":"array"}},"required":["containerName","categoryName","sectionName","propertyNames"]} as const;
+const S_epic_get_section_property_values = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"},"sectionName":{"type":"string"},"propertyNames":{"type":"array","items":{"type":"string"}}},"required":["containerName","categoryName","sectionName","propertyNames"]} as const;
 const S_epic_get_section_schema = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"},"sectionName":{"type":"string"}},"required":["containerName","categoryName","sectionName"]} as const;
 const S_epic_get_test_results = {"properties":{}} as const;
 const S_epic_get_test_status = {"properties":{}} as const;
@@ -23,7 +23,7 @@ const S_epic_list_containers = {"properties":{}} as const;
 const S_epic_list_sections = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"}},"required":["containerName","categoryName"]} as const;
 const S_epic_list_tests = {"properties":{"nameFilter":{"type":"string"},"tagFilter":{"type":"string"},"limit":{"type":"integer"}},"required":["nameFilter","tagFilter"]} as const;
 const S_epic_reset_section_to_defaults = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"},"sectionName":{"type":"string"}},"required":["containerName","categoryName","sectionName"]} as const;
-const S_epic_run_tests = {"properties":{"testNames":{"type":"array"}},"required":["testNames"]} as const;
+const S_epic_run_tests = {"properties":{"testNames":{"type":"array","items":{"type":"string"}}},"required":["testNames"]} as const;
 const S_epic_run_tests_by_filter = {"properties":{"filterExpression":{"type":"string"}},"required":["filterExpression"]} as const;
 const S_epic_save_section = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"},"sectionName":{"type":"string"}},"required":["containerName","categoryName","sectionName"]} as const;
 const S_epic_set_section_properties = {"properties":{"containerName":{"type":"string"},"categoryName":{"type":"string"},"sectionName":{"type":"string"},"propertiesJson":{"type":"string"}},"required":["containerName","categoryName","sectionName","propertiesJson"]} as const;

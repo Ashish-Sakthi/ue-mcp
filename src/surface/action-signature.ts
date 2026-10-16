@@ -134,6 +134,7 @@ function specItems(params: readonly ParamSpec[], choices: readonly ParamChoice[]
 interface EpicProp {
   type?: string;
   properties?: Record<string, unknown>;
+  items?: EpicProp;
 }
 
 function epicType(prop: EpicProp | undefined): string {
@@ -145,7 +146,8 @@ function epicType(prop: EpicProp | undefined): string {
     case "integer": return "i";
     case "boolean": return "b";
     case "object": return "o";
-    case "array": return "[]";
+    // A recorded item type is part of the signature (#1281).
+    case "array": return prop.items?.type ? `[${explicit(epicType(prop.items))}]` : "[]";
     default: return "*";
   }
 }

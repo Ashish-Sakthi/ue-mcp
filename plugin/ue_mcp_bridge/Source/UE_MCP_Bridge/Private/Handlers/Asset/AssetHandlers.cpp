@@ -4783,6 +4783,15 @@ TSharedPtr<FJsonValue> FAssetHandlers::ForceReload(const TSharedPtr<FJsonObject>
 // `subsurface_profile.settings.mean_free_path_distance` - the handler does
 // the struct-copy dance internally and writes back through SetJsonOnProperty.
 // ---------------------------------------------------------------------------
+// A mesh's Sockets array holds instanced subobjects the property writer cannot
+// create, so a failed write there names the socket actions that can (#1182).
+static FString AssetSocketPropertyHint(const UObject* Asset, const FString& PropertyName)
+{
+	if (!Asset || !PropertyName.StartsWith(TEXT("Sockets"), ESearchCase::IgnoreCase)) return FString();
+	if (!Asset->IsA<UStaticMesh>() && !Asset->IsA<USkeletalMesh>()) return FString();
+	return TEXT(" Sockets are authored with asset(add_socket), asset(set_socket_transform) and asset(remove_socket), not set_property.");
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -4814,7 +4823,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	MCPJsonProperty::FResolvedPathInfo PathInfo;
 	if (!MCPJsonProperty::ResolveDottedPath(Asset, PropertyName, FinalProp, ValuePtr, LeafOwner, ResolveErr, &PathInfo))
 	{
-		return MCPError(ResolveErr);
+		return MCPError(ResolveErr + AssetSocketPropertyHint(Asset, PropertyName));
 	}
 
 	FString PrevValue;
@@ -4838,7 +4847,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::SetAssetProperty(const TSharedPtr<FJsonOb
 	if (!MCPJsonProperty::SetJsonOnProperty(FinalProp, ValuePtr, ValueField, SetErr))
 	{
 		Transaction.Cancel();
-		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s"), *PropertyName, *SetErr));
+		return MCPError(FString::Printf(TEXT("Failed to set '%s': %s%s"), *PropertyName, *SetErr, *AssetSocketPropertyHint(Asset, PropertyName)));
 	}
 
 	if (LeafOwner) LeafOwner->PostEditChange();

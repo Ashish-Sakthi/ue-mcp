@@ -128,6 +128,20 @@ describe("takeFieldSelection", () => {
     expect(rest).toEqual({ action: "go" });
   });
 
+  it("splits a comma-joined string into separate paths (#1335)", () => {
+    const { selection } = takeFieldSelection({
+      select: "components.name, components.class",
+      omit: ["world,actorLabel", "components.transform"],
+    });
+    expect(selection.select).toEqual(["components.name", "components.class"]);
+    expect(selection.omit).toEqual(["world", "actorLabel", "components.transform"]);
+    const projected = projectResult(TREE, { select: selection.select });
+    expect(projected.notFound).toEqual([]);
+    expect(projected.result).toEqual({
+      components: [{ name: "Root", class: "SceneComponent" }, { name: "Mesh", class: "SkeletalMeshComponent" }],
+    });
+  });
+
   it("strips both parameters so neither can reach a bridge call", () => {
     const { rest } = takeFieldSelection({ select: ["a"], omit: ["b"], assetPath: "/Game/X" });
     expect(rest).toEqual({ assetPath: "/Game/X" });
