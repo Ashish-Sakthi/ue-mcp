@@ -703,6 +703,12 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
       },
       {
+        "name": "propertyPath",
+        "type": "string",
+        "required": false,
+        "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
+      },
+      {
         "name": "propertyNames",
         "type": "array",
         "required": false,
@@ -1099,6 +1105,12 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
       },
       {
+        "name": "propertyPath",
+        "type": "string",
+        "required": false,
+        "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
+      },
+      {
         "name": "args",
         "type": "any",
         "required": false,
@@ -1170,6 +1182,12 @@ export const handlerSpecs: HandlerSpecs = {
             "type": "integer",
             "required": false,
             "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+          },
+          {
+            "name": "propertyPath",
+            "type": "string",
+            "required": false,
+            "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
           },
           {
             "name": "args",
@@ -2159,10 +2177,51 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
       },
       {
+        "name": "propertyPath",
+        "type": "string",
+        "required": false,
+        "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
+      },
+      {
         "name": "postEditChange",
         "type": "boolean",
         "required": false,
         "description": "Fire PostEditChangeProperty after the write (default false)"
+      },
+      {
+        "name": "world",
+        "type": "string",
+        "required": false,
+        "description": "World scope: editor | pie | auto. Each action names its own default"
+      },
+      {
+        "name": "pieInstance",
+        "type": "number",
+        "required": false,
+        "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
+      }
+    ]
+  },
+  "set_pie_paused": {
+    "category": "editor",
+    "params": [
+      {
+        "name": "paused",
+        "type": "boolean",
+        "required": true,
+        "description": "true pauses, false resumes"
+      },
+      {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "description": "game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world"
+      },
+      {
+        "name": "force",
+        "type": "boolean",
+        "required": false,
+        "description": "game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)"
       },
       {
         "name": "world",
@@ -2816,7 +2875,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_frame_timing: "Params: cpuGpuMarginPercent?",
   get_insights_trace_status: "Params: none",
   get_message_log: "Params: logName?, maxLines?, severity?",
-  get_object_properties: "Params: objectPath?, target?, subsystemClass?, playerIndex?, propertyNames?, world?, pieInstance?, limit?, maxValueLength?",
+  get_object_properties: "Params: objectPath?, target?, subsystemClass?, playerIndex?, propertyPath?, propertyNames?, world?, pieInstance?, limit?, maxValueLength?",
   get_open_asset_editors: "Params: none",
   get_output_log: "Params: maxLines?, filter?, category?, cursor?, limit?",
   get_pie_config: "Params: none",
@@ -2834,7 +2893,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   hit_test_viewport_pixel: "Params: x, y, width?, height?, maxDistance?, ignoreActors?",
   hot_reload: "Params: none",
   invoke_function: "Params: functionName, at least one of actorLabel/actorPath, component?, args?, actorArgs?, world?, pieInstance?, deferToNextTick?",
-  invoke_object_function: "Params: functionName, objectPath?, target?, subsystemClass?, playerIndex?, args?, world?, pieInstance?, deferToNextTick?",
+  invoke_object_function: "Params: functionName, objectPath?, target?, subsystemClass?, playerIndex?, propertyPath?, args?, world?, pieInstance?, deferToNextTick?",
   invoke_object_functions: "Params: calls, world?, pieInstance?",
   invoke_static_function: "Params: className, functionName, args?, actorArgs?, worldContextParam?, world?, pieInstance?",
   launch_standalone_game: "Params: mapName?, channels?, traceFile?, windowed?, resX?, resY?, extraArgs?",
@@ -2869,7 +2928,8 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_dialog_policy: "Params: pattern, at least one of response/buttonLabel",
   set_game_view: "Params: enabled?, viewportIndex?",
   set_movement_mode: "Params: actorLabel?, actorPath?, mode?, customMode?, velocity?, world?, pieInstance?",
-  set_object_property: "Params: propertyName, value, objectPath?, target?, subsystemClass?, playerIndex?, postEditChange?, world?, pieInstance?",
+  set_object_property: "Params: propertyName, value, objectPath?, target?, subsystemClass?, playerIndex?, propertyPath?, postEditChange?, world?, pieInstance?",
+  set_pie_paused: "Params: paused, mode?, force?, world?, pieInstance?",
   set_pie_time_scale: "Params: factor",
   set_property: "Params: objectPath (or path, or assetPath), propertyName, value, save?",
   set_realtime: "Params: enabled?",
@@ -2913,7 +2973,7 @@ export const schema: Record<string, z.ZodType> = {
   bookmarkName: z.string().optional().describe("Label for the timeline marker"),
   buttonIndex: z.number().optional().describe("Index of the button to press, in the order list_dialogs reports"),
   buttonLabel: z.string().optional().describe("Label of the button to press, matched exactly first, then as a substring (respond_to_dialog). Button a matched dialog gets pressed for it, matched exactly first, then as a substring. Reaches buttons no response names, such as Don't Save (set_dialog_policy)"),
-  calls: z.array(z.object({ functionName: z.string().describe("UFUNCTION to call"), objectPath: z.string().optional().describe("Object path of the live instance. Wins over target"), target: z.string().optional().describe("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem"), subsystemClass: z.string().optional().describe("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"), playerIndex: z.number().int().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"), args: z.union([z.record(z.string(), z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))])), z.array(z.string()), z.array(z.object({ name: z.string(), value: z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))]).optional() })), z.string()], { errorMap: () => ({ message: "args must be an object mapping parameter name to value (e.g. {\"bEnabled\": true}), an array of positional strings, an entry list ([{\"name\": \"bEnabled\", \"value\": true}]), or a string" }) }).optional().describe("This call's arguments, in any form invoke_object_function takes") })).optional().describe("1 to 64 calls, run in order in one game-thread dispatch; the first failure stops the sequence"),
+  calls: z.array(z.object({ functionName: z.string().describe("UFUNCTION to call"), objectPath: z.string().optional().describe("Object path of the live instance. Wins over target"), target: z.string().optional().describe("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem"), subsystemClass: z.string().optional().describe("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor"), playerIndex: z.number().int().optional().describe("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"), propertyPath: z.string().optional().describe("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"), args: z.union([z.record(z.string(), z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))])), z.array(z.string()), z.array(z.object({ name: z.string(), value: z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.union([z.string(), z.number(), z.boolean(), z.null()]), z.object({}).passthrough(), z.array(z.union([z.string(), z.number(), z.boolean(), z.null()]))]))]).optional() })), z.string()], { errorMap: () => ({ message: "args must be an object mapping parameter name to value (e.g. {\"bEnabled\": true}), an array of positional strings, an entry list ([{\"name\": \"bEnabled\", \"value\": true}]), or a string" }) }).optional().describe("This call's arguments, in any form invoke_object_function takes") })).optional().describe("1 to 64 calls, run in order in one game-thread dispatch; the first failure stops the sequence"),
   cameraActorLabel: z.string().optional().describe("Camera actor to bind a CameraCut section to (add_sequence_section). Camera actor to render through instead of the camera cuts (render_sequence_frames)"),
   cameraActorPath: z.string().optional().describe("Full object path of the camera actor. Wins over cameraActorLabel (add_sequence_section). Full object path of that camera actor. Wins over cameraActorLabel (render_sequence_frames)"),
   cameraSpeed: z.number().optional().describe("Viewport camera speed, greater than 0"),
@@ -2963,6 +3023,7 @@ export const schema: Record<string, z.ZodType> = {
   focusActorPath: z.string().optional().describe("Full object path of the actor to frame. Wins over focusActorLabel"),
   focusDirection: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Framing direction from the focus actor (default front and above)"),
   focusMargin: z.number().optional().describe("Positive bounds fill margin; higher pulls back (default 1.5)"),
+  force: z.boolean().optional().describe("game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)"),
   format: z.string().optional().describe("Image format; only png"),
   fov: z.number().optional().describe("Capture FOV in degrees, greater than 0 and less than 180 (default 90) (capture_scene_png). Fixed camera FOV in degrees (default 90) (render_sequence_frames). Field of view in degrees, greater than 0 and less than 180 (set_viewport_view)"),
   frame: z.number().optional().describe("Playhead position as a frame number, read in timeUnit"),
@@ -3007,7 +3068,7 @@ export const schema: Record<string, z.ZodType> = {
   maxTargets: z.number().int().optional().describe("Upper bound on resolved actor and component targets; a larger set is refused rather than truncated"),
   maxTests: z.number().optional().describe("Cap on tests to run (default 50)"),
   maxValueLength: z.number().optional().describe("Truncate each exported value past this many characters (default 2000)"),
-  mode: z.string().optional().describe("none | walking | navwalking | falling | swimming | flying | custom (set_movement_mode). fixed | auto (set_viewport_exposure)"),
+  mode: z.string().optional().describe("none | walking | navwalking | falling | swimming | flying | custom (set_movement_mode). game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world (set_pie_paused). fixed | auto (set_viewport_exposure)"),
   name: z.string().optional().describe("Name of the new Level Sequence asset (create_level_sequence). Console variable to read (get_cvars). Bare stat name such as unit, fps, game or gpu, prefixed with 'stat ' (default fps) (run_stat_command)"),
   nameContains: z.string().optional().describe("Case-insensitive substring of the object name"),
   names: z.array(z.string()).optional().describe("Console variables to read"),
@@ -3026,7 +3087,7 @@ export const schema: Record<string, z.ZodType> = {
   path: z.string().optional().describe("Alias for sequencePath (add_sequence_section, play_sequence, render_sequence_frames, scrub_sequence, set_sequence_keyframes, set_sequence_playback_range). Alias for assetPath (add_sequence_track, get_sequence_info, open_asset). Alias for objectPath (describe_object, get_property, set_property). Alias for filePath (run_python_file)"),
   paths: z.array(z.string()).optional().describe("Dotted property or function paths to evaluate per match. A function segment may carry literal arguments, e.g. GetBalance(gold, 2)"),
   pattern: z.string().optional().describe("Exact pattern of the policy to clear; omit to clear every policy (clear_dialog_policy). Substring matched against every registered console variable. Pass at least one of name, names and pattern (get_cvars). Case-insensitive substring of the library class name (list_function_libraries). Substring matched case-insensitively against the dialog title and message (set_dialog_policy)"),
-  paused: z.boolean().optional().describe("true pauses the running trace, false resumes it (default true)"),
+  paused: z.boolean().optional().describe("true pauses the running trace, false resumes it (default true) (pause_insights_trace). true pauses, false resumes (set_pie_paused)"),
   pieAction: z.string().optional().describe("start | stop | status (default status)"),
   pieInstance: z.number().optional().describe("PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"),
   pitch: z.number().optional().describe("Control-rotation pitch"),
@@ -3038,6 +3099,7 @@ export const schema: Record<string, z.ZodType> = {
   propagateToChildren: z.boolean().optional().describe("Also take each matched component's descendants (default true)"),
   propertyName: z.string().optional().describe("Property name; dotted and indexed paths reach component and struct fields"),
   propertyNames: z.array(z.string()).optional().describe("Dotted or indexed property paths to report instead of every property (describe_object). Only these properties. The Details-panel spelling is accepted (get_object_properties)"),
+  propertyPath: z.string().optional().describe("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"),
   quality: z.string().optional().describe("Preview (default) | Medium | High | Production"),
   query: z.string().optional().describe("Case-insensitive substring to search the captured log for"),
   regionCategory: z.string().optional().describe("Category shown alongside the region in Unreal Insights"),
@@ -3082,7 +3144,7 @@ export const schema: Record<string, z.ZodType> = {
   waitForAssetRegistry: z.boolean().optional().describe("start only: block until the AssetRegistry initial scan completes, since PIE silently no-ops during it on a cold editor (default true)"),
   width: z.number().optional().describe("Capture width in pixels (default 1280) (capture_scene_png). Viewport width to read x against, when picking from a screenshot of another resolution (hit_test_viewport_pixel). Frame width in pixels (default 1280) (render_sequence_frames)"),
   windowed: z.boolean().optional().describe("Run windowed rather than fullscreen (default true)"),
-  world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
+  world: z.string().optional().describe("World scope: editor (default) | pie (capture_scene_png). World scope: any (default) | editor | pie (find_object). World scope: editor | pie | auto. Each action names its own default (get_object_properties, get_runtime_value, get_runtime_values, invoke_object_function, invoke_object_functions, read_bone_transforms, restore_runtime_visibility, set_movement_mode, set_object_property, set_pie_paused, set_runtime_visibility, teleport_runtime_actor). editor (default) | pie | auto (invoke_function). editor (default) | pie | game | auto (invoke_static_function)"),
   worldContextParam: z.string().optional().describe("UObject* parameter to fill with the selected world; detected from WorldContext metadata and for WorldContextObject when omitted"),
   worldPath: z.string().optional().describe("Exact PIE UWorld path or name to capture"),
   x: z.number().optional().describe("Viewport pixel X"),

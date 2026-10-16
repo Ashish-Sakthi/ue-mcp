@@ -49,13 +49,133 @@
 namespace
 {
 	/**
+	 * #802: match a requested property name against a reflected one, accepting
+	 * the spelling the Details panel shows. A Blueprint variable declared as
+	 * WorldContextObject is displayed (and asked for) as "World Context Object",
+	 * and a bool bIsActive is displayed as "Is Active", so an exact-name filter
+	 * reports a property that plainly exists as missing.
+	 */
+	bool PropertyNameMatches(const FProperty* Prop, const FString& Requested)
+	{
+		if (!Prop) return false;
+		const FString Actual = Prop->GetName();
+		if (Actual.Equals(Requested, ESearchCase::IgnoreCase)) return true;
+
+		const FString Squashed = Requested.Replace(TEXT(" "), TEXT(""));
+		if (Squashed.IsEmpty()) return false;
+		if (Actual.Equals(Squashed, ESearchCase::IgnoreCase)) return true;
+		// The display name of a bool drops the Unreal "b" prefix.
+		if (Prop->IsA<FBoolProperty>() && Actual.Equals(TEXT("b") + Squashed, ESearchCase::IgnoreCase)) return true;
+		return false;
+	}
+
+	/** A reflected property on Struct by exact name, or by its Details-panel spelling. */
+	FProperty* FindPropertyBySpelling(const UStruct* Struct, const FString& Requested)
+	{
+		if (!Struct) return nullptr;
+		if (FProperty* Exact = Struct->FindPropertyByName(FName(*Requested))) return Exact;
+		for (TFieldIterator<FProperty> It(Struct, EFieldIteratorFlags::IncludeSuper); It; ++It)
+		{
+			if (PropertyNameMatches(*It, Requested)) return *It;
+		}
+		return nullptr;
+	}
+
+	/**
+	 * #1215: follow a dotted chain of object-reference properties from Root,
+	 * e.g. "GameSettings.Game Settings". A segment may index an array of object
+	 * references ("Items[2]") or, on an actor, name a component instance.
+	 */
+	UObject* FollowObjectPropertyPath(UObject* Root, const FString& Path, FString& OutError)
+	{
+		TArray<FString> Segments;
+		Path.ParseIntoArray(Segments, TEXT("."), true);
+		UObject* Current = Root;
+		for (const FString& RawSegment : Segments)
+		{
+			FString Name = RawSegment.TrimStartAndEnd();
+			int32 Index = INDEX_NONE;
+			int32 Bracket = INDEX_NONE;
+			if (Name.FindChar(TEXT('['), Bracket) && Name.EndsWith(TEXT("]")))
+			{
+				const FString IndexText = Name.Mid(Bracket + 1, Name.Len() - Bracket - 2);
+				if (!IndexText.IsNumeric())
+				{
+					OutError = FString::Printf(TEXT("propertyPath segment '%s' has a non-numeric index"), *RawSegment);
+					return nullptr;
+				}
+				Index = FCString::Atoi(*IndexText);
+				Name = Name.Left(Bracket);
+			}
+
+			UObject* Next = nullptr;
+			if (FProperty* Prop = FindPropertyBySpelling(Current->GetClass(), Name))
+			{
+				FProperty* ValueProp = Prop;
+				void* ValueAddr = Prop->ContainerPtrToValuePtr<void>(Current);
+				if (Index != INDEX_NONE)
+				{
+					FArrayProperty* ArrayProp = CastField<FArrayProperty>(Prop);
+					if (!ArrayProp)
+					{
+						OutError = FString::Printf(TEXT("propertyPath segment '%s': %s is not an array"), *RawSegment, *Prop->GetName());
+						return nullptr;
+					}
+					FScriptArrayHelper Helper(ArrayProp, ValueAddr);
+					if (!Helper.IsValidIndex(Index))
+					{
+						OutError = FString::Printf(TEXT("propertyPath segment '%s': index %d out of range (num=%d)"), *RawSegment, Index, Helper.Num());
+						return nullptr;
+					}
+					ValueProp = ArrayProp->Inner;
+					ValueAddr = Helper.GetRawPtr(Index);
+				}
+				FObjectPropertyBase* ObjectProp = CastField<FObjectPropertyBase>(ValueProp);
+				if (!ObjectProp)
+				{
+					OutError = FString::Printf(TEXT("propertyPath segment '%s' on %s is a %s, not an object reference"),
+						*RawSegment, *Current->GetClass()->GetName(), *ValueProp->GetCPPType());
+					return nullptr;
+				}
+				Next = ObjectProp->GetObjectPropertyValue(ValueAddr);
+				if (!IsValid(Next))
+				{
+					OutError = FString::Printf(TEXT("propertyPath segment '%s' on %s is null"), *RawSegment, *Current->GetPathName());
+					return nullptr;
+				}
+			}
+			else if (AActor* AsActor = Cast<AActor>(Current))
+			{
+				for (UActorComponent* Comp : AsActor->GetComponents())
+				{
+					if (Comp && Comp->GetName().Equals(Name, ESearchCase::IgnoreCase)) { Next = Comp; break; }
+				}
+			}
+			if (!Next)
+			{
+				TArray<FString> Candidates;
+				for (TFieldIterator<FObjectPropertyBase> It(Current->GetClass(), EFieldIteratorFlags::IncludeSuper); It && Candidates.Num() < 40; ++It)
+				{
+					Candidates.Add(It->GetName());
+				}
+				OutError = FString::Printf(TEXT("propertyPath segment '%s' is not an object property%s of %s. Object properties: [%s]"),
+					*RawSegment, Current->IsA<AActor>() ? TEXT(" or component") : TEXT(""),
+					*Current->GetClass()->GetName(), *FString::Join(Candidates, TEXT(", ")));
+				return nullptr;
+			}
+			Current = Next;
+		}
+		return Current;
+	}
+
+	/**
 	 * #739: resolve any UObject a caller might want to call into, not just a
 	 * placed actor. Accepts an explicit object path, or one of the well-known
 	 * runtime singletons an agent actually reaches for, none of which have an
 	 * actor label to target: the GameInstance, GameMode, GameState, a player
 	 * controller/pawn, or a named subsystem.
 	 */
-	UObject* ResolveRuntimeObject(
+	UObject* ResolveRuntimeRoot(
 		const TSharedPtr<FJsonObject>& Params,
 		UWorld* World,
 		FString& OutDescription,
@@ -217,25 +337,20 @@ namespace
 		return nullptr;
 	}
 
-	/**
-	 * #802: match a requested property name against a reflected one, accepting
-	 * the spelling the Details panel shows. A Blueprint variable declared as
-	 * WorldContextObject is displayed (and asked for) as "World Context Object",
-	 * and a bool bIsActive is displayed as "Is Active", so an exact-name filter
-	 * reports a property that plainly exists as missing.
-	 */
-	bool PropertyNameMatches(const FProperty* Prop, const FString& Requested)
+	/** The root selected by objectPath or target, then propertyPath followed from it (#1215). */
+	UObject* ResolveRuntimeObject(
+		const TSharedPtr<FJsonObject>& Params,
+		UWorld* World,
+		FString& OutDescription,
+		FString& OutError)
 	{
-		if (!Prop) return false;
-		const FString Actual = Prop->GetName();
-		if (Actual.Equals(Requested, ESearchCase::IgnoreCase)) return true;
-
-		const FString Squashed = Requested.Replace(TEXT(" "), TEXT(""));
-		if (Squashed.IsEmpty()) return false;
-		if (Actual.Equals(Squashed, ESearchCase::IgnoreCase)) return true;
-		// The display name of a bool drops the Unreal "b" prefix.
-		if (Prop->IsA<FBoolProperty>() && Actual.Equals(TEXT("b") + Squashed, ESearchCase::IgnoreCase)) return true;
-		return false;
+		const FString PropertyPath = OptionalString(Params, TEXT("propertyPath"));
+		UObject* Root = ResolveRuntimeRoot(Params, World, OutDescription, OutError);
+		if (!Root || PropertyPath.IsEmpty()) return Root;
+		UObject* Leaf = FollowObjectPropertyPath(Root, PropertyPath, OutError);
+		if (!Leaf) return nullptr;
+		OutDescription = Leaf->GetPathName();
+		return Leaf;
 	}
 
 	/**

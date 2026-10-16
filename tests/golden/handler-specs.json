@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1080,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -16110,6 +16110,12 @@
           "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
         },
         {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
+        },
+        {
           "name": "propertyNames",
           "type": "array",
           "required": false,
@@ -18069,6 +18075,12 @@
           "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
         },
         {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
+        },
+        {
           "name": "args",
           "type": "any",
           "required": false,
@@ -18140,6 +18152,12 @@
               "type": "integer",
               "required": false,
               "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
+            },
+            {
+              "name": "propertyPath",
+              "type": "string",
+              "required": false,
+              "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
             },
             {
               "name": "args",
@@ -33069,6 +33087,12 @@
           "description": "Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)"
         },
         {
+          "name": "propertyPath",
+          "type": "string",
+          "required": false,
+          "description": "Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor"
+        },
+        {
           "name": "postEditChange",
           "type": "boolean",
           "required": false,
@@ -33260,6 +33284,41 @@
               "actorPath"
             ]
           ]
+        }
+      ]
+    },
+    "set_pie_paused": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "paused",
+          "type": "boolean",
+          "required": true,
+          "description": "true pauses, false resumes"
+        },
+        {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world"
+        },
+        {
+          "name": "force",
+          "type": "boolean",
+          "required": false,
+          "description": "game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)"
+        },
+        {
+          "name": "world",
+          "type": "string",
+          "required": false,
+          "description": "World scope: editor | pie | auto. Each action names its own default"
+        },
+        {
+          "name": "pieInstance",
+          "type": "number",
+          "required": false,
+          "description": "PIE world to target: 0 = server/primary, 1..N = clients. See list_pie_instances"
         }
       ]
     },

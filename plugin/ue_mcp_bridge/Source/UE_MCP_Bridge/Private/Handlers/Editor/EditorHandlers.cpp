@@ -310,6 +310,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::Optional(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
 			MCPParam::Optional(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
 			MCPParam::Optional(TEXT("playerIndex"), EType::Number, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
+			MCPParam::Optional(TEXT("propertyPath"), EType::String, TEXT("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor")),
 		};
 	};
 
@@ -560,6 +561,7 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 			MCPParam::OptionalField(TEXT("target"), EType::String, TEXT("gameinstance | gamemode | gamestate | playercontroller | playerpawn | subsystem")),
 			MCPParam::OptionalField(TEXT("subsystemClass"), EType::String, TEXT("Subsystem class name or /Script path, with target=subsystem: world, game instance, local player (by playerIndex), engine or editor")),
 			MCPParam::OptionalField(TEXT("playerIndex"), EType::Integer, TEXT("Player index for target=playercontroller, playerpawn, or a LocalPlayer subsystem (default 0)")),
+			MCPParam::OptionalField(TEXT("propertyPath"), EType::String, TEXT("Dotted chain of object-reference properties followed from objectPath or target to the object actually used, e.g. GameSettings.Game Settings; a segment may index an array (Items[2]) or name a component on an actor")),
 			MCPParam::OptionalField(TEXT("args"), EType::Any, TEXT("This call's arguments, in any form invoke_object_function takes")).OneOfForms(ArgForms),
 		}),
 		WorldParam(),
@@ -741,6 +743,14 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	// #126: fast-forward PIE game time
 	Registry.RegisterHandler(TEXT("set_pie_time_scale"), &SetPieTimeScale, {
 		MCPParam::Required(TEXT("factor"), EType::Number, TEXT("Time-scale factor, greater than 0 (e.g. 500)")),
+	});
+	// #1215: pause or resume a running PIE instance.
+	Registry.RegisterHandler(TEXT("set_pie_paused"), &SetPiePaused, {
+		MCPParam::Required(TEXT("paused"), EType::Boolean, TEXT("true pauses, false resumes")),
+		MCPParam::Optional(TEXT("mode"), EType::String, TEXT("game (default): the game's own pause, as SetGamePaused | debug: the editor's Pause/Resume play buttons, for every PIE world")),
+		MCPParam::Optional(TEXT("force"), EType::Boolean, TEXT("game mode, resuming only: clear the world's pauser when the game refuses to unpause (default false)")),
+		WorldParam(),
+		PieInstanceParam(),
 	});
 	Registry.RegisterHandler(TEXT("capture_scene_png"), &CaptureScenePng, {
 		MCPParam::Required(TEXT("outputPath"), EType::String, TEXT("Absolute or project-relative PNG path to write, e.g. Saved/Screenshots/cap.png")).Alias(TEXT("filename")),

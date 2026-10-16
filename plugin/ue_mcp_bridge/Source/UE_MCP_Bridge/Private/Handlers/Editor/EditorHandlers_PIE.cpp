@@ -37,6 +37,8 @@
 #include "Dom/JsonValue.h"
 #include "Kismet2/BlueprintEditorUtils.h"
 #include "Settings/LevelEditorPlaySettings.h"
+#include "GameFramework/WorldSettings.h"
+#include "GameFramework/PlayerState.h"
 
 namespace
 {
@@ -1221,6 +1223,97 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetPieTimeScale(const TSharedPtr<FJsonOb
 			TEXT("The world's time dilation before this call was %g, and this handler refuses a factor that is not greater than zero. Replaying it with that value would be rejected, so no rollback is offered."),
 			PreviousFactor));
 	}
+	return MCPResult(Result);
+}
+
+// #1215: pause or resume a running PIE instance. execute_command 'pause' runs
+// against the editor world, so a game paused by its own startup menu could not
+// be resumed without Python.
+TSharedPtr<FJsonValue> FEditorHandlers::SetPiePaused(const TSharedPtr<FJsonObject>& Params)
+{
+	// Every parameter is read before anything can fail (#1057).
+	bool bPaused = false;
+	const bool bHasPaused = TryGetBoolParam(Params, TEXT("paused"), bPaused);
+	const FString Mode = OptionalString(Params, TEXT("mode"), TEXT("game")).ToLower();
+	const bool bForce = OptionalBool(Params, TEXT("force"), false);
+	UWorld* World = ResolveWorldFromParams(Params, TEXT("pie"));
+
+	if (!bHasPaused) return MCPError(TEXT("Missing required boolean 'paused'"));
+	if (Mode != TEXT("game") && Mode != TEXT("debug"))
+	{
+		return MCPError(FString::Printf(TEXT("Unknown mode '%s'. Use game | debug."), *Mode));
+	}
+	if (!World || !World->IsPlayInEditor())
+	{
+		return MCPError(TEXT("PIE is not running (or no such pieInstance). See editor(list_pie_instances)."));
+	}
+
+	auto ReadGamePaused = [World]()
+	{
+		const AWorldSettings* Settings = World->GetWorldSettings();
+		return Settings && Settings->GetPauserPlayerState() != nullptr;
+	};
+	const bool bPrevGamePaused = ReadGamePaused();
+	const bool bPrevDebugPaused = World->bDebugPauseExecution;
+
+	bool bAccepted = true;
+	bool bForced = false;
+	if (Mode == TEXT("debug"))
+	{
+		if (!GEditor) return MCPError(TEXT("Editor not available"));
+		bAccepted = GEditor->SetPIEWorldsPaused(bPaused);
+	}
+	else
+	{
+		FMCPScopedPlayWorldContext PlayContext(World);
+		bAccepted = UGameplayStatics::SetGamePaused(World, bPaused);
+		if (!bPaused && bForce && ReadGamePaused())
+		{
+			if (AWorldSettings* Settings = World->GetWorldSettings())
+			{
+				Settings->SetPauserPlayerState(nullptr);
+				bForced = true;
+			}
+		}
+	}
+
+	const bool bGamePaused = ReadGamePaused();
+	const bool bDebugPaused = World->bDebugPauseExecution;
+	const bool bNowPaused = Mode == TEXT("debug") ? bDebugPaused : bGamePaused;
+	if (bNowPaused != bPaused)
+	{
+		return MCPError(Mode == TEXT("debug")
+			? TEXT("The editor did not change the PIE pause state.")
+			: (bPaused
+				? TEXT("The game refused to pause: GameMode::AllowPausing returned false, or the world has no local player controller to pause with.")
+				: TEXT("The game refused to unpause: the pause belongs to a player whose CanUnpause delegate still holds it. Pass force=true to clear the world's pauser.")));
+	}
+
+	auto Result = MCPSuccess();
+	Result->SetStringField(TEXT("world"), World->GetPathName());
+	Result->SetStringField(TEXT("netMode"), DescribePIENetMode(World));
+	Result->SetStringField(TEXT("mode"), Mode);
+	Result->SetBoolField(TEXT("requestedPaused"), bPaused);
+	Result->SetBoolField(TEXT("accepted"), bAccepted);
+	Result->SetBoolField(TEXT("gamePaused"), bGamePaused);
+	Result->SetBoolField(TEXT("debugPaused"), bDebugPaused);
+	Result->SetBoolField(TEXT("previousGamePaused"), bPrevGamePaused);
+	Result->SetBoolField(TEXT("previousDebugPaused"), bPrevDebugPaused);
+	if (bForced) Result->SetBoolField(TEXT("forcedPauserCleared"), true);
+	const bool bChanged = bGamePaused != bPrevGamePaused || bDebugPaused != bPrevDebugPaused;
+	Result->SetBoolField(TEXT("changed"), bChanged);
+	if (bChanged) MCPSetUpdated(Result);
+
+	TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
+	Payload->SetBoolField(TEXT("paused"), Mode == TEXT("debug") ? bPrevDebugPaused : bPrevGamePaused);
+	Payload->SetStringField(TEXT("mode"), Mode);
+	if (HasParam(Params, TEXT("world"))) Payload->SetStringField(TEXT("world"), OptionalString(Params, TEXT("world")));
+	if (HasParam(Params, TEXT("pieInstance"))) Payload->SetNumberField(TEXT("pieInstance"), OptionalInt(Params, TEXT("pieInstance"), 0));
+	MCPSetRollback(Result, TEXT("set_pie_paused"), Payload);
+	Result->SetBoolField(TEXT("rollbackLossy"), bForced);
+	Result->SetStringField(TEXT("rollbackNote"), bForced
+		? TEXT("Restores the paused state, but a forced unpause cleared the pauser and a replayed pause is owned by this world's first local player rather than whoever paused before.")
+		: TEXT("Restores the previous paused state. It needs the same PIE session to still be running."));
 	return MCPResult(Result);
 }
 
