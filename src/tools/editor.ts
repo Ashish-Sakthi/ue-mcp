@@ -122,7 +122,7 @@ export const editorTool: ToolDef = categoryTool(
       },
     },
     build_project: buildProjectAction,
-    execute_command: specBp("unknown", "Run console command.", "execute_command"),
+    execute_command: specBp("unknown", "Run console command. Open is refused in the editor world, where it does nothing; switch maps with level(load) (#1393).", "execute_command"),
     execute_python: {
       kind: "handler",
       effect: "unknown",

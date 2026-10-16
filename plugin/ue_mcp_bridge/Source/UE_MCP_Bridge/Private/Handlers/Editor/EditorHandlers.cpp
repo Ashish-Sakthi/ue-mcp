@@ -837,6 +837,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::ExecuteCommand(const TSharedPtr<FJsonObj
 
 	REQUIRE_EDITOR_WORLD(World);
 
+	// Open is game travel: in the editor world it does nothing yet would report success (#1393).
+	if (!World->IsGameWorld() && Command.TrimStart().StartsWith(TEXT("open "), ESearchCase::IgnoreCase))
+	{
+		return MCPError(TEXT("The Open console command does not switch the editor's map. Use level(load, levelPath), with saveFirst or discardUnsaved when the open map has unsaved changes."));
+	}
+
 	UKismetSystemLibrary::ExecuteConsoleCommand(World, Command, nullptr);
 
 	auto Result = MCPSuccess();
