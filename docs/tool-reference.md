@@ -2447,7 +2447,7 @@ Nothing outside these modes ever answers a dialog by itself. `editor(set_dialog_
 
 ## source_control
 
-*Source control through the editor's own provider (Perforce, Git, Unity Version Control, Subversion): provider, connection and supported operations, file status, history, the project's pending changes, checkout, add, mark for delete, revert, sync, diff, submit, and whether bridge writes check out read-only files automatically.*
+*Source control through the editor's own provider (Perforce, Git, Unity Version Control, Subversion): provider, connection and supported operations, file status, history, the project's pending changes, checkout, add, mark for delete, revert, sync, diff, submit, and whether bridge writes check out read-only files automatically. Provider-specific actions (shelves, streams, branches) come from provider plugins injected here under their own prefix, such as p4_*.*
 
 | Action | Description |
 |--------|-------------|
