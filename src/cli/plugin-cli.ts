@@ -453,9 +453,9 @@ function cmdUninstall(args: string[], editor: string | undefined): void {
   if (!name) fail("usage: ue-mcp plugin uninstall <name>");
   const proj = findProjectDir(projectStartDir(editor));
 
-  // Remove any deployed native module BEFORE npm uninstall so we can still
-  // read the manifest (for diagnostics) and so the state file stays
-  // consistent if anything fails midway.
+  // npm goes first: when it fails, the project is left exactly as it was.
+  runNpm(["uninstall", name], proj.projectDir);
+
   const nativeState = readNativeModulesState(proj.projectDir);
   if (nativeState[name]) {
     try {
@@ -472,7 +472,6 @@ function cmdUninstall(args: string[], editor: string | undefined): void {
 
   const list = readPluginsList(proj.configPath).filter((p) => p.name !== name);
   writePluginsList(proj.configPath, list);
-  runNpm(["uninstall", name], proj.projectDir);
   note(`removed ${name}`);
   note(RESTART_NOTE);
 }
