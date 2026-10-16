@@ -1,4 +1,5 @@
 #include "AssetHandlers.h"
+#include "Internationalization/Regex.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "HandlerAssetDelete.h"
@@ -156,6 +157,12 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		SpecCursor,
 		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Rows per page, 1 to 5000 (default 500)")).Alias(TEXT("maxResults")),
 		MCPParam::Optional(TEXT("offset"), EType::Number, TEXT("Refused: the row offset was replaced by cursor paging, because a row number cannot report that the folder changed. Use cursor and limit")),
+		MCPParam::Optional(TEXT("classPaths"), EType::Array, TEXT("Full class paths such as /Script/Engine.AnimSequence and /Script/Engine.AnimMontage (at most 32)")).Items(EType::String),
+		MCPParam::Optional(TEXT("recursiveClasses"), EType::Boolean, TEXT("Include subclasses of classPaths (default true)")),
+		MCPParam::Optional(TEXT("nameRegex"), EType::String, TEXT("Regular expression matched against the asset name (up to 512 characters)")),
+		MCPParam::Optional(TEXT("regexIgnoreCase"), EType::Boolean, TEXT("Case-insensitive nameRegex (default true)")),
+		MCPParam::Optional(TEXT("skeletonPath"), EType::String, TEXT("Only assets whose Skeleton registry tag names this skeleton; accepts package or object paths")),
+		MCPParam::Optional(TEXT("includeMetadata"), EType::Boolean, TEXT("Include registry metadata: skeletonPath and playLength in seconds; unavailable playLength is null (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("read_uv_channels"), &ReadUvChannels, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("StaticMesh or SkeletalMesh asset path")).Alias(TEXT("path")),
@@ -595,13 +602,16 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("filePath"), EType::String, TEXT("Source file on disk")).Alias(TEXT("filename")),
 		MCPParam::Optional(TEXT("name"), EType::String, TEXT("Asset name (default: the file name)")).Alias(TEXT("assetName")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game/Meshes)")).Alias(TEXT("destinationPath")),
-		MCPParam::Optional(TEXT("skeletonPath"), EType::String, TEXT("Existing Skeleton to import onto")),
+		MCPParam::Optional(TEXT("skeletonPath"), EType::String, TEXT("Existing Skeleton to target; omit to create one. An invalid path is refused before import")),
 		MCPParam::Optional(TEXT("importMaterials"), EType::Boolean, TEXT("Import materials (default true)")),
 		MCPParam::Optional(TEXT("importTextures"), EType::Boolean, TEXT("Import textures (default true)")),
 		MCPParam::Optional(TEXT("importUniformScale"), EType::Number, TEXT("Uniform import scale (default 1.0); 100 fixes metre-authored FBX")),
 		MCPParam::Optional(TEXT("importMorphTargets"), EType::Boolean, TEXT("Import morph targets (default true)")),
 		MCPParam::Optional(TEXT("createPhysicsAsset"), EType::Boolean, TEXT("Create a PhysicsAsset (default false)")),
 		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Replace an asset already at the destination (default true)")),
+		MCPParam::Optional(TEXT("importer"), EType::String, TEXT("auto uses Interchange on 5.8 and later, legacy on older versions; interchange passes an explicit pipeline stack")).Enum({ TEXT("auto"), TEXT("interchange"), TEXT("legacy") }),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save all imported assets (default false)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and report without importing, writing or saving (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("import_animation"), &ImportAnimation, {
 		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("Source FBX on disk; exclusive with filePaths")).Alias(TEXT("filename")),
@@ -653,11 +663,12 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("noAlpha"), EType::Boolean, TEXT("Factory option: drop the alpha channel")),
 	});
 	Registry.RegisterHandler(TEXT("import_texture_batch"), &ImportTextureBatch, {
-		MCPParam::Required(TEXT("items"), EType::Array, TEXT("Textures to import: [{filePath, packagePath?, name?, replaceExisting?}]")).Items(EType::Object),
-		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Folder for items that name none (default /Game/Textures)")),
-		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the imported textures (default true)")),
+		MCPParam::Required(TEXT("items"), EType::Array, TEXT("Textures to import, 1-500: {filePath, packagePath?, name?, replaceExisting?, preset?: normal|masks|color, settings?: {compressionSettings?, lodGroup?, sRGB?, neverStream?, flipGreenChannel?, maxTextureSize?}}. Settings may also be given directly on each item; direct fields win. All entries are validated before import")).Items(EType::Object),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Folder for entries that name none (default /Game/Textures)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save changed assets (default true)")),
 		MCPParam::Optional(TEXT("automated"), EType::Boolean, TEXT("Suppress interactive dialogs (default true)")),
-	}, MCPSpec::ContractExempt(TEXT("Runs an import batch under the contract values; an empty batch is not refused")));
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and report without importing, writing or saving (default false)")),
+	});
 	Registry.RegisterHandler(TEXT("create_render_target_2d"), &CreateRenderTarget2D, {
 		MCPParam::Required(TEXT("name"), EType::String, TEXT("Asset name, without '/' or '.'")),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default /Game)")),
@@ -679,16 +690,23 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("assetPathB"), EType::String, TEXT("Second Texture2D")).Alias(TEXT("b")),
 	});
 	Registry.RegisterHandler(TEXT("get_texture_info"), &ListTextureProperties, {
-		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Texture2D asset path")).Alias(TEXT("path")),
-	});
+		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("Texture2D asset path")).Alias(TEXT("path")),
+		MCPParam::Optional(TEXT("assetPaths"), EType::Array, TEXT("Texture2D asset paths, 1-500; use instead of assetPath")).Items(EType::String),
+	}, MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("assetPaths") } }));
 	Registry.RegisterHandler(TEXT("set_texture_settings"), &SetTextureProperties, {
-		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Texture2D asset path")).Alias(TEXT("path")),
-		MCPParam::Optional(TEXT("settings"), EType::Object, TEXT("The four settings below as one object; a key also given at the top level wins over it")),
-		MCPParam::Optional(TEXT("compressionSettings"), EType::String, TEXT("Default, Normalmap, Grayscale, Displacementmap, VectorDisplacementmap, HDR, EditorIcon, Alpha, DistanceFieldFont, HDR_Compressed or BC7")),
-		MCPParam::Optional(TEXT("lodGroup"), EType::String, TEXT("Texture LOD group: World, WorldNormalMap, Character, UI, Lightmap, Effects and the rest")),
+		MCPParam::Optional(TEXT("assetPath"), EType::String, TEXT("Texture2D asset path")).Alias(TEXT("path")),
+		MCPParam::Optional(TEXT("assetPaths"), EType::Array, TEXT("Texture2D asset paths, 1-500; use instead of assetPath")).Items(EType::String),
+		MCPParam::Optional(TEXT("preset"), EType::String, TEXT("normal: Normalmap linear with no green flip; masks: Masks linear; color: Default sRGB. Explicit settings override the preset")).Enum({ TEXT("normal"), TEXT("masks"), TEXT("color") }),
+		MCPParam::Optional(TEXT("settings"), EType::Object, TEXT("Texture settings {compressionSettings?, lodGroup?, sRGB?, neverStream?, flipGreenChannel?, maxTextureSize?}; top-level fields override this object")),
+		MCPParam::Optional(TEXT("compressionSettings"), EType::String, TEXT("Compression enum name, with or without TC_: Default, Normalmap, Masks, BC7 and the other engine values")),
+		MCPParam::Optional(TEXT("lodGroup"), EType::String, TEXT("Texture group, with or without TEXTUREGROUP_: World, Weapon, WeaponNormalMap, WeaponSpecular and the other engine values")),
 		MCPParam::Optional(TEXT("sRGB"), EType::Boolean, TEXT("Treat the texture as sRGB")),
 		MCPParam::Optional(TEXT("neverStream"), EType::Boolean, TEXT("Keep every mip resident")),
-	});
+		MCPParam::Optional(TEXT("flipGreenChannel"), EType::Boolean, TEXT("Flip the normal green channel; normal preset defaults to false")),
+		MCPParam::Optional(TEXT("maxTextureSize"), EType::Integer, TEXT("Maximum texture size; 0 uses the source size")).Range(0, 32768),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save changed textures (default false; otherwise leave the packages dirty)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and report without importing, writing or saving (default false)")),
+	}, MCPSpec::ExactlyOne({ { TEXT("assetPath") }, { TEXT("assetPaths") } }));
 
 	// Mesh handlers
 	Registry.RegisterHandler(TEXT("set_mesh_material"), &SetMeshMaterial, {
@@ -734,6 +752,26 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Property path; dotted and indexed paths walk structs, arrays and instanced subobjects")),
 		MCPParam::Required(TEXT("value"), EType::Any, TEXT("Value to write: scalar, object, array or asset path")),
 		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the package after the write (default true)")),
+	});
+	Registry.RegisterHandler(TEXT("edit_collection_entry"), &EditCollectionEntry, {
+		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Data asset path")).Alias(TEXT("path")),
+		MCPParam::Required(TEXT("propertyName"), EType::String, TEXT("Path to a TArray of structs or TMap with struct values")),
+		MCPParam::Required(TEXT("entryKey"), EType::Any, TEXT("Existing map key or array key-field value; must match exactly one entry")),
+		MCPParam::Optional(TEXT("keyField"), EType::String, TEXT("Array element field to match, required for arrays (for example WeaponId)")),
+		MCPParam::Optional(TEXT("newKey"), EType::Any, TEXT("Clone the selected entry to this unused key; omit to update in place")),
+		MCPParam::Optional(TEXT("overrides"), EType::Object, TEXT("Struct fields to patch; nested objects or dotted struct paths, preserving omitted fields")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the package after editing (default true)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and return proposedValue without changing the asset (default false)")),
+	});
+	Registry.RegisterHandler(TEXT("clone_datatable_rows"), &CloneDataTableRows, {
+		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),
+		MCPParam::Required(TEXT("clones"), EType::Array, TEXT("1-500 row clone requests; destinations must be unused")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("sourceRow"), EType::String, TEXT("Existing row to copy")),
+			MCPParam::RequiredField(TEXT("rowName"), EType::String, TEXT("Unused destination row name")),
+			MCPParam::OptionalField(TEXT("overrides"), EType::Object, TEXT("Nested or dotted struct field patches; omitted fields are preserved")),
+		}),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the table after editing (default true)")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate the entire batch and return proposedRows without changes (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("append_asset_array_elements"), &AppendAssetArrayElements, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset path; a Blueprint path writes its generated-class CDO")).Alias(TEXT("path")),
@@ -817,8 +855,10 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	});
 	Registry.RegisterHandler(TEXT("remove_datatable_row"), &RemoveDataTableRow, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),
-		MCPParam::Required(TEXT("rowName"), EType::String, TEXT("Row to remove")),
-	});
+		MCPParam::Optional(TEXT("rowName"), EType::String, TEXT("Single row to remove")),
+		MCPParam::Optional(TEXT("rowNames"), EType::Array, TEXT("Rows to remove in one transaction, including clone rollback")).Items(EType::String),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save after removing rows (default true)")),
+	}, MCPSpec::ExactlyOne({ { TEXT("rowName") }, { TEXT("rowNames") } }));
 	// #535: single-row read, single-cell write, row rename, and bulk JSON fill.
 	Registry.RegisterHandler(TEXT("get_datatable_row"), &GetDataTableRow, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),
@@ -918,7 +958,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("export_asset"), &ExportAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to export")).Alias(TEXT("path")),
 		MCPParam::Required(TEXT("outputPath"), EType::String, TEXT("File to write; a relative path resolves against the project directory")),
-		MCPParam::Optional(TEXT("format"), EType::String, TEXT("DataTable/CompositeDataTable: json | csv (default: from the required .json/.csv outputPath extension); other assets use their registered exporter")),
+		MCPParam::Optional(TEXT("format"), EType::String, TEXT("DataTable: json | csv; MaterialInstance: json (resolved parameters and overrides). Meshes use the FBX exporter; textures use PNG, selected by outputPath extension")),
+		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Validate and report without importing, writing or saving (default false)")),
+		MCPParam::Optional(TEXT("replaceExisting"), EType::Boolean, TEXT("Overwrite the output file (default true)")),
 	});
 
 	// StringTable handlers
@@ -978,6 +1020,9 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("get_asset_referencers"), &GetReferencers, {
 		MCPParam::Optional(TEXT("packages"), EType::Array, TEXT("Package paths to look up")).Items(EType::String),
 		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("One package path, used when packages is omitted")),
+		MCPParam::Optional(TEXT("includeDetails"), EType::Boolean, TEXT("Classify Blueprint and map/external-actor references, following Blueprint referencers (default false)")),
+		MCPParam::Optional(TEXT("maxDepth"), EType::Integer, TEXT("Maximum reference depth for includeDetails (default 2)")).Range(1, 8),
+		MCPParam::Optional(TEXT("includeMeshInfo"), EType::Boolean, TEXT("Include mesh summary and static mesh collision for each queried asset (default false)")),
 	});
 	Registry.RegisterHandler(TEXT("get_asset_dependencies"), &GetDependencies, {
 		MCPParam::Optional(TEXT("packages"), EType::Array, TEXT("Package paths to look up")).Items(EType::String),
@@ -1277,6 +1322,29 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>&
 	const FString Directory = OptionalString(Params, TEXT("directory"), TEXT("/Game"));
 	const bool bRecursive = OptionalBool(Params, TEXT("recursive"), true);
 	const FString ClassFilter = OptionalString(Params, TEXT("classFilter"));
+	const FString NameRegex = OptionalString(Params, TEXT("nameRegex"));
+	const bool bRegexIgnoreCase = OptionalBool(Params, TEXT("regexIgnoreCase"), true);
+	const bool bIncludeMetadata = OptionalBool(Params, TEXT("includeMetadata"), false);
+	const FString SkeletonPath = OptionalString(Params, TEXT("skeletonPath"));
+	const bool bRecursiveClasses = OptionalBool(Params, TEXT("recursiveClasses"), true);
+	const TArray<TSharedPtr<FJsonValue>>* ClassPaths = nullptr;
+	TryGetArrayParam(Params, TEXT("classPaths"), ClassPaths);
+	TArray<FString> ClassNames;
+	if (ClassPaths)
+	{
+		if (ClassPaths->Num() > 32) return MCPError(TEXT("classPaths accepts at most 32 classes"));
+		for (const auto& Value : *ClassPaths)
+		{
+			FString Path;
+			if (!Value->TryGetString(Path) || !Path.StartsWith(TEXT("/Script/")) || !Path.Contains(TEXT("."))) return MCPError(TEXT("classPaths entries must be class paths such as /Script/Engine.AnimSequence"));
+			ClassNames.AddUnique(Path);
+		}
+		ClassNames.Sort();
+	}
+	if (NameRegex.Len() > 512) return MCPError(TEXT("nameRegex is limited to 512 characters"));
+	TUniquePtr<FRegexPattern> Pattern;
+	if (!NameRegex.IsEmpty()) Pattern = MakeUnique<FRegexPattern>((bRegexIgnoreCase ? TEXT("(?i)") : TEXT("")) + NameRegex);
+	const FString SkeletonPackage = FPackageName::ObjectPathToPackageName(FPackageName::ExportTextPathToObjectPath(SkeletonPath));
 
 	// #766/#790 established that one response for a big folder drops the
 	// bridge, and answered it with a raw row offset. T3 replaces that offset
@@ -1293,8 +1361,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>&
 	MCPPagination::FPageRequest Page;
 	if (auto Err = MCPPagination::ReadPageRequest(
 			Params,
-			FString::Printf(TEXT("list_assets|directory=%s|recursive=%d|classFilter=%s"),
-				*Directory, bRecursive ? 1 : 0, *ClassFilter),
+			FString::Printf(TEXT("list_assets|directory=%s|recursive=%d|classFilter=%s|classes=%s|derived=%d|regex=%s|case=%d|metadata=%d|skeleton=%s"),
+				*Directory, bRecursive ? 1 : 0, *ClassFilter, *FString::Join(ClassNames, TEXT(",")), bRecursiveClasses, *NameRegex, bRegexIgnoreCase, bIncludeMetadata, *SkeletonPackage),
 			/*DefaultLimit*/ 500, /*MaxLimit*/ 5000, Page))
 	{
 		return Err;
@@ -1302,7 +1370,13 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>&
 
 	IAssetRegistry& Registry = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
 	TArray<FAssetData> Found;
-	Registry.GetAssetsByPath(FName(*Directory), Found, bRecursive);
+	FARFilter Filter;
+	Filter.PackagePaths.Add(FName(*Directory));
+	Filter.bRecursivePaths = bRecursive;
+	// Without classPaths there is nothing to expand; an empty recursive class filter would expand to every class.
+	Filter.bRecursiveClasses = bRecursiveClasses && ClassNames.Num() > 0;
+	for (const FString& Path : ClassNames) Filter.ClassPaths.Add(FTopLevelAssetPath(Path));
+	Registry.GetAssets(Filter, Found);
 
 	// AssetRegistry order is not a stable contract, so paging over it could
 	// overlap or skip entries between calls. Sort so the enumeration is one
@@ -1324,10 +1398,29 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListAssets(const TSharedPtr<FJsonObject>&
 			continue;
 		}
 
+		if (Pattern)
+		{
+			FRegexMatcher Matcher(*Pattern, Data.AssetName.ToString());
+			if (!Matcher.FindNext()) continue;
+		}
+		FString SkeletonTag;
+		Data.GetTagValue(FName(TEXT("Skeleton")), SkeletonTag);
+		const FString SkeletonObject = FPackageName::ExportTextPathToObjectPath(SkeletonTag);
+		if (!SkeletonPackage.IsEmpty() && FPackageName::ObjectPathToPackageName(SkeletonObject) != SkeletonPackage) continue;
 		TSharedPtr<FJsonObject> Item = MakeShared<FJsonObject>();
 		Item->SetStringField(TEXT("path"), Data.PackageName.ToString());
 		Item->SetStringField(TEXT("name"), Data.AssetName.ToString());
 		Item->SetStringField(TEXT("className"), ClassName);
+		if (bIncludeMetadata)
+		{
+			auto Metadata = MakeShared<FJsonObject>();
+			Metadata->SetStringField(TEXT("skeletonPath"), SkeletonObject);
+			FString Length;
+			if (Data.GetTagValue(FName(TEXT("SequenceLength")), Length) && Length.IsNumeric()) Metadata->SetNumberField(TEXT("playLength"), FCString::Atod(*Length));
+			else Metadata->SetField(TEXT("playLength"), MakeShared<FJsonValueNull>());
+			Metadata->SetStringField(TEXT("source"), TEXT("assetRegistry"));
+			Item->SetObjectField(TEXT("metadata"), Metadata);
+		}
 		// The OBJECT path is the anchor, not the package name reported as
 		// 'path': a package holding two assets would otherwise give two rows
 		// the same identity and a resume could not tell them apart.
@@ -2525,8 +2618,29 @@ TSharedPtr<FJsonValue> FAssetHandlers::RenameAsset(const TSharedPtr<FJsonObject>
 		return RenameWorldWithExternals(SourcePath, DestPath, bForce);
 	}
 
+	// A redirector at the destination refuses too: AssetTools renaming onto a loaded one is a fatal error.
+	if (UEditorAssetLibrary::DoesAssetExist(DestPath))
+	{
+		return MCPError(FString::Printf(TEXT("Cannot rename '%s': an asset already exists at '%s'."), *SourcePath, *DestPath));
+	}
+	UObject* SourceAsset = UEditorAssetLibrary::LoadAsset(SourcePath);
+	if (!SourceAsset)
+	{
+		return MCPError(FString::Printf(TEXT("Asset could not be loaded: %s"), *SourcePath));
+	}
+	FString DestPackage, DestObject;
+	if (!DestPath.Split(TEXT("."), &DestPackage, &DestObject, ESearchCase::CaseSensitive, ESearchDir::FromEnd))
+	{
+		DestPackage = DestPath;
+	}
+
+	// Through AssetTools, not UEditorAssetLibrary::RenameAsset: that runs as an unattended
+	// script, so the engine answers the rename's own confirmation with its default and
+	// neither an armed policy nor a person ever sees it (#1334).
 	const int32 DialogSerialBefore = FDialogHandlers::GetAnsweredDialogSerial();
-	bool bOk = UEditorAssetLibrary::RenameAsset(SourcePath, DestPath);
+	TArray<FAssetRenameData> RenameBatch;
+	RenameBatch.Emplace(TWeakObjectPtr<UObject>(SourceAsset), FPaths::GetPath(DestPackage), FPaths::GetBaseFilename(DestPackage));
+	bool bOk = FModuleManager::LoadModuleChecked<FAssetToolsModule>(TEXT("AssetTools")).Get().RenameAssets(RenameBatch);
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("sourcePath"), SourcePath);
@@ -4123,6 +4237,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReloadPackage(const TSharedPtr<FJsonObjec
 }
 TSharedPtr<FJsonValue> FAssetHandlers::GetReferencers(const TSharedPtr<FJsonObject>& Params)
 {
+	const bool bIncludeDetails = OptionalBool(Params, TEXT("includeDetails"), false);
+	const bool bIncludeMeshInfo = OptionalBool(Params, TEXT("includeMeshInfo"), false);
+	const int32 MaxDepth = OptionalInt(Params, TEXT("maxDepth"), 2);
+	if (MaxDepth < 1 || MaxDepth > 8) return MCPError(TEXT("maxDepth must be between 1 and 8"));
 	TArray<FString> Packages;
 	const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
 	const bool bHasArray = TryGetArrayParam(Params, TEXT("packages"), Arr) && Arr;
@@ -4141,24 +4259,119 @@ TSharedPtr<FJsonValue> FAssetHandlers::GetReferencers(const TSharedPtr<FJsonObje
 	}
 	if (Packages.Num() == 0) return MCPError(TEXT("Supply 'packages' (array) or 'packagePath'"));
 
+	if (Packages.Num() > 500) return MCPError(TEXT("At most 500 packages may be queried"));
 	IAssetRegistry& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
 
+	TArray<FAssetData> Worlds;
+	if (bIncludeDetails) AR.GetAssetsByClass(UWorld::StaticClass()->GetClassPathName(), Worlds, true);
+	TMap<FString, FString> MapByExternalFolder;
+	for (const FAssetData& World : Worlds)
+	{
+		const FString Map = World.PackageName.ToString();
+		MapByExternalFolder.Add(ULevel::GetExternalActorsPath(Map, FString()) + TEXT("/"), Map);
+	}
+	auto Details = MakeShared<FJsonObject>();
 	TSharedPtr<FJsonObject> ByPkg = MakeShared<FJsonObject>();
 	int32 TotalRefs = 0;
 	for (const FString& Pkg : Packages)
 	{
 		TArray<FName> Refs;
-		AR.GetReferencers(FName(*Pkg), Refs, UE::AssetRegistry::EDependencyCategory::Package);
+		const FString PackageName = FPackageName::ObjectPathToPackageName(FPackageName::ExportTextPathToObjectPath(Pkg));
+		AR.GetReferencers(FName(*PackageName), Refs, UE::AssetRegistry::EDependencyCategory::Package);
+		Refs.Sort(FNameLexicalLess());
 		TArray<TSharedPtr<FJsonValue>> Out;
 		for (const FName& R : Refs) Out.Add(MakeShared<FJsonValueString>(R.ToString()));
 		ByPkg->SetArrayField(Pkg, Out);
 		TotalRefs += Refs.Num();
+		if (bIncludeDetails || bIncludeMeshInfo)
+		{
+			auto Detail = MakeShared<FJsonObject>();
+			if (bIncludeDetails)
+			{
+				TArray<TSharedPtr<FJsonValue>> BlueprintRows, MapRows, UnresolvedExternal;
+				TArray<FName> Queue = Refs;
+				TArray<int32> Depths;
+				Depths.Init(1, Queue.Num());
+				TArray<FString> Via;
+				Via.Init(PackageName, Queue.Num());
+				TSet<FName> Seen;
+				Seen.Add(FName(*PackageName));
+				bool bTruncated = false;
+				for (int32 Index = 0; Index < Queue.Num(); ++Index)
+				{
+					const FName Ref = Queue[Index];
+					if (Seen.Contains(Ref)) continue;
+					if (Seen.Num() >= 10000) { bTruncated = true; break; }
+					Seen.Add(Ref);
+					const FString RefPath = Ref.ToString();
+					TArray<FAssetData> Assets;
+					AR.GetAssetsByPackageName(Ref, Assets);
+					bool bBlueprint = false, bMap = false;
+					for (const auto& Data : Assets)
+					{
+						bBlueprint |= Data.AssetClassPath.GetAssetName().ToString().EndsWith(TEXT("Blueprint"));
+						bMap |= Data.AssetClassPath == UWorld::StaticClass()->GetClassPathName();
+					}
+					auto Row = MakeShared<FJsonObject>();
+					Row->SetStringField(TEXT("packagePath"), RefPath);
+					Row->SetStringField(TEXT("viaPackage"), Via[Index]);
+					Row->SetNumberField(TEXT("depth"), Depths[Index]);
+					if (bBlueprint) BlueprintRows.Add(MakeShared<FJsonValueObject>(Row));
+					if (bMap)
+					{
+						Row->SetStringField(TEXT("mapPath"), RefPath);
+						MapRows.Add(MakeShared<FJsonValueObject>(Row));
+					}
+					if (RefPath.Contains(TEXT("/__ExternalActors__/")))
+					{
+						FString OwningMap;
+						for (const auto& Pair : MapByExternalFolder) if (RefPath.StartsWith(Pair.Key)) { OwningMap = Pair.Value; break; }
+						if (OwningMap.IsEmpty()) UnresolvedExternal.Add(MakeShared<FJsonValueString>(RefPath));
+						else
+						{
+							Row->SetStringField(TEXT("mapPath"), OwningMap);
+							Row->SetStringField(TEXT("externalActorPackage"), RefPath);
+							MapRows.Add(MakeShared<FJsonValueObject>(Row));
+						}
+					}
+					if (bBlueprint && Depths[Index] < MaxDepth)
+					{
+						TArray<FName> Parents;
+						AR.GetReferencers(Ref, Parents, UE::AssetRegistry::EDependencyCategory::Package);
+						Parents.Sort(FNameLexicalLess());
+						const int32 NextDepth = Depths[Index] + 1;
+						for (FName Parent : Parents)
+						{
+							if (Queue.Num() >= 20000) { bTruncated = true; break; }
+							Queue.Add(Parent);
+							Depths.Add(NextDepth);
+							Via.Add(RefPath);
+						}
+					}
+				}
+				Detail->SetArrayField(TEXT("blueprints"), BlueprintRows);
+				Detail->SetArrayField(TEXT("maps"), MapRows);
+				Detail->SetArrayField(TEXT("unresolvedExternalActors"), UnresolvedExternal);
+				Detail->SetBoolField(TEXT("truncated"), bTruncated);
+				Detail->SetNumberField(TEXT("maxDepth"), MaxDepth);
+			}
+			if (bIncludeMeshInfo)
+			{
+				auto MeshParams = MakeShared<FJsonObject>();
+				MeshParams->SetStringField(TEXT("assetPath"), PackageName);
+				Detail->SetField(TEXT("meshInfo"), GetMeshInfo(MeshParams));
+				if (LoadAssetByPath<UStaticMesh>(PackageName)) Detail->SetField(TEXT("collision"), GetMeshCollision(MeshParams));
+			}
+			Details->SetObjectField(Pkg, Detail);
+		}
 	}
 
 	auto Result = MCPSuccess();
 	Result->SetObjectField(TEXT("referencersByPackage"), ByPkg);
 	Result->SetNumberField(TEXT("totalReferencers"), TotalRefs);
 	Result->SetNumberField(TEXT("queriedPackages"), Packages.Num());
+	if (bIncludeDetails || bIncludeMeshInfo) Result->SetObjectField(TEXT("detailsByPackage"), Details);
+	if (bIncludeDetails) Result->SetStringField(TEXT("referenceScope"), TEXT("Saved registry package references, through Blueprint packages up to maxDepth. One shortest route per package; unsaved and runtime-only references are not included."));
 	return MCPResult(Result);
 }
 

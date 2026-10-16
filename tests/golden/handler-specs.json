@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1133,
+  "handlerCount": 1135,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -8138,6 +8138,59 @@
         }
       ]
     },
+    "clone_datatable_rows": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "DataTable asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "clones",
+          "type": "array",
+          "required": true,
+          "description": "1-500 row clone requests; destinations must be unused",
+          "items": "object",
+          "fields": [
+            {
+              "name": "sourceRow",
+              "type": "string",
+              "required": true,
+              "description": "Existing row to copy"
+            },
+            {
+              "name": "rowName",
+              "type": "string",
+              "required": true,
+              "description": "Unused destination row name"
+            },
+            {
+              "name": "overrides",
+              "type": "object",
+              "required": false,
+              "description": "Nested or dotted struct field patches; omitted fields are preserved"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the table after editing (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate the entire batch and return proposedRows without changes (default false)"
+        }
+      ]
+    },
     "close_sequence": {
       "category": "editor",
       "params": [],
@@ -13403,6 +13456,62 @@
       ],
       "contractExempt": "Makes the destination folder under the contract values before the copy can fail"
     },
+    "edit_collection_entry": {
+      "category": "asset",
+      "params": [
+        {
+          "name": "assetPath",
+          "type": "string",
+          "required": true,
+          "description": "Data asset path",
+          "aliases": [
+            "path"
+          ]
+        },
+        {
+          "name": "propertyName",
+          "type": "string",
+          "required": true,
+          "description": "Path to a TArray of structs or TMap with struct values"
+        },
+        {
+          "name": "entryKey",
+          "type": "any",
+          "required": true,
+          "description": "Existing map key or array key-field value; must match exactly one entry"
+        },
+        {
+          "name": "keyField",
+          "type": "string",
+          "required": false,
+          "description": "Array element field to match, required for arrays (for example WeaponId)"
+        },
+        {
+          "name": "newKey",
+          "type": "any",
+          "required": false,
+          "description": "Clone the selected entry to this unused key; omit to update in place"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": false,
+          "description": "Struct fields to patch; nested objects or dotted struct paths, preserving omitted fields"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the package after editing (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and return proposedValue without changing the asset (default false)"
+        }
+      ]
+    },
     "edit_curve_metadata": {
       "category": "animation",
       "params": [
@@ -14053,7 +14162,19 @@
           "name": "format",
           "type": "string",
           "required": false,
-          "description": "DataTable/CompositeDataTable: json | csv (default: from the required .json/.csv outputPath extension); other assets use their registered exporter"
+          "description": "DataTable: json | csv; MaterialInstance: json (resolved parameters and overrides). Meshes use the FBX exporter; textures use PNG, selected by outputPath extension"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
+        },
+        {
+          "name": "replaceExisting",
+          "type": "boolean",
+          "required": false,
+          "description": "Overwrite the output file (default true)"
         }
       ]
     },
@@ -15530,6 +15651,26 @@
           "type": "string",
           "required": false,
           "description": "One package path, used when packages is omitted"
+        },
+        {
+          "name": "includeDetails",
+          "type": "boolean",
+          "required": false,
+          "description": "Classify Blueprint and map/external-actor references, following Blueprint referencers (default false)"
+        },
+        {
+          "name": "maxDepth",
+          "type": "integer",
+          "required": false,
+          "description": "Maximum reference depth for includeDetails (default 2)",
+          "minimum": 1,
+          "maximum": 8
+        },
+        {
+          "name": "includeMeshInfo",
+          "type": "boolean",
+          "required": false,
+          "description": "Include mesh summary and static mesh collision for each queried asset (default false)"
         }
       ]
     },
@@ -16035,10 +16176,23 @@
           "description": "Only this component, by instance name"
         },
         {
+          "name": "relativeTo",
+          "type": "string",
+          "required": false,
+          "description": "Scene component on the same actor (instance name); every scene component and socket row also reports its transform in that component's space"
+        },
+        {
+          "name": "socketNames",
+          "type": "array",
+          "required": false,
+          "description": "Bone or socket names; each component that has sockets reports their component-space transforms",
+          "items": "string"
+        },
+        {
           "name": "world",
           "type": "string",
           "required": false,
-          "description": "World scope: editor (default) | pie"
+          "description": "editor (default) | pie | a world object path such as a Blueprint editor preview world (/Engine/Transient.World_N); with world omitted, an actorPath in another world reads that world"
         },
         {
           "name": "pieInstance",
@@ -18017,10 +18171,30 @@
         {
           "name": "assetPath",
           "type": "string",
-          "required": true,
+          "required": false,
           "description": "Texture2D asset path",
           "aliases": [
             "path"
+          ]
+        },
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Texture2D asset paths, 1-500; use instead of assetPath",
+          "items": "string"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ]
           ]
         }
       ]
@@ -18989,7 +19163,7 @@
           "name": "skeletonPath",
           "type": "string",
           "required": false,
-          "description": "Existing Skeleton to import onto"
+          "description": "Existing Skeleton to target; omit to create one. An invalid path is refused before import"
         },
         {
           "name": "importMaterials",
@@ -19026,6 +19200,29 @@
           "type": "boolean",
           "required": false,
           "description": "Replace an asset already at the destination (default true)"
+        },
+        {
+          "name": "importer",
+          "type": "string",
+          "required": false,
+          "description": "auto uses Interchange on 5.8 and later, legacy on older versions; interchange passes an explicit pipeline stack",
+          "enum": [
+            "auto",
+            "interchange",
+            "legacy"
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save all imported assets (default false)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
         }
       ]
     },
@@ -19238,29 +19435,34 @@
           "name": "items",
           "type": "array",
           "required": true,
-          "description": "Textures to import: [{filePath, packagePath?, name?, replaceExisting?}]",
+          "description": "Textures to import, 1-500: {filePath, packagePath?, name?, replaceExisting?, preset?: normal|masks|color, settings?: {compressionSettings?, lodGroup?, sRGB?, neverStream?, flipGreenChannel?, maxTextureSize?}}. Settings may also be given directly on each item; direct fields win. All entries are validated before import",
           "items": "object"
         },
         {
           "name": "packagePath",
           "type": "string",
           "required": false,
-          "description": "Folder for items that name none (default /Game/Textures)"
+          "description": "Folder for entries that name none (default /Game/Textures)"
         },
         {
           "name": "save",
           "type": "boolean",
           "required": false,
-          "description": "Save the imported textures (default true)"
+          "description": "Save changed assets (default true)"
         },
         {
           "name": "automated",
           "type": "boolean",
           "required": false,
           "description": "Suppress interactive dialogs (default true)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
         }
-      ],
-      "contractExempt": "Runs an import batch under the contract values; an empty batch is not refused"
+      ]
     },
     "init_asc": {
       "category": "gas",
@@ -19730,13 +19932,13 @@
           "name": "className",
           "type": "string",
           "required": true,
-          "description": "UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path"
+          "description": "Reflected class declaring the static function, including project component classes: short name or /Script/Module.Class path"
         },
         {
           "name": "functionName",
           "type": "string",
           "required": true,
-          "description": "Static UFUNCTION on the library"
+          "description": "Static UFUNCTION on the class"
         },
         {
           "name": "args",
@@ -20176,6 +20378,43 @@
           "type": "number",
           "required": false,
           "description": "Refused: the row offset was replaced by cursor paging, because a row number cannot report that the folder changed. Use cursor and limit"
+        },
+        {
+          "name": "classPaths",
+          "type": "array",
+          "required": false,
+          "description": "Full class paths such as /Script/Engine.AnimSequence and /Script/Engine.AnimMontage (at most 32)",
+          "items": "string"
+        },
+        {
+          "name": "recursiveClasses",
+          "type": "boolean",
+          "required": false,
+          "description": "Include subclasses of classPaths (default true)"
+        },
+        {
+          "name": "nameRegex",
+          "type": "string",
+          "required": false,
+          "description": "Regular expression matched against the asset name (up to 512 characters)"
+        },
+        {
+          "name": "regexIgnoreCase",
+          "type": "boolean",
+          "required": false,
+          "description": "Case-insensitive nameRegex (default true)"
+        },
+        {
+          "name": "skeletonPath",
+          "type": "string",
+          "required": false,
+          "description": "Only assets whose Skeleton registry tag names this skeleton; accepts package or object paths"
+        },
+        {
+          "name": "includeMetadata",
+          "type": "boolean",
+          "required": false,
+          "description": "Include registry metadata: skeletonPath and playLength in seconds; unavailable playLength is null (default false)"
         }
       ]
     },
@@ -27404,8 +27643,34 @@
         {
           "name": "rowName",
           "type": "string",
-          "required": true,
-          "description": "Row to remove"
+          "required": false,
+          "description": "Single row to remove"
+        },
+        {
+          "name": "rowNames",
+          "type": "array",
+          "required": false,
+          "description": "Rows to remove in one transaction, including clone rollback",
+          "items": "string"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save after removing rows (default true)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "rowName"
+            ],
+            [
+              "rowNames"
+            ]
+          ]
         }
       ]
     },
@@ -35851,14 +36116,26 @@
         {
           "name": "inputActionPath",
           "type": "string",
-          "required": true,
-          "description": "InputAction asset path"
+          "required": false,
+          "description": "InputAction asset path; use this or imcPath plus mappingIndex"
+        },
+        {
+          "name": "imcPath",
+          "type": "string",
+          "required": false,
+          "description": "InputMappingContext for per-mapping overrides"
+        },
+        {
+          "name": "mappingIndex",
+          "type": "number",
+          "required": false,
+          "description": "Mapping row index, required with imcPath; must be a non-negative integer"
         },
         {
           "name": "mappingName",
           "type": "string",
-          "required": true,
-          "description": "Stable FName saved with the player mapping; must be non-empty"
+          "required": false,
+          "description": "Stable non-empty FName; required for InputAction edits, optional for existing mapping overrides"
         },
         {
           "name": "displayName",
@@ -35873,10 +36150,48 @@
           "description": "Display category (Movement, Combat, ...) written onto UPlayerMappableKeySettings"
         },
         {
+          "name": "settingBehavior",
+          "type": "string",
+          "required": false,
+          "description": "Per-mapping behavior: InheritSettingsFromAction, OverrideSettings or IgnoreSettings",
+          "enum": [
+            "InheritSettingsFromAction",
+            "OverrideSettings",
+            "IgnoreSettings"
+          ]
+        },
+        {
+          "name": "playerMappableKeySettings",
+          "type": "object",
+          "required": false,
+          "description": "Per-mapping reflected settings fields; null clears the override subobject",
+          "nullable": true
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report proposed settings without changing the asset (default false)"
+        },
+        {
           "name": "save",
           "type": "boolean",
           "required": false,
           "description": "Persist the asset (default true); false defers the write"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "inputActionPath"
+            ],
+            [
+              "imcPath",
+              "mappingIndex"
+            ]
+          ]
         }
       ]
     },
@@ -37829,29 +38144,47 @@
         {
           "name": "assetPath",
           "type": "string",
-          "required": true,
+          "required": false,
           "description": "Texture2D asset path",
           "aliases": [
             "path"
           ]
         },
         {
+          "name": "assetPaths",
+          "type": "array",
+          "required": false,
+          "description": "Texture2D asset paths, 1-500; use instead of assetPath",
+          "items": "string"
+        },
+        {
+          "name": "preset",
+          "type": "string",
+          "required": false,
+          "description": "normal: Normalmap linear with no green flip; masks: Masks linear; color: Default sRGB. Explicit settings override the preset",
+          "enum": [
+            "normal",
+            "masks",
+            "color"
+          ]
+        },
+        {
           "name": "settings",
           "type": "object",
           "required": false,
-          "description": "The four settings below as one object; a key also given at the top level wins over it"
+          "description": "Texture settings {compressionSettings?, lodGroup?, sRGB?, neverStream?, flipGreenChannel?, maxTextureSize?}; top-level fields override this object"
         },
         {
           "name": "compressionSettings",
           "type": "string",
           "required": false,
-          "description": "Default, Normalmap, Grayscale, Displacementmap, VectorDisplacementmap, HDR, EditorIcon, Alpha, DistanceFieldFont, HDR_Compressed or BC7"
+          "description": "Compression enum name, with or without TC_: Default, Normalmap, Masks, BC7 and the other engine values"
         },
         {
           "name": "lodGroup",
           "type": "string",
           "required": false,
-          "description": "Texture LOD group: World, WorldNormalMap, Character, UI, Lightmap, Effects and the rest"
+          "description": "Texture group, with or without TEXTUREGROUP_: World, Weapon, WeaponNormalMap, WeaponSpecular and the other engine values"
         },
         {
           "name": "sRGB",
@@ -37864,6 +38197,45 @@
           "type": "boolean",
           "required": false,
           "description": "Keep every mip resident"
+        },
+        {
+          "name": "flipGreenChannel",
+          "type": "boolean",
+          "required": false,
+          "description": "Flip the normal green channel; normal preset defaults to false"
+        },
+        {
+          "name": "maxTextureSize",
+          "type": "integer",
+          "required": false,
+          "description": "Maximum texture size; 0 uses the source size",
+          "minimum": 0,
+          "maximum": 32768
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save changed textures (default false; otherwise leave the packages dirty)"
+        },
+        {
+          "name": "dryRun",
+          "type": "boolean",
+          "required": false,
+          "description": "Validate and report without importing, writing or saving (default false)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "assetPath"
+            ],
+            [
+              "assetPaths"
+            ]
+          ]
         }
       ]
     },

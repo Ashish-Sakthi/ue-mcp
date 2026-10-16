@@ -2779,6 +2779,13 @@ TSharedPtr<FJsonValue> FMaterialHandlers::SetMaterialParameter(const TSharedPtr<
 	}
 }
 
+TSharedPtr<FJsonObject> FMaterialHandlers::DescribeMaterialInstance(UMaterialInterface* Material)
+{
+	auto Result = MCPSuccess();
+	WriteMaterialInstanceRead(Result, Material);
+	return Result;
+}
+
 TSharedPtr<FJsonValue> FMaterialHandlers::ReadMaterialInstance(const TSharedPtr<FJsonObject>& Params)
 {
 	// 'path' and 'materialPath' are the spec's aliases, renamed to assetPath before this runs.

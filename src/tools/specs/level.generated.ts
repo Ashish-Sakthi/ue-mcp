@@ -1300,10 +1300,23 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Only this component, by instance name"
       },
       {
+        "name": "relativeTo",
+        "type": "string",
+        "required": false,
+        "description": "Scene component on the same actor (instance name); every scene component and socket row also reports its transform in that component's space"
+      },
+      {
+        "name": "socketNames",
+        "type": "array",
+        "required": false,
+        "description": "Bone or socket names; each component that has sockets reports their component-space transforms",
+        "items": "string"
+      },
+      {
         "name": "world",
         "type": "string",
         "required": false,
-        "description": "World scope: editor (default) | pie"
+        "description": "editor (default) | pie | a world object path such as a Blueprint editor preview world (/Engine/Transient.World_N); with world omitted, an actorPath in another world reads that world"
       },
       {
         "name": "pieInstance",
@@ -5026,7 +5039,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_actors_by_class: "Params: className?, labelPrefix?, world?, pieInstance?, matchSubclasses?, includeTransforms?",
   get_actors_by_component_class: "Params: componentClass (or className), world?, pieInstance?",
   get_component_details: "Params: actorLabel?, actorPath?, componentName?, includeValues?, propertyNames?, world?, pieInstance?",
-  get_component_tree: "Params: actorLabel?, actorPath?, includeProperties?, componentClass?, componentName?, world?, pieInstance?",
+  get_component_tree: "Params: actorLabel?, actorPath?, includeProperties?, componentClass?, componentName?, relativeTo?, socketNames?, world?, pieInstance?",
   get_current_edit_level: "Params: none",
   get_current_level: "Params: none",
   get_instance_transforms: "Params: actorLabel?, actorPath?, componentName?, worldSpace?",
@@ -5276,6 +5289,7 @@ export const schema: Record<string, z.ZodType> = {
   referencePath: z.string().optional().describe("Reference actor object path"),
   relativeLocation: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Relative location set after the attach, in the parent component or socket frame"),
   relativeRotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Relative rotation set after the attach, in the parent component or socket frame"),
+  relativeTo: z.string().optional().describe("Scene component on the same actor (instance name); every scene component and socket row also reports its transform in that component's space"),
   relativeTransform: z.object({ location: z.object({ x: z.number(), y: z.number(), z: z.number() }).describe("Relative location"), quaternion: z.record(z.unknown()).describe("Relative rotation {x, y, z, w}; this is what is applied"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).describe("Relative scale"), rotation: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("The same rotation as a rotator, for reading only") }).optional().describe("The relative transform to put back, as nudge_component's rollback records it"),
   restoreOriginalLevel: z.boolean().optional().describe("Reopen the map that was open before the call (default true)"),
   roll: z.number().optional().describe("Roll in degrees (default 0)"),
@@ -5291,6 +5305,7 @@ export const schema: Record<string, z.ZodType> = {
   skipIfPresent: z.boolean().optional().describe("Report an existing transformer of this class instead of adding a duplicate (default true)"),
   slotIndex: z.number().int().optional().describe("Material slot (default 0)"),
   socketName: z.string().optional().describe("Socket or bone on the resolved parent component"),
+  socketNames: z.array(z.string()).optional().describe("Bone or socket names; each component that has sockets reports their component-space transforms"),
   sourceRadius: z.number().optional().describe("Point or spot light source radius"),
   start: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Ray start"),
   startDistance: z.number().optional().describe("Fog start distance"),
@@ -5333,7 +5348,7 @@ export const schema: Record<string, z.ZodType> = {
   weldSimulatedBodies: z.boolean().optional().describe("Weld simulated bodies during attachment (default false)"),
   where: z.array(z.object({ field: z.string().describe("Dot path into the row, such as shadow.effectiveCastShadow or props.CullDistance"), op: z.string().optional().describe("eq (default) | ne | lt | lte | gt | gte | contains | notContains | startsWith | endsWith | in | notIn | exists | notExists | isNull | isNotNull | isTrue | isFalse"), value: z.unknown().optional().describe("Value the operator compares against") })).optional().describe("Predicates evaluated in the editor, at most 24"),
   whereMode: z.string().optional().describe("all (default) | any"),
-  world: z.string().optional().describe("World scope: editor (default) | pie (aim_actor_at, bulk_line_trace, count_actors_by_class, destroy_transient_actor, get_actor_bounds, get_actor_details, get_actors_by_class, get_actors_by_component_class, get_component_details, get_component_tree, get_relative_transform, get_runtime_virtual_texture_summary, get_spline_info, get_world_outliner, line_trace, list_transient_actors, move_actor, nav_project_point, nudge_component, place_actor, query_components, recreate_physics_state, rerun_construction_scripts, restore_component_relative_transform, set_actor_property, set_component_property, set_component_skeletal_mesh, set_fog_properties, snap_actor_to_floor, spawn_transient_actor, summarize_static_mesh_usage, test_component_overlap). World scope: auto (default, PIE when running) | editor | pie (read_actor_motion)"),
+  world: z.string().optional().describe("World scope: editor (default) | pie (aim_actor_at, bulk_line_trace, count_actors_by_class, destroy_transient_actor, get_actor_bounds, get_actor_details, get_actors_by_class, get_actors_by_component_class, get_component_details, get_relative_transform, get_runtime_virtual_texture_summary, get_spline_info, get_world_outliner, line_trace, list_transient_actors, move_actor, nav_project_point, nudge_component, place_actor, query_components, recreate_physics_state, rerun_construction_scripts, restore_component_relative_transform, set_actor_property, set_component_property, set_component_skeletal_mesh, set_fog_properties, snap_actor_to_floor, spawn_transient_actor, summarize_static_mesh_usage, test_component_overlap). editor (default) | pie | a world object path such as a Blueprint editor preview world (/Engine/Transient.World_N); with world omitted, an actorPath in another world reads that world (get_component_tree). World scope: auto (default, PIE when running) | editor | pie (read_actor_motion)"),
   worldSpace: z.boolean().optional().describe("Treat transforms as world space (default true)"),
   zoneExtent: z.unknown().optional().describe("New WaterZone ZoneExtent in cm, {x, y} or [x, y]"),
 };

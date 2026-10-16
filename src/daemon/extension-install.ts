@@ -138,8 +138,14 @@ export function sweepLeftovers(root: string, name: string): void {
   }
 }
 
-/** Remove an installed extension. True when there was one. */
+/**
+ * Remove an installed extension. True when there was one. The name must be one
+ * folder directly under the extensions directory, never a path out of it.
+ */
 export function removeExtension(name: string, root: string = extensionsDir()): boolean {
+  if (!name || name === "." || name === ".." || /[\\/]/.test(name)) {
+    throw new Error(`${JSON.stringify(name)} is not an extension name`);
+  }
   const dir = path.join(root, name);
   if (!fs.existsSync(dir)) return false;
   fs.rmSync(dir, { recursive: true, force: true });

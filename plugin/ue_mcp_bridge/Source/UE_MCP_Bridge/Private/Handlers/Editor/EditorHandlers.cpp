@@ -802,8 +802,8 @@ void FEditorHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("deferToNextTick"), EType::Boolean, TEXT("Queue the call for the next engine tick, outside the editor script-execution guard, so a replicated UFUNCTION routes normally; return and out values are not reported")),
 	}, MCPSpec::AtLeastOne({ { TEXT("actorLabel") }, { TEXT("actorPath") } }).ContractExempt(TEXT("calls a UFUNCTION")));
 	Registry.RegisterHandler(TEXT("invoke_static_function"), &InvokeStaticFunction, {
-		MCPParam::Required(TEXT("className"), EType::String, TEXT("UBlueprintFunctionLibrary class: a short name or a /Script/Module.Class path")),
-		MCPParam::Required(TEXT("functionName"), EType::String, TEXT("Static UFUNCTION on the library")),
+		MCPParam::Required(TEXT("className"), EType::String, TEXT("Reflected class declaring the static function, including project component classes: short name or /Script/Module.Class path")),
+		MCPParam::Required(TEXT("functionName"), EType::String, TEXT("Static UFUNCTION on the class")),
 		FunctionArgsParam(),
 		MCPParam::Optional(TEXT("actorArgs"), EType::Object, TEXT("UObject* parameter name -> actor label, resolved against live actors in the selected world")),
 		MCPParam::Optional(TEXT("worldContextParam"), EType::String, TEXT("UObject* parameter to fill with the selected world; detected from WorldContext metadata and for WorldContextObject when omitted")),

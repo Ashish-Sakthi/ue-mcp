@@ -4,7 +4,7 @@ Operating guide for Claude Code (and any AI agent) working in this repo. Shared 
 
 ## Repo at a glance
 
-- **TS server** (`src/`) - the MCP server. Wraps the UE bridge over WebSocket, exposes <!-- count:tools -->29<!-- /count --> category tools with <!-- count:actions -->2030+<!-- /count --> actions. The numbers between those markers are stamped by `scripts/generate-tool-metadata.ts` from `ALL_TOOLS`; do not hand-edit them, and do not remove the markers, because a hand-written count here is the first thing every agent reads and the last thing anyone remembers to update.
+- **TS server** (`src/`) - the MCP server. Wraps the UE bridge over WebSocket, exposes <!-- count:tools -->29<!-- /count --> category tools with <!-- count:actions -->2032+<!-- /count --> actions. The numbers between those markers are stamped by `scripts/generate-tool-metadata.ts` from `ALL_TOOLS`; do not hand-edit them, and do not remove the markers, because a hand-written count here is the first thing every agent reads and the last thing anyone remembers to update.
 - **C++ plugin** (`plugin/ue_mcp_bridge/`) - the editor-side bridge. Lives in `Private/Handlers/<Category>/*.cpp`, registers actions with `FMCPHandlerRegistry`.
 - **Test project** (`tests/ue_mcp/`) - the dedicated UE project used for smoke testing. The plugin is deployed here from `plugin/` via the deployer. This is the **only** safe target for live tests.
 - **Docs** (`docs/`) - MkDocs site. Release bodies are drafted outside the repo (see Release process).
@@ -58,7 +58,7 @@ The merge style follows the commit count, and writing five commits only to squas
 
 - Target **only** `tests/ue_mcp/ue_mcp.uproject`. Confirm the MCP connection via `project(get_status)` before running. If the editor is connected to anything else (the user's real project, another workspace), abort.
 - Smoke tests execute real mutations (create blueprints, delete assets, modify levels). A misrouted run against a real project can corrupt an active editor session.
-- <!-- count:bridgeActions -->1968<!-- /count --> bridge actions. Pass = every handler responds either with success or an expected parameter-validation error. Any timeout or `Unknown method` is a real failure.
+- <!-- count:bridgeActions -->1970<!-- /count --> bridge actions. Pass = every handler responds either with success or an expected parameter-validation error. Any timeout or `Unknown method` is a real failure.
 
 ### Golden baseline - the advertised surface
 
@@ -96,6 +96,15 @@ The merge style follows the commit count, and writing five commits only to squas
 - A new action needs a behavioural test, or an exemption with a reason in `tests/coverage/behavioural-exemptions.json`. Never add it to `tests/coverage/behavioural-gaps.json`.
 - The gap list is the backlog grandfathered when the gate landed. It only shrinks: the unit test fails on an entry that has gained a test (`npm run coverage:behavioural -- --shrink-ratchet`), and the `behavioural-coverage` release gate fails on any entry the merge base did not have.
 - Registration, preflight and refusal suites, file-level fixtures and `expect(x.ok)` do not count. Read the header of `scripts/behavioural-coverage.ts` for the rule.
+
+### Integration coverage gate
+
+Everything a user drives that is not a bridge action (CLI commands, server startup per strategy and mode, the gateway, flows, plugins, the daemon, feedback, auth, config) is listed by id in `tests/coverage/integration-surfaces.json`. `npm run test:integration` runs `tests/integration`: the real CLI, server and daemon spawned in hermetic sandboxes (`tests/integration/harness.ts`) with local fakes for the bridge, npm, the registry, the feedback service and GitHub. It runs in CI.
+
+- A test claims a surface with `covers("<id>")` from `tests/helpers/covers.ts`, and is credited when it asserts on what the process did. `npm run coverage:integration` regenerates `tests/coverage/integration-coverage.json`; `tests/unit/integration-coverage.test.ts` fails when it is stale, a surface is unexplained, or a test claims an id the manifest lacks.
+- A new surface goes into the manifest with its test, or with a reasoned exemption in `tests/coverage/integration-exemptions.json`. `tests/coverage/integration-gaps.json` only shrinks, enforced by the `integration-coverage` release gate.
+- A surface that needs a live editor gets its test in `tests/live`, which the inventory also reads.
+- Never point a test at a real service or the developer's home: start from `Sandbox.env()`, which closes every service origin and redirects every per-user file.
 
 ### Clean plugin rebuild recipe
 
@@ -222,8 +231,10 @@ npm run test:live       # Live tests against a running editor (tests/ue_mcp only
 npm run test:automation # The plugin's C++ UE.MCP.* suite, through the bridge
 npm run golden:record   # Re-record tests/golden/editor-down.json (review the diff)
 npm run coverage:behavioural # Regenerate the behavioural-coverage inventory
+npm run coverage:integration # Regenerate the integration-coverage inventory
+npm run test:integration     # Spawned CLI, server and daemon in sandboxes (no editor)
 npm run release:notes   # Compose cumulative stable notes from a version's prereleases
-npm test                # Unit + multi-editor suites (no editor needed)
+npm test                # Unit, multi-editor and integration suites (no editor needed)
 npm run test:suites     # Vitest smoke suites (tests/ue_mcp only)
 node scripts/deploy.mjs # Sync plugin/ → tests/ue_mcp/Plugins/
 ```

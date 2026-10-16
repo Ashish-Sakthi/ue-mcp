@@ -193,8 +193,8 @@ function writePluginsList(configPath: string, plugins: PluginEntry[]): void {
  * short-lived child so this stays synchronous like the rest of the CLI.
  */
 function resolveFromRegistry(name: string): string | null {
-  // A scoped or path-qualified spec is already a real npm name, not a slug.
-  if (name.startsWith("@") || name.includes("/")) return null;
+  // A scoped name is already a real npm name, and a path or tarball is no name at all.
+  if (name.startsWith("@") || !isRegistryName(name)) return null;
   const base = registryBase();
   const url = `${base}/api/resolve?name=${encodeURIComponent(name)}`;
   const script =
@@ -224,13 +224,15 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   }
 
   const proj = findProjectDir(projectStartDir(editor));
-  const { manifest, nativeDeployed } = installPackage(proj, name, version, version);
-  if (nativeDeployed) note(REBUILD_NOTE);
-  printInstallSummary(name, manifest);
+  const installed = installPackage(proj, name, version, version);
+  if (installed.nativeDeployed) note(REBUILD_NOTE);
+  printInstallSummary(installed.name, installed.manifest);
 }
 
 /** What one run of the install path did. */
 interface InstalledPlugin {
+  /** The package name npm installed, which is what ue-mcp.yml records. */
+  name: string;
   manifest: PluginManifest;
   version: string;
   /** The native module was copied into the project, so the UE project needs a rebuild. */
@@ -239,6 +241,36 @@ interface InstalledPlugin {
 
 const REBUILD_NOTE =
   "REBUILD REQUIRED: run `ue-mcp build` (or rebuild the UE project) before launching the editor so the new C++ module compiles in.";
+
+/** A spec npm resolves from the registry by name, not a folder, tarball or URL. */
+function isRegistryName(spec: string): boolean {
+  return /^(@[a-z0-9-~][a-z0-9-._~]*\/)?[a-z0-9-~][a-z0-9-._~]*$/i.test(spec) && !/\.(tgz|tar|tar\.gz)$/i.test(spec);
+}
+
+function readDependencies(projectDir: string): Record<string, string> {
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(projectDir, "package.json"), "utf-8")) as { dependencies?: Record<string, string> }).dependencies ?? {};
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * The package `npm install <spec>` put in node_modules. A registry name is its
+ * own answer. For a folder, tarball or URL it is the dependency the install
+ * added or changed, else a folder's own package.json name.
+ */
+function installedPackageName(spec: string, projectDir: string, before: Record<string, string>): string | null {
+  if (isRegistryName(spec)) return spec;
+  const after = readDependencies(projectDir);
+  const changed = Object.keys(after).filter((k) => after[k] !== before[k]);
+  if (changed.length === 1) return changed[0];
+  try {
+    return (JSON.parse(fs.readFileSync(path.join(path.resolve(projectDir, spec), "package.json"), "utf-8")) as { name?: string }).name ?? null;
+  } catch {
+    return null;
+  }
+}
 
 /** The version in an installed package's package.json. */
 function installedVersion(pkgDir: string): string | undefined {
@@ -255,7 +287,7 @@ function installedVersion(pkgDir: string): string | undefined {
  * native module with stale files pruned, and skills. Any failure exits
  * non-zero, so a half-installed plugin is never reported as done.
  */
-function installPackage(proj: ProjectInfo, name: string, version: string | undefined, pin: string | undefined): InstalledPlugin {
+function installPackage(proj: ProjectInfo, requested: string, version: string | undefined, pin: string | undefined): InstalledPlugin {
   let nativeDeployed = false;
   // Ensure a package.json exists. npm install will refuse without one.
   if (!fs.existsSync(path.join(proj.projectDir, "package.json"))) {
@@ -263,9 +295,12 @@ function installPackage(proj: ProjectInfo, name: string, version: string | undef
     runNpm(["init", "-y"], proj.projectDir);
   }
 
-  const spec = version ? `${name}@${version}` : name;
+  const spec = version ? `${requested}@${version}` : requested;
   note(`installing ${spec}`);
+  const before = readDependencies(proj.projectDir);
   runNpm(["install", "--save", spec], proj.projectDir);
+  const name = installedPackageName(requested, proj.projectDir, before);
+  if (!name) fail(`npm install ${spec} succeeded but the package it installed could not be identified`);
 
   // Validate the just-installed plugin BEFORE editing ue-mcp.yml.
   const pkgDir = findInstalledPackage(name, proj.projectDir);
@@ -393,7 +428,7 @@ function installPackage(proj: ProjectInfo, name: string, version: string | undef
     const skills = [...r.installed, ...r.unchanged];
     if (skills.length > 0) note(`skills: ${skills.join(", ")} (in .claude/skills/)`);
   }
-  return { manifest, version: installedVersion(pkgDir) ?? version ?? "?", nativeDeployed };
+  return { name, manifest, version: installedVersion(pkgDir) ?? version ?? "?", nativeDeployed };
 }
 
 function printInstallSummary(name: string, manifest: PluginManifest): void {
@@ -418,9 +453,9 @@ function cmdUninstall(args: string[], editor: string | undefined): void {
   if (!name) fail("usage: ue-mcp plugin uninstall <name>");
   const proj = findProjectDir(projectStartDir(editor));
 
-  // Remove any deployed native module BEFORE npm uninstall so we can still
-  // read the manifest (for diagnostics) and so the state file stays
-  // consistent if anything fails midway.
+  // npm goes first: when it fails, the project is left exactly as it was.
+  runNpm(["uninstall", name], proj.projectDir);
+
   const nativeState = readNativeModulesState(proj.projectDir);
   if (nativeState[name]) {
     try {
@@ -437,7 +472,6 @@ function cmdUninstall(args: string[], editor: string | undefined): void {
 
   const list = readPluginsList(proj.configPath).filter((p) => p.name !== name);
   writePluginsList(proj.configPath, list);
-  runNpm(["uninstall", name], proj.projectDir);
   note(`removed ${name}`);
   note(RESTART_NOTE);
 }
@@ -1033,7 +1067,7 @@ async function cmdConfigInteractive(
     label: g,
     checked: isGroupEnabled({ groups: effectiveState }, g),
   }));
-  const states = await checkboxSelect(`${slug}: enable flow groups`, items);
+  const states = await checkboxSelect(`${slug}: enable flow groups`, items, "Pass --enable <groups> or --disable <groups>.");
   const chosen: Record<string, boolean> = {};
   groups.forEach((g, i) => (chosen[g] = states[i]));
 
@@ -1042,7 +1076,7 @@ async function cmdConfigInteractive(
     { label: "you, this project  (ue-mcp.local.yml, untracked)", target: "local" },
     { label: "the team, tracked  (ue-mcp.yml)", target: "project" },
   ];
-  const idx = await singleSelect("Save preference to", targetLabels.map((t) => t.label));
+  const idx = await singleSelect("Save preference to", targetLabels.map((t) => t.label), "Pass --global, --local or --project with --enable or --disable.");
   const target = targetLabels[idx].target;
 
   writeLayerGroups(targetFile(proj.projectDir, target), slug, () => chosen);

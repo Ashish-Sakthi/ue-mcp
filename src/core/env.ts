@@ -80,6 +80,10 @@ export const ENV_VARS = {
   authDir: "UE_MCP_AUTH_DIR",
   /** GitHub OAuth app used for the device flow. */
   oauthClientId: "UE_MCP_OAUTH_CLIENT_ID",
+  /** Origin of GitHub's OAuth device flow. Unset means https://github.com. */
+  githubOAuth: "UE_MCP_GITHUB_OAUTH",
+  /** Origin of the GitHub REST API. Unset means https://api.github.com. */
+  githubApi: "UE_MCP_GITHUB_API",
   /** Origin of the plugin registry. Unset means https://plugins.ue-mcp.com. */
   registry: "UE_MCP_REGISTRY",
   /** Path of the cached registry catalog. */
@@ -90,6 +94,8 @@ export const ENV_VARS = {
   pluginMinServer: "UE_MCP_PLUGIN_MIN_SERVER",
   /** Prebuilt bridge binaries: a plugin directory, a .zip, a directory of archives, or a URL base. */
   binaries: "UE_MCP_BINARIES",
+  /** Origin of the npm registry the release lookups read. Unset means https://registry.npmjs.org. */
+  npmRegistry: "UE_MCP_NPM_REGISTRY",
   /** `1` skips the npm registry check for a newer release. */
   disableUpdateCheck: "UE_MCP_DISABLE_UPDATE_CHECK",
   /** Path of the cached update-check result. */

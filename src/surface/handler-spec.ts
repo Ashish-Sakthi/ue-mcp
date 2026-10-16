@@ -621,6 +621,10 @@ export function zodSignature(schema: z.ZodTypeAny, opts: { rules?: boolean } = {
       return `${sig((schema as z.ZodOptional<z.ZodTypeAny>).unwrap())}?`;
     case "ZodNullable":
       return `${sig((schema as z.ZodNullable<z.ZodTypeAny>).unwrap())}|null`;
+    case "ZodEffects": {
+      const effect = schema as z.ZodEffects<z.ZodTypeAny>;
+      return effect._def.effect.type === "refinement" ? sig(effect.innerType()) : "ZodEffects";
+    }
     case "ZodString":
       return "string";
     case "ZodNumber": {

@@ -11,7 +11,7 @@
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { spawn } from "node:child_process";
+import { spawnOutsideTree } from "../core/spawn-outside-tree.js";
 import WebSocket from "ws";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import type { JSONRPCMessage } from "@modelcontextprotocol/sdk/types.js";
@@ -22,6 +22,8 @@ import { isOlder } from "./daemon.js";
 import { liveStartLock } from "./start-lock.js";
 
 const START_TIMEOUT_MS = 120_000;
+/** How long a spawned daemon has to take the start lock before it counts as dead. */
+const NO_STARTER_GRACE_MS = 20_000;
 /** JSON-RPC error code for "the daemon went away while this request was out". */
 const DAEMON_LOST = -32001;
 
@@ -36,14 +38,23 @@ export async function ensureDaemon(uproject: string, wantVersion = packageVersio
   const usable = (d: DaemonDiscovery | null): d is DaemonDiscovery =>
     !!d && d.apiVersion === DAEMON_API_VERSION && !isOlder(d.version, wantVersion);
 
-  let spawned = false;
+  let spawnedAt: number | null = null;
+  let sawStarter = false;
   const deadline = Date.now() + START_TIMEOUT_MS;
   while (Date.now() < deadline) {
     const d = readLiveDiscovery(projectDir);
     if (usable(d)) return d;
-    if (!spawned && !liveStartLock(projectDir)) {
+    const starting = liveStartLock(projectDir) !== null;
+    if (spawnedAt !== null) {
+      if (starting) sawStarter = true;
+      // The daemon we started is not starting any more and published nothing, or
+      // never got as far as taking the lock: waiting out the timeout cannot help.
+      else if (sawStarter || Date.now() - spawnedAt > NO_STARTER_GRACE_MS) {
+        throw new Error(`daemon for ${projectDir} exited before it started; see ${logFile}`);
+      }
+    } else if (!starting) {
       spawnDaemon(uproject, projectDir, logDir, logFile);
-      spawned = true;
+      spawnedAt = Date.now();
     }
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -55,15 +66,14 @@ function spawnDaemon(uproject: string, projectDir: string, logDir: string, logFi
   // checkout under tsx starts a dev daemon and a published package its own.
   fs.mkdirSync(logDir, { recursive: true });
   const log = fs.openSync(logFile, "a");
-  const child = spawn(process.execPath, [...process.execArgv, process.argv[1], "daemon", "run", path.resolve(uproject)], {
-    detached: true,
-    stdio: ["ignore", log, log],
-    windowsHide: true,
+  // Outside the shim's process tree: a client that ends the tree on reconnect
+  // would otherwise end the daemon and the editor it launched (#1274).
+  spawnOutsideTree(process.execPath, [...process.execArgv, process.argv[1], "daemon", "run", path.resolve(uproject)], {
+    output: log,
     env: process.env,
   });
-  child.unref();
   fs.closeSync(log);
-  info("shim", `started daemon (pid ${child.pid}) for ${path.basename(projectDir)}`);
+  info("shim", `started daemon for ${path.basename(projectDir)}`);
 }
 
 export async function runShim(uproject: string): Promise<void> {

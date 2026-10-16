@@ -410,6 +410,8 @@ export class EditorBridge implements IBridge {
   }
 
   private connectedState = false;
+  /** Whether an editor ever answered, so there is one to wait for. */
+  private everConnected = false;
   private readonly connectionListeners = new Set<(change: BridgeConnectionChange) => void>();
 
   /** Called when the socket opens or is lost. Returns the unsubscribe. */
@@ -421,6 +423,7 @@ export class EditorBridge implements IBridge {
   private setConnected(connected: boolean, detail?: string): void {
     if (connected === this.connectedState) return;
     this.connectedState = connected;
+    if (connected) this.everConnected = true;
     const change: BridgeConnectionChange = { connected, port: this.port, detail, at: Date.now() };
     for (const listener of this.connectionListeners) {
       try {
@@ -771,6 +774,7 @@ export class EditorBridge implements IBridge {
   /**
    * How long a call made while the editor is away waits for it to come back.
    * 0, the default, fails at once; the daemon sets it, since it outlives editors.
+   * An editor that never connected is not coming back, so that call fails at once.
    */
   reattachWaitMs = 0;
 
@@ -814,7 +818,8 @@ export class EditorBridge implements IBridge {
       try {
         await this.ensureConnected();
       } catch (e) {
-        if (this.reattachWaitMs <= 0) throw this.withCause(e);
+        const wentAway = this.everConnected || this.lastDisconnectCause !== null;
+        if (this.reattachWaitMs <= 0 || !wentAway) throw this.withCause(e);
         if (!(await this.waitForConnection(this.reattachWaitMs))) throw this.withCause(e, this.reattachWaitMs);
       }
     }
