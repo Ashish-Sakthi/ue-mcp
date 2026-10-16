@@ -9,6 +9,7 @@
 #include "HandlerPagination.h"
 #include "HandlerAssetCreate.h"
 #include "HandlerJsonProperty.h"
+#include "HandlerAnimTrackPose.h"
 #include "Curves/RichCurve.h"
 #include "AnimationModifier.h"
 #include "AnimationModifiersAssetUserData.h"
@@ -1644,6 +1645,8 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ListAnimModifiers(const TSharedPtr<FJ
 
 
 // ─── #112 read_bone_track ─────────────────────────────────────────────
+// Raw keys of one bone, local by default. rotationFormat=quaternion returns the
+// exact stored quaternion, which an Euler readback loses near gimbal lock (#1227).
 TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -1653,17 +1656,36 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonO
 	// Read before anything can fail (#1057).
 	const TArray<TSharedPtr<FJsonValue>>* FramesArr = nullptr;
 	const bool bHasFrames = TryGetArrayParam(Params, TEXT("frames"), FramesArr) && FramesArr != nullptr;
+	const FString FormatToken = OptionalString(Params, TEXT("rotationFormat"));
+	const FString Space = OptionalString(Params, TEXT("space"), TEXT("local")).ToLower();
+
+	MCPAnimTrackPose::ERotationFormat RotationFormat = MCPAnimTrackPose::ERotationFormat::Euler;
+	if (!MCPAnimTrackPose::ParseRotationFormat(FormatToken, RotationFormat))
+	{
+		return MCPError(TEXT("rotationFormat must be 'euler' (default), 'quaternion', or 'both'"));
+	}
+	if (Space != TEXT("local") && Space != TEXT("component"))
+	{
+		return MCPError(TEXT("space must be 'local' (default) or 'component'"));
+	}
 
 	UAnimSequence* Seq = LoadAssetByPath<UAnimSequence>(AssetPath);
 	if (!Seq) return MCPError(FString::Printf(TEXT("AnimSequence not found: %s"), *AssetPath));
 
 	const IAnimationDataModel* DataModel = Seq->GetDataModel();
 	if (!DataModel) return MCPError(TEXT("Sequence has no data model"));
+	USkeleton* Skeleton = Seq->GetSkeleton();
+	if (!Skeleton) return MCPError(TEXT("Sequence has no skeleton"));
+	const FReferenceSkeleton& RefSkeleton = Skeleton->GetReferenceSkeleton();
+	const int32 BoneIndex = RefSkeleton.FindBoneIndex(FName(*BoneName));
+	if (BoneIndex == INDEX_NONE)
+	{
+		return MCPError(FString::Printf(TEXT("Bone '%s' is not on skeleton '%s'. animation(get_skeleton_info) lists the bones."), *BoneName, *Skeleton->GetPathName()));
+	}
 
 	const int32 NumFrames = DataModel->GetNumberOfFrames();
 	const double FrameRate = DataModel->GetFrameRate().AsDecimal();
 
-	// Frame selection
 	TArray<int32> FramesToSample;
 	if (bHasFrames)
 	{
@@ -1683,32 +1705,27 @@ TSharedPtr<FJsonValue> FAnimationHandlers::ReadBoneTrack(const TSharedPtr<FJsonO
 		FramesToSample.Add(NumFrames);
 	}
 
-	FName BoneFName(*BoneName);
-
+	const bool bComponent = Space == TEXT("component");
 	TArray<TSharedPtr<FJsonValue>> SamplesArr;
 	for (int32 Frame : FramesToSample)
 	{
-		FTransform Xf = DataModel->EvaluateBoneTrackTransform(BoneFName, DataModel->GetFrameRate().AsFrameTime((double)Frame / FrameRate), EAnimInterpolationType::Linear);
+		const double Time = FrameRate > 0.0 ? (double)Frame / FrameRate : 0.0;
+		const FTransform Xf = bComponent
+			? MCPAnimTrackPose::ComponentBoneAtTime(Seq, RefSkeleton, BoneIndex, Time)
+			: MCPAnimTrackPose::LocalBoneAtTime(Seq, RefSkeleton, BoneIndex, Time);
 		TSharedPtr<FJsonObject> S = MakeShared<FJsonObject>();
 		S->SetNumberField(TEXT("frame"), Frame);
-		FVector Loc = Xf.GetLocation();
-		TSharedPtr<FJsonObject> L = MakeShared<FJsonObject>();
-		L->SetNumberField(TEXT("x"), Loc.X); L->SetNumberField(TEXT("y"), Loc.Y); L->SetNumberField(TEXT("z"), Loc.Z);
-		S->SetObjectField(TEXT("location"), L);
-		FRotator R = Xf.Rotator();
-		TSharedPtr<FJsonObject> RO = MakeShared<FJsonObject>();
-		RO->SetNumberField(TEXT("pitch"), R.Pitch); RO->SetNumberField(TEXT("yaw"), R.Yaw); RO->SetNumberField(TEXT("roll"), R.Roll);
-		S->SetObjectField(TEXT("rotation"), RO);
-		FVector Sc = Xf.GetScale3D();
-		TSharedPtr<FJsonObject> SO = MakeShared<FJsonObject>();
-		SO->SetNumberField(TEXT("x"), Sc.X); SO->SetNumberField(TEXT("y"), Sc.Y); SO->SetNumberField(TEXT("z"), Sc.Z);
-		S->SetObjectField(TEXT("scale"), SO);
+		S->SetObjectField(TEXT("location"), MCPVec3ToJsonObject(Xf.GetLocation()));
+		MCPAnimTrackPose::WriteRotation(S, Xf.GetRotation(), RotationFormat);
+		S->SetObjectField(TEXT("scale"), MCPVec3ToJsonObject(Xf.GetScale3D()));
 		SamplesArr.Add(MakeShared<FJsonValueObject>(S));
 	}
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetStringField(TEXT("boneName"), BoneName);
+	Result->SetBoolField(TEXT("hasTrack"), DataModel->IsValidBoneTrackName(FName(*BoneName)));
+	Result->SetStringField(TEXT("space"), Space);
 	Result->SetNumberField(TEXT("numFrames"), NumFrames);
 	Result->SetNumberField(TEXT("frameRate"), FrameRate);
 	Result->SetArrayField(TEXT("samples"), SamplesArr);

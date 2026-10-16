@@ -169,6 +169,8 @@ private:
 	static TSharedPtr<FJsonValue> BatchRetargetAnimations(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> SetAnimBlueprintSkeleton(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> ReadBoneTrack(const TSharedPtr<FJsonObject>& Params);
+	// Read-modify-write of raw bone tracks across sequences, in AnimationHandlers_BoneTracks.cpp (#1227).
+	static TSharedPtr<FJsonValue> TransformBoneTracks(const TSharedPtr<FJsonObject>& Params);
 
 	// v1.0.0-rc.2 - animation authoring gaps (#153, #154)
 	static TSharedPtr<FJsonValue> SetSequenceProperties(const TSharedPtr<FJsonObject>& Params);

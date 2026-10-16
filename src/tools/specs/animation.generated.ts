@@ -3473,6 +3473,18 @@ export const handlerSpecs: HandlerSpecs = {
         "required": false,
         "description": "Frames to sample (default: first, middle and last)",
         "items": "number"
+      },
+      {
+        "name": "rotationFormat",
+        "type": "string",
+        "required": false,
+        "description": "euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat"
+      },
+      {
+        "name": "space",
+        "type": "string",
+        "required": false,
+        "description": "local (default) | component, which composes the parent chain"
       }
     ]
   },
@@ -4111,6 +4123,12 @@ export const handlerSpecs: HandlerSpecs = {
             "description": "Third axis value (default 0)"
           }
         ]
+      },
+      {
+        "name": "rotationFormat",
+        "type": "string",
+        "required": false,
+        "description": "euler (default) | quaternion | both, which adds rotationQuat"
       }
     ]
   },
@@ -5019,6 +5037,112 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Enter when the variable is false (default false)"
       }
     ]
+  },
+  "transform_bone_tracks": {
+    "category": "animation",
+    "params": [
+      {
+        "name": "assetPaths",
+        "type": "array",
+        "required": true,
+        "description": "AnimSequences to rewrite, at most 500",
+        "items": "string"
+      },
+      {
+        "name": "trackOps",
+        "type": "array",
+        "required": true,
+        "description": "Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written",
+        "items": "object",
+        "fields": [
+          {
+            "name": "op",
+            "type": "string",
+            "required": true,
+            "description": "rotate | offset | copy_from_donor | reference_delta"
+          },
+          {
+            "name": "bones",
+            "type": "array",
+            "required": false,
+            "description": "Bones the op writes; required except for reference_delta",
+            "items": "string"
+          },
+          {
+            "name": "rotation",
+            "type": "object",
+            "required": false,
+            "description": "rotate: {x,y,z,w} or {pitch,yaw,roll}"
+          },
+          {
+            "name": "order",
+            "type": "string",
+            "required": false,
+            "description": "rotate: pre (default) multiplies in parent space, post in bone space"
+          },
+          {
+            "name": "rotateTranslation",
+            "type": "boolean",
+            "required": false,
+            "description": "rotate with order pre: also rotate each key's translation (default false)"
+          },
+          {
+            "name": "translation",
+            "type": "object",
+            "required": false,
+            "description": "offset: {x,y,z} added to every key"
+          },
+          {
+            "name": "donorPath",
+            "type": "string",
+            "required": false,
+            "description": "copy_from_donor (required) and reference_delta: AnimSequence to read the pose from"
+          },
+          {
+            "name": "donorFrame",
+            "type": "integer",
+            "required": false,
+            "description": "Donor frame (default 0); exclusive with donorTime"
+          },
+          {
+            "name": "donorTime",
+            "type": "number",
+            "required": false,
+            "description": "Donor time in seconds; exclusive with donorFrame"
+          },
+          {
+            "name": "keepTranslation",
+            "type": "boolean",
+            "required": false,
+            "description": "copy_from_donor: keep each key's own translation (default true)"
+          },
+          {
+            "name": "keepScale",
+            "type": "boolean",
+            "required": false,
+            "description": "copy_from_donor: keep each key's own scale (default true)"
+          },
+          {
+            "name": "sourceBone",
+            "type": "string",
+            "required": false,
+            "description": "reference_delta: bone whose rotation relative to its reference pose is applied"
+          },
+          {
+            "name": "targetBone",
+            "type": "string",
+            "required": false,
+            "description": "reference_delta: bone set to its reference pose times that delta"
+          }
+        ]
+      },
+      {
+        "name": "save",
+        "type": "boolean",
+        "required": false,
+        "description": "Save each sequence (default true)"
+      }
+    ]
   }
 };
 
@@ -5098,7 +5222,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   read_anim_montage: "Params: assetPath (or path)",
   read_anim_sequence: "Params: assetPath? (or path), assetPaths?, directory?, recursive?, nameFilter?, fields?, cursor?, limit?",
   read_blendspace: "Params: assetPath (or path)",
-  read_bone_track: "Params: assetPath, boneName, frames?",
+  read_bone_track: "Params: assetPath, boneName, frames?, rotationFormat?, space?",
   read_control_rig_edit: "Params: sequencePath, bindingTag, controlNames?, frame?, frames?, space?",
   read_control_rig_graph: "Params: assetPath (or path), graphName?, includePins?, includeDefaults?, includeLinks?, limit?",
   read_control_rig_hierarchy: "Params: assetPath (or path)",
@@ -5121,7 +5245,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   remove_virtual_bone: "Params: skeletonPath, virtualBoneName",
   reset_retarget_pose: "Params: retargeterPath (or assetPath), side?",
   reverse_sequence: "Params: sourcePath, destinationPath?, name?, packagePath?, inPlace?, cycleOffsetFrames?, cycleOffsetSeconds?, onConflict?",
-  sample_pose: "Params: assetPath (or path), boneNames?, frames?, times?, space?, skeletalMeshPath?, incorporateRootMotion?, blendPosition?",
+  sample_pose: "Params: assetPath (or path), boneNames?, frames?, times?, space?, skeletalMeshPath?, incorporateRootMotion?, blendPosition?, rotationFormat?",
   scan_animation_tracks: "Params: directory?, recursive?, assetPaths?, skeletonPath?, targetTrackCount?, includeTrackNames?",
   set_anim_blueprint_skeleton: "Params: assetPath, skeletonPath",
   set_anim_curve_keys: "Params: assetPath (or path), curveName, keys, interpolation?",
@@ -5145,6 +5269,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   set_sync_markers: "Params: assetPath (or path), at least one of markers/removeMarkers, markerMode?",
   set_transition_blend: "Params: assetPath (or path), stateMachineName, fromState, toState, blendDuration?, blendLogic?",
   set_transition_condition: "Params: assetPath (or path), stateMachineName, variableName, transitionGuid?, fromState?, toState?, negate?",
+  transform_bone_tracks: "Params: assetPaths, trackOps, save?",
 };
 
 /** Every key the spec'd animation handlers declare, aliases included. */
@@ -5160,7 +5285,7 @@ export const schema: Record<string, z.ZodType> = {
   animPaths: z.array(z.string()).optional().describe("AnimSequences to bake, without duplicates"),
   animSequencePath: z.string().optional().describe("AnimSequence or AnimComposite to append as a segment (add_montage_segment). AnimSequence the montage plays (create_anim_montage). AnimSequence to put in the slot (set_montage_sequence)"),
   assetPath: z.string().optional().describe("AnimSequence or AnimMontage asset path (add_anim_notify, add_anim_notify_state, remove_anim_notify, remove_anim_notify_state). BlendSpace or BlendSpace1D asset path (add_blend_sample, populate_blendspace, read_blendspace, set_blend_sample). AnimSequence asset path (add_curve, analyze_animation, apply_animation_modifier, bake_keyframes_batch, bake_root_motion_from_bone, list_anim_modifiers, read_bone_track, remove_anim_curve, set_anim_curve_keys, set_bone_keyframes, set_root_motion_settings, set_sync_markers). AnimMontage asset path (add_montage_section, add_montage_segment, list_montage_segments, read_anim_montage, remove_montage_section, remove_montage_segment, set_montage_properties, set_montage_sequence, set_montage_slot). AnimBlueprint asset path (add_motion_matching_node, add_pose_history_node, add_sequence_evaluator, add_state, add_transition, bind_anim_node_function, create_state_machine, inspect_anim_nodes, read_anim_blueprint, read_anim_graph, read_state_machine, remove_state, remove_state_machine, remove_transition, set_anim_blueprint_skeleton, set_motion_matching_chooser, set_state_animation, set_state_machine_entry, set_transition_blend, set_transition_condition). Alias for schemaPath (add_pose_search_schema_pose_channel, add_pose_search_schema_trajectory_channel, read_pose_search_schema). PoseSearchDatabase asset path (add_pose_search_sequence, build_pose_search_index, read_pose_search_database, set_pose_search_clips, set_pose_search_database_settings, set_pose_search_schema). Alias for retargeterPath (auto_align_retarget_pose, batch_retarget_animations, reset_retarget_pose, set_ik_retargeter_rig). Alias for animPath (compare_curves_to_morph_targets). Alias for skeletonPath (get_bone_transforms). PhysicsAsset asset path, or a SkeletalMesh whose assigned PhysicsAsset to read (get_physics_asset_constraints). SkeletalMesh asset path (get_physics_asset_info, get_skeleton_info, list_animation_sockets). Control Rig Blueprint asset path (list_control_rig_variables, read_control_rig_graph, read_control_rig_hierarchy). AnimSequence or BlendSpace asset path (measure_natural_speed). AnimSequence to read; omit when reading a batch (read_anim_sequence). IKRetargeter asset path (read_ik_retargeter). IKRigDefinition asset path (read_ik_rig). MirrorDataTable asset path (read_mirror_data_table). AnimSequence or BlendSpace asset path; a montage is refused (sample_pose). Alias for rigPath (set_ik_rig_mesh)"),
-  assetPaths: z.array(z.string()).optional().describe("Batch: up to 1000 AnimSequence paths, one row each (read_anim_sequence). Scan exactly these AnimSequences instead of a directory (scan_animation_tracks). AnimSequences to write, or montages when resolveFromMontages is on (set_sequence_properties)"),
+  assetPaths: z.array(z.string()).optional().describe("Batch: up to 1000 AnimSequence paths, one row each (read_anim_sequence). Scan exactly these AnimSequences instead of a directory (scan_animation_tracks). AnimSequences to write, or montages when resolveFromMontages is on (set_sequence_properties). AnimSequences to rewrite, at most 500 (transform_bone_tracks)"),
   autoMapChains: z.boolean().optional().describe("Assign the rigs to every op and auto-map chains (default true)"),
   autoMapMode: z.string().optional().describe("Native chain auto-map: exact | fuzzy | clear"),
   autoSetup: z.string().optional().describe("Native setup pass: retarget | full_body, which installs the retarget definition and then Full Body IK"),
@@ -5328,13 +5453,14 @@ export const schema: Record<string, z.ZodType> = {
   rootBone: z.string().optional().describe("Root bone name (default root)"),
   rootMotionBone: z.string().optional().describe("Root-motion bone"),
   rootMotionRootLock: z.string().optional().describe("Root lock mode: RefPose | AnimFirstFrame | Zero"),
+  rotationFormat: z.string().optional().describe("euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat (read_bone_track). euler (default) | quaternion | both, which adds rotationQuat (sample_pose)"),
   sampleEnd: z.number().optional().describe("Sampling range end in seconds"),
   sampleIndex: z.number().int().optional().describe("Sample to edit, as read_blendspace lists it"),
   sampleRate: z.number().optional().describe("Samples per second when frames is omitted, 1 to 240 (default the source rate) (analyze_animation). Schema sample rate (default 30) (create_pose_search_schema)"),
   samples: z.array(z.record(z.unknown())).optional().describe("[{offset, flags?, weight?}]: offset in seconds, negative for history and positive for prediction; flags from position, velocity, facingDirection, velocityDirection and their XY variants (add_pose_search_schema_trajectory_channel). Samples to add as [{animationPath, x, y?}]; an unloadable animation is reported under failed (populate_blendspace)"),
   sampleStart: z.number().optional().describe("Sampling range start in seconds"),
   samplingInterval: z.number().optional().describe("Seconds between history samples"),
-  save: z.boolean().optional().describe("Save the asset after baking (default true)"),
+  save: z.boolean().optional().describe("Save the asset after baking (default true) (bake_keyframes_batch). Save each sequence (default true) (transform_bone_tracks)"),
   schemaPath: z.string().optional().describe("PoseSearchSchema to add the channel to (add_pose_search_schema_pose_channel, add_pose_search_schema_trajectory_channel). Existing PoseSearchSchema to use; a schema that cannot index is refused (create_pose_search_database). PoseSearchSchema to read (read_pose_search_schema). PoseSearchSchema to assign; a schema that cannot index is refused (set_pose_search_schema)"),
   sectionName: z.string().optional().describe("Composite section to add (add_montage_section). Composite section to remove (remove_montage_section)"),
   segmentIndex: z.number().optional().describe("Segment to anchor the section to, so it moves with that segment (#826) (add_montage_section). Segment to remove (remove_montage_segment). Replace only this segment; without it every segment in the slot is replaced (#626) (set_montage_sequence)"),
@@ -5354,7 +5480,7 @@ export const schema: Record<string, z.ZodType> = {
   sourcePath: z.string().optional().describe("AnimSequence to reverse"),
   sourcePreviewMesh: z.string().optional().describe("Source preview SkeletalMesh"),
   sourceRig: z.string().optional().describe("Source IKRigDefinition to assign"),
-  space: z.string().optional().describe("world (default) | component | local (get_bone_transform, get_live_bone_transforms). local (default) | component, which composes the parent chain (get_bone_transforms). local (default) | component | global, where global is an alias for component (read_control_rig_edit). component (default) | local | world, which resolves to component on an asset (sample_pose)"),
+  space: z.string().optional().describe("world (default) | component | local (get_bone_transform, get_live_bone_transforms). local (default) | component, which composes the parent chain (get_bone_transforms, read_bone_track). local (default) | component | global, where global is an alias for component (read_control_rig_edit). component (default) | local | world, which resolves to component on an asset (sample_pose)"),
   startFrame: z.number().int().optional().describe("Inclusive edit range start frame (default 0)"),
   startPos: z.number().optional().describe("Trim start inside the source, in seconds (default 0)"),
   startTime: z.number().optional().describe("Section start in seconds; taken from the segment when segmentIndex is given"),
@@ -5372,6 +5498,7 @@ export const schema: Record<string, z.ZodType> = {
   tolerance: z.number().optional().describe("Key-reduction tolerance (default 0.001)"),
   toState: z.string().optional().describe("State the transition enters (add_transition, set_transition_blend). With fromState, removes every transition between the two (remove_transition). With fromState, the transition to condition when transitionGuid is omitted (set_transition_condition)"),
   trackIndex: z.number().int().optional().describe("Slot track index (default 0)"),
+  trackOps: z.array(z.object({ op: z.string().describe("rotate | offset | copy_from_donor | reference_delta"), bones: z.array(z.string()).optional().describe("Bones the op writes; required except for reference_delta"), rotation: z.record(z.unknown()).optional().describe("rotate: {x,y,z,w} or {pitch,yaw,roll}"), order: z.string().optional().describe("rotate: pre (default) multiplies in parent space, post in bone space"), rotateTranslation: z.boolean().optional().describe("rotate with order pre: also rotate each key's translation (default false)"), translation: z.record(z.unknown()).optional().describe("offset: {x,y,z} added to every key"), donorPath: z.string().optional().describe("copy_from_donor (required) and reference_delta: AnimSequence to read the pose from"), donorFrame: z.number().int().optional().describe("Donor frame (default 0); exclusive with donorTime"), donorTime: z.number().optional().describe("Donor time in seconds; exclusive with donorFrame"), keepTranslation: z.boolean().optional().describe("copy_from_donor: keep each key's own translation (default true)"), keepScale: z.boolean().optional().describe("copy_from_donor: keep each key's own scale (default true)"), sourceBone: z.string().optional().describe("reference_delta: bone whose rotation relative to its reference pose is applied"), targetBone: z.string().optional().describe("reference_delta: bone set to its reference pose times that delta") })).optional().describe("Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written"),
   tracks: z.array(z.object({ bone: z.string().describe("Bone whose track to replace"), keyframes: z.array(z.record(z.unknown())).describe("One key per frame as {location?, rotation? {x, y, z, w}, scale?}") })).optional().describe("Per-bone key arrays; a missing track is created"),
   trajectoryHistoryCount: z.number().optional().describe("Generated trajectory history samples"),
   trajectoryPredictionCount: z.number().optional().describe("Generated trajectory prediction samples"),

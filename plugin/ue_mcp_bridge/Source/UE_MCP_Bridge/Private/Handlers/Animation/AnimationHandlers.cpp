@@ -867,6 +867,27 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("AnimSequence asset path")),
 		MCPParam::Required(TEXT("boneName"), EType::String, TEXT("Bone whose track to sample")),
 		MCPParam::Optional(TEXT("frames"), EType::Array, TEXT("Frames to sample (default: first, middle and last)")).Items(EType::Number),
+		MCPParam::Optional(TEXT("rotationFormat"), EType::String, TEXT("euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat")),
+		MCPParam::Optional(TEXT("space"), EType::String, TEXT("local (default) | component, which composes the parent chain")),
+	});
+	Registry.RegisterHandler(TEXT("transform_bone_tracks"), &TransformBoneTracks, {
+		MCPParam::Required(TEXT("assetPaths"), EType::Array, TEXT("AnimSequences to rewrite, at most 500")).Items(EType::String),
+		MCPParam::Required(TEXT("trackOps"), EType::Array, TEXT("Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("op"), EType::String, TEXT("rotate | offset | copy_from_donor | reference_delta")),
+			MCPParam::OptionalField(TEXT("bones"), EType::Array, TEXT("Bones the op writes; required except for reference_delta")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("rotation"), EType::Object, TEXT("rotate: {x,y,z,w} or {pitch,yaw,roll}")),
+			MCPParam::OptionalField(TEXT("order"), EType::String, TEXT("rotate: pre (default) multiplies in parent space, post in bone space")),
+			MCPParam::OptionalField(TEXT("rotateTranslation"), EType::Boolean, TEXT("rotate with order pre: also rotate each key's translation (default false)")),
+			MCPParam::OptionalField(TEXT("translation"), EType::Object, TEXT("offset: {x,y,z} added to every key")),
+			MCPParam::OptionalField(TEXT("donorPath"), EType::String, TEXT("copy_from_donor (required) and reference_delta: AnimSequence to read the pose from")),
+			MCPParam::OptionalField(TEXT("donorFrame"), EType::Integer, TEXT("Donor frame (default 0); exclusive with donorTime")),
+			MCPParam::OptionalField(TEXT("donorTime"), EType::Number, TEXT("Donor time in seconds; exclusive with donorFrame")),
+			MCPParam::OptionalField(TEXT("keepTranslation"), EType::Boolean, TEXT("copy_from_donor: keep each key's own translation (default true)")),
+			MCPParam::OptionalField(TEXT("keepScale"), EType::Boolean, TEXT("copy_from_donor: keep each key's own scale (default true)")),
+			MCPParam::OptionalField(TEXT("sourceBone"), EType::String, TEXT("reference_delta: bone whose rotation relative to its reference pose is applied")),
+			MCPParam::OptionalField(TEXT("targetBone"), EType::String, TEXT("reference_delta: bone set to its reference pose times that delta")),
+		}),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each sequence (default true)")),
 	});
 
 	// v1.0.0-rc.2 - animation authoring gaps (#153, #154)
@@ -1108,6 +1129,7 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		PoseMesh(),
 		MCPParam::Optional(TEXT("incorporateRootMotion"), EType::Boolean, TEXT("Fold the clip's root motion into the pose (default true)")),
 		BlendPosition(),
+		MCPParam::Optional(TEXT("rotationFormat"), EType::String, TEXT("euler (default) | quaternion | both, which adds rotationQuat")),
 	});
 	Registry.RegisterHandler(TEXT("measure_natural_speed"), &MeasureNaturalSpeed, {
 		AssetPath(TEXT("AnimSequence or BlendSpace asset path")),

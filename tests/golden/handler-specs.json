@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1079,
+  "handlerCount": 1080,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -23258,6 +23258,18 @@
           "required": false,
           "description": "Frames to sample (default: first, middle and last)",
           "items": "number"
+        },
+        {
+          "name": "rotationFormat",
+          "type": "string",
+          "required": false,
+          "description": "euler (default) | quaternion, the exact stored rotation | both, which adds rotationQuat"
+        },
+        {
+          "name": "space",
+          "type": "string",
+          "required": false,
+          "description": "local (default) | component, which composes the parent chain"
         }
       ]
     },
@@ -28051,6 +28063,12 @@
               "description": "Third axis value (default 0)"
             }
           ]
+        },
+        {
+          "name": "rotationFormat",
+          "type": "string",
+          "required": false,
+          "description": "euler (default) | quaternion | both, which adds rotationQuat"
         }
       ]
     },
@@ -37313,6 +37331,112 @@
           "type": "string",
           "required": false,
           "description": "Runtime world scope: auto (default) | pie | editor"
+        }
+      ]
+    },
+    "transform_bone_tracks": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "assetPaths",
+          "type": "array",
+          "required": true,
+          "description": "AnimSequences to rewrite, at most 500",
+          "items": "string"
+        },
+        {
+          "name": "trackOps",
+          "type": "array",
+          "required": true,
+          "description": "Applied in order to every sequence, at most 256; every bone and donor is validated before anything is written",
+          "items": "object",
+          "fields": [
+            {
+              "name": "op",
+              "type": "string",
+              "required": true,
+              "description": "rotate | offset | copy_from_donor | reference_delta"
+            },
+            {
+              "name": "bones",
+              "type": "array",
+              "required": false,
+              "description": "Bones the op writes; required except for reference_delta",
+              "items": "string"
+            },
+            {
+              "name": "rotation",
+              "type": "object",
+              "required": false,
+              "description": "rotate: {x,y,z,w} or {pitch,yaw,roll}"
+            },
+            {
+              "name": "order",
+              "type": "string",
+              "required": false,
+              "description": "rotate: pre (default) multiplies in parent space, post in bone space"
+            },
+            {
+              "name": "rotateTranslation",
+              "type": "boolean",
+              "required": false,
+              "description": "rotate with order pre: also rotate each key's translation (default false)"
+            },
+            {
+              "name": "translation",
+              "type": "object",
+              "required": false,
+              "description": "offset: {x,y,z} added to every key"
+            },
+            {
+              "name": "donorPath",
+              "type": "string",
+              "required": false,
+              "description": "copy_from_donor (required) and reference_delta: AnimSequence to read the pose from"
+            },
+            {
+              "name": "donorFrame",
+              "type": "integer",
+              "required": false,
+              "description": "Donor frame (default 0); exclusive with donorTime"
+            },
+            {
+              "name": "donorTime",
+              "type": "number",
+              "required": false,
+              "description": "Donor time in seconds; exclusive with donorFrame"
+            },
+            {
+              "name": "keepTranslation",
+              "type": "boolean",
+              "required": false,
+              "description": "copy_from_donor: keep each key's own translation (default true)"
+            },
+            {
+              "name": "keepScale",
+              "type": "boolean",
+              "required": false,
+              "description": "copy_from_donor: keep each key's own scale (default true)"
+            },
+            {
+              "name": "sourceBone",
+              "type": "string",
+              "required": false,
+              "description": "reference_delta: bone whose rotation relative to its reference pose is applied"
+            },
+            {
+              "name": "targetBone",
+              "type": "string",
+              "required": false,
+              "description": "reference_delta: bone set to its reference pose times that delta"
+            }
+          ]
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save each sequence (default true)"
         }
       ]
     },
