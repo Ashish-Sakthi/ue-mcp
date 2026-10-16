@@ -80,7 +80,6 @@ describe("two sessions, one of them a live editor", () => {
     const result = await server.call("asset", {
       action: "list_textures",
       directory: "/Game",
-      recursive: false,
       editor: LIVE,
     });
     expect(result.isError).toBe(false);
@@ -111,7 +110,6 @@ describe("gating beyond one editor", () => {
     const result = await server.call("asset", {
       action: "list_textures",
       directory: "/Game",
-      recursive: false,
     });
     expect(result.isError).toBe(false);
     expect(servingEditor(result)).toBe(LIVE);
@@ -293,7 +291,6 @@ describe("the no-project default bridge", () => {
       const result = await bare.call("asset", {
         action: "list_textures",
         directory: "/Game",
-        recursive: false,
       });
       expect(result.isError).toBe(false);
       // One session, so nothing is attributed and nothing is gated: the
