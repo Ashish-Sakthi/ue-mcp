@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1080,
+  "handlerCount": 1081,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -7784,6 +7784,134 @@
           "type": "string",
           "required": true,
           "description": "StateTree asset path, e.g. /Game/Path/To/ST_Asset"
+        }
+      ]
+    },
+    "compose_pose_sequence": {
+      "category": "animation",
+      "params": [
+        {
+          "name": "name",
+          "type": "string",
+          "required": true,
+          "description": "New AnimSequence name"
+        },
+        {
+          "name": "packagePath",
+          "type": "string",
+          "required": false,
+          "description": "Destination folder (default the first source's folder)"
+        },
+        {
+          "name": "sources",
+          "type": "array",
+          "required": true,
+          "description": "Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton",
+          "items": "object",
+          "fields": [
+            {
+              "name": "assetPath",
+              "type": "string",
+              "required": true,
+              "description": "AnimSequence to sample"
+            },
+            {
+              "name": "frame",
+              "type": "integer",
+              "required": false,
+              "description": "Frame to sample (default 0); exclusive with time"
+            },
+            {
+              "name": "time",
+              "type": "number",
+              "required": false,
+              "description": "Time in seconds to sample; exclusive with frame"
+            }
+          ]
+        },
+        {
+          "name": "layers",
+          "type": "array",
+          "required": false,
+          "description": "Per-bone blends over the base pose, applied in order, at most 64",
+          "items": "object",
+          "fields": [
+            {
+              "name": "source",
+              "type": "integer",
+              "required": true,
+              "description": "Index into sources to blend toward"
+            },
+            {
+              "name": "weight",
+              "type": "number",
+              "required": false,
+              "description": "0 to 1 (default 1): rotation slerps, translation and scale lerp"
+            },
+            {
+              "name": "bones",
+              "type": "array",
+              "required": false,
+              "description": "Bones by exact name",
+              "items": "string"
+            },
+            {
+              "name": "nameContains",
+              "type": "array",
+              "required": false,
+              "description": "Bones whose name contains any of these, case-insensitive",
+              "items": "string"
+            },
+            {
+              "name": "excludeContains",
+              "type": "array",
+              "required": false,
+              "description": "Drop matched bones whose name contains any of these",
+              "items": "string"
+            },
+            {
+              "name": "includeDescendants",
+              "type": "boolean",
+              "required": false,
+              "description": "Also match every descendant of a matched bone (default false)"
+            },
+            {
+              "name": "rotationOnly",
+              "type": "boolean",
+              "required": false,
+              "description": "Blend rotation only, keeping translation and scale (default false)"
+            }
+          ]
+        },
+        {
+          "name": "numFrames",
+          "type": "number",
+          "required": false,
+          "description": "Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys"
+        },
+        {
+          "name": "frameRate",
+          "type": "number",
+          "required": false,
+          "description": "Frames per second (default 30)"
+        },
+        {
+          "name": "easeToSource",
+          "type": "integer",
+          "required": false,
+          "description": "Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame"
+        },
+        {
+          "name": "easeCurve",
+          "type": "string",
+          "required": false,
+          "description": "linear (default) | smooth"
+        },
+        {
+          "name": "onConflict",
+          "type": "string",
+          "required": false,
+          "description": "skip (default) returns an existing asset untouched, error refuses; it never overwrites"
         }
       ]
     },
@@ -34013,7 +34141,7 @@
           "name": "properties",
           "type": "object",
           "required": true,
-          "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}"
+          "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call"
         },
         {
           "name": "resolveFromMontages",

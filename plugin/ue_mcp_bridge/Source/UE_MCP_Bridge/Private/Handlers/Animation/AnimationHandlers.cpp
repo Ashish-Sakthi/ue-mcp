@@ -889,11 +889,34 @@ void FAnimationHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		}),
 		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save each sequence (default true)")),
 	});
+	Registry.RegisterHandler(TEXT("compose_pose_sequence"), &ComposePoseSequence, {
+		MCPParam::Required(TEXT("name"), EType::String, TEXT("New AnimSequence name")),
+		MCPParam::Optional(TEXT("packagePath"), EType::String, TEXT("Destination folder (default the first source's folder)")),
+		MCPParam::Required(TEXT("sources"), EType::Array, TEXT("Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("assetPath"), EType::String, TEXT("AnimSequence to sample")),
+			MCPParam::OptionalField(TEXT("frame"), EType::Integer, TEXT("Frame to sample (default 0); exclusive with time")),
+			MCPParam::OptionalField(TEXT("time"), EType::Number, TEXT("Time in seconds to sample; exclusive with frame")),
+		}),
+		MCPParam::Optional(TEXT("layers"), EType::Array, TEXT("Per-bone blends over the base pose, applied in order, at most 64")).Items(EType::Object).WithFields({
+			MCPParam::RequiredField(TEXT("source"), EType::Integer, TEXT("Index into sources to blend toward")),
+			MCPParam::OptionalField(TEXT("weight"), EType::Number, TEXT("0 to 1 (default 1): rotation slerps, translation and scale lerp")),
+			MCPParam::OptionalField(TEXT("bones"), EType::Array, TEXT("Bones by exact name")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("nameContains"), EType::Array, TEXT("Bones whose name contains any of these, case-insensitive")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("excludeContains"), EType::Array, TEXT("Drop matched bones whose name contains any of these")).Items(EType::String),
+			MCPParam::OptionalField(TEXT("includeDescendants"), EType::Boolean, TEXT("Also match every descendant of a matched bone (default false)")),
+			MCPParam::OptionalField(TEXT("rotationOnly"), EType::Boolean, TEXT("Blend rotation only, keeping translation and scale (default false)")),
+		}),
+		MCPParam::Optional(TEXT("numFrames"), EType::Number, TEXT("Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys")),
+		MCPParam::Optional(TEXT("frameRate"), EType::Number, TEXT("Frames per second (default 30)")),
+		MCPParam::Optional(TEXT("easeToSource"), EType::Integer, TEXT("Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame")),
+		MCPParam::Optional(TEXT("easeCurve"), EType::String, TEXT("linear (default) | smooth")),
+		OnConflict(TEXT("skip (default) returns an existing asset untouched, error refuses; it never overwrites")),
+	});
 
 	// v1.0.0-rc.2 - animation authoring gaps (#153, #154)
 	Registry.RegisterHandler(TEXT("set_sequence_properties"), &SetSequenceProperties, {
 		MCPParam::Required(TEXT("assetPaths"), EType::Array, TEXT("AnimSequences to write, or montages when resolveFromMontages is on")).Items(EType::String),
-		MCPParam::Required(TEXT("properties"), EType::Object, TEXT("{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}")),
+		MCPParam::Required(TEXT("properties"), EType::Object, TEXT("{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call")),
 		MCPParam::Optional(TEXT("resolveFromMontages"), EType::Boolean, TEXT("Resolve a montage to its first AnimSequence (default true)")),
 	});
 	Registry.RegisterHandler(TEXT("bake_root_motion_from_bone"), &BakeRootMotionFromBone, {

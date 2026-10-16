@@ -1661,6 +1661,134 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "compose_pose_sequence": {
+    "category": "animation",
+    "params": [
+      {
+        "name": "name",
+        "type": "string",
+        "required": true,
+        "description": "New AnimSequence name"
+      },
+      {
+        "name": "packagePath",
+        "type": "string",
+        "required": false,
+        "description": "Destination folder (default the first source's folder)"
+      },
+      {
+        "name": "sources",
+        "type": "array",
+        "required": true,
+        "description": "Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton",
+        "items": "object",
+        "fields": [
+          {
+            "name": "assetPath",
+            "type": "string",
+            "required": true,
+            "description": "AnimSequence to sample"
+          },
+          {
+            "name": "frame",
+            "type": "integer",
+            "required": false,
+            "description": "Frame to sample (default 0); exclusive with time"
+          },
+          {
+            "name": "time",
+            "type": "number",
+            "required": false,
+            "description": "Time in seconds to sample; exclusive with frame"
+          }
+        ]
+      },
+      {
+        "name": "layers",
+        "type": "array",
+        "required": false,
+        "description": "Per-bone blends over the base pose, applied in order, at most 64",
+        "items": "object",
+        "fields": [
+          {
+            "name": "source",
+            "type": "integer",
+            "required": true,
+            "description": "Index into sources to blend toward"
+          },
+          {
+            "name": "weight",
+            "type": "number",
+            "required": false,
+            "description": "0 to 1 (default 1): rotation slerps, translation and scale lerp"
+          },
+          {
+            "name": "bones",
+            "type": "array",
+            "required": false,
+            "description": "Bones by exact name",
+            "items": "string"
+          },
+          {
+            "name": "nameContains",
+            "type": "array",
+            "required": false,
+            "description": "Bones whose name contains any of these, case-insensitive",
+            "items": "string"
+          },
+          {
+            "name": "excludeContains",
+            "type": "array",
+            "required": false,
+            "description": "Drop matched bones whose name contains any of these",
+            "items": "string"
+          },
+          {
+            "name": "includeDescendants",
+            "type": "boolean",
+            "required": false,
+            "description": "Also match every descendant of a matched bone (default false)"
+          },
+          {
+            "name": "rotationOnly",
+            "type": "boolean",
+            "required": false,
+            "description": "Blend rotation only, keeping translation and scale (default false)"
+          }
+        ]
+      },
+      {
+        "name": "numFrames",
+        "type": "number",
+        "required": false,
+        "description": "Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys"
+      },
+      {
+        "name": "frameRate",
+        "type": "number",
+        "required": false,
+        "description": "Frames per second (default 30)"
+      },
+      {
+        "name": "easeToSource",
+        "type": "integer",
+        "required": false,
+        "description": "Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame"
+      },
+      {
+        "name": "easeCurve",
+        "type": "string",
+        "required": false,
+        "description": "linear (default) | smooth"
+      },
+      {
+        "name": "onConflict",
+        "type": "string",
+        "required": false,
+        "description": "skip (default) returns an existing asset untouched, error refuses; it never overwrites"
+      }
+    ]
+  },
   "configure_ik_retargeter": {
     "category": "animation",
     "params": [
@@ -4815,7 +4943,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "properties",
         "type": "object",
         "required": true,
-        "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}"
+        "description": "{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call"
       },
       {
         "name": "resolveFromMontages",
@@ -5181,6 +5309,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   capture_control_rig_pose: "Params: sequencePath, bindingTag, controlNames?",
   commit_skeleton_edit: "Params: sessionTag?, skeletalMeshPath?",
   compare_curves_to_morph_targets: "Params: animPath (or assetPath), skeletalMeshPath (or meshPath)",
+  compose_pose_sequence: "Params: name, packagePath?, sources, layers?, numFrames?, frameRate?, easeToSource?, easeCurve?, onConflict?",
   configure_ik_retargeter: "Params: retargeterPath, sourceRig?, targetRig?, sourcePreviewMesh?, targetPreviewMesh?, ensureDefaultOps?, autoMapMode?, forceRemap?, chainMappings?, ops?, pose?",
   configure_ik_rig: "Params: rigPath, at least one of autoSetup/retargetRoot/rootMotionBone/chains/fullBodyIK/exclusions",
   create_anim_blueprint: "Params: name, skeletonPath, packagePath?, parentClass?, onConflict?",
@@ -5340,6 +5469,8 @@ export const schema: Record<string, z.ZodType> = {
   disableReselection: z.boolean().optional().describe("Disallow reselecting poses from the same asset"),
   displayRate: z.number().optional().describe("LevelSequence display rate in frames per second (default the source rate)"),
   duration: z.number().optional().describe("Window length in seconds, greater than 0"),
+  easeCurve: z.string().optional().describe("linear (default) | smooth"),
+  easeToSource: z.number().int().optional().describe("Index into sources: keys ease from the composed pose at frame 0 to this source's pose at the last frame"),
   edits: z.array(z.record(z.unknown())).optional().describe("Hierarchy edits, each one of {op:'add',bone,parent,transform?} | {op:'remove',bone,removeChildren?} | {op:'rename',bone,newName} | {op:'reparent',bone,parent} | {op:'set_transform',bone,transform,moveChildren?}"),
   enabled: z.boolean().optional().describe("Include the clip in the database (add_pose_search_sequence). Tick animation in the editor (default true) (preview_animation)"),
   enableRootMotion: z.boolean().optional().describe("Extract root motion from the root bone"),
@@ -5358,7 +5489,7 @@ export const schema: Record<string, z.ZodType> = {
   forceRemap: z.boolean().optional().describe("Replace existing mappings during auto-map (default false)"),
   forceRootLock: z.boolean().optional().describe("Lock the root bone even without root motion"),
   frame: z.number().optional().describe("One frame to sample, an integer; combines with frames"),
-  frameRate: z.number().optional().describe("Frames per second of the bake (default the sequence's display rate) (bake_control_rig_edit). Frames per second (default 30) (create_sequence)"),
+  frameRate: z.number().optional().describe("Frames per second of the bake (default the sequence's display rate) (bake_control_rig_edit). Frames per second (default 30) (compose_pose_sequence, create_sequence)"),
   frames: z.array(z.number()).optional().describe("Explicit frames to sample, integers in [0, frame count] (analyze_animation). Frames to sample; pass this or times, not both (default every sampled key) (measure_natural_speed, sample_pose). Frames to sample (default: first, middle and last) (read_bone_track). Integer frames to sample (default the first and last frame of the range) (read_control_rig_edit)"),
   fromState: z.string().optional().describe("State the transition leaves (add_transition, set_transition_blend). With toState, removes every transition between the two (remove_transition). With toState, the transition to condition when transitionGuid is omitted (set_transition_condition)"),
   fullBodyIK: z.object({ solverIndex: z.number().int().optional().describe("Full Body IK solver to edit (default the first)"), rootBone: z.string().describe("Solver root bone"), enabled: z.boolean().optional().describe("Enable or disable the solver"), goals: z.array(z.record(z.unknown())).describe("Up to 256 goals as {name, bone, positionAlpha?, rotationAlpha?, chainDepth?, strengthAlpha?, pullChainAlpha?, pinRotation?}; alphas are in [0, 1]") }).optional().describe("Full Body IK solver and its desired goals"),
@@ -5387,6 +5518,7 @@ export const schema: Record<string, z.ZodType> = {
   keyframes: z.array(z.object({ location: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Bone-local translation"), rotation: z.record(z.unknown()).optional().describe("Bone-local rotation as a quaternion {x, y, z, w}"), scale: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Bone-local scale") })).optional().describe("One key per frame, in order; an omitted channel keeps the reference pose"),
   keys: z.array(z.object({ time: z.number().describe("Key time in seconds"), value: z.number().describe("Key value"), interp: z.string().optional().describe("linear | constant | cubic (default the call's interpolation)") })).optional().describe("Keys that replace the curve's own"),
   layered: z.boolean().optional().describe("Keep the source animation track active under the Control Rig layer (default false)"),
+  layers: z.array(z.object({ source: z.number().int().describe("Index into sources to blend toward"), weight: z.number().optional().describe("0 to 1 (default 1): rotation slerps, translation and scale lerp"), bones: z.array(z.string()).optional().describe("Bones by exact name"), nameContains: z.array(z.string()).optional().describe("Bones whose name contains any of these, case-insensitive"), excludeContains: z.array(z.string()).optional().describe("Drop matched bones whose name contains any of these"), includeDescendants: z.boolean().optional().describe("Also match every descendant of a matched bone (default false)"), rotationOnly: z.boolean().optional().describe("Blend rotation only, keeping translation and scale (default false)") })).optional().describe("Per-bone blends over the base pose, applied in order, at most 64"),
   limit: z.number().int().optional().describe("Cap on the constraints returned (default all); total still counts every match (get_physics_asset_constraints). Rows per page (default 200, max 5000) (list_anim_assets, list_skeletal_meshes). Bones per page (default 200, max 5000) (list_bones). Batch rows per page (default 50, max 200) (read_anim_sequence). Nodes per graph (default 200) (read_control_rig_graph)"),
   linkedSection: z.string().optional().describe("Next section to link to"),
   loop: z.boolean().optional().describe("Include end-to-start loop continuity metrics"),
@@ -5402,7 +5534,7 @@ export const schema: Record<string, z.ZodType> = {
   mode: z.string().optional().describe("TimeFactor | WeightFactor | BlendMask (author_blend_profile). Animation | Skeleton | AnimationScaled | AnimationRelative | OrientAndScale (set_bone_retargeting)"),
   modifier: z.string().optional().describe("Alias for modifierClass"),
   modifierClass: z.string().optional().describe("UAnimationModifier subclass: a short name such as DistanceCurveModifier, or a /Script path"),
-  name: z.string().optional().describe("AnimBlueprint asset name (create_anim_blueprint). AnimComposite asset name (create_anim_composite). AnimMontage asset name (create_anim_montage). BlendSpace asset name (create_blendspace). BlendSpace1D asset name (create_blendspace_1d). Asset name (default <Source>_CtrlRig) (create_control_rig). IKRetargeter asset name (create_ik_retargeter). IKRigDefinition asset name (create_ik_rig). MirrorDataTable asset name (create_mirror_data_table). PoseSearchDatabase asset name (create_pose_search_database). PoseSearchNormalizationSet asset name (create_pose_search_normalization_set). PoseSearchSchema asset name (create_pose_search_schema). AnimSequence asset name (create_sequence). Skeleton asset name (create_skeleton). State machine name (default NewStateMachine) (create_state_machine). Name of the reversed copy (default <Source>_Reversed) (reverse_sequence)"),
+  name: z.string().optional().describe("New AnimSequence name (compose_pose_sequence). AnimBlueprint asset name (create_anim_blueprint). AnimComposite asset name (create_anim_composite). AnimMontage asset name (create_anim_montage). BlendSpace asset name (create_blendspace). BlendSpace1D asset name (create_blendspace_1d). Asset name (default <Source>_CtrlRig) (create_control_rig). IKRetargeter asset name (create_ik_retargeter). IKRigDefinition asset name (create_ik_rig). MirrorDataTable asset name (create_mirror_data_table). PoseSearchDatabase asset name (create_pose_search_database). PoseSearchNormalizationSet asset name (create_pose_search_normalization_set). PoseSearchSchema asset name (create_pose_search_schema). AnimSequence asset name (create_sequence). Skeleton asset name (create_skeleton). State machine name (default NewStateMachine) (create_state_machine). Name of the reversed copy (default <Source>_Reversed) (reverse_sequence)"),
   nameFilter: z.string().optional().describe("With directory: case-insensitive substring, or * ? wildcard, the asset name must match"),
   negate: z.boolean().optional().describe("Enter when the variable is false (default false)"),
   newProfileName: z.string().optional().describe("New name when operation=rename"),
@@ -5415,8 +5547,8 @@ export const schema: Record<string, z.ZodType> = {
   notifyProperties: z.record(z.unknown()).optional().describe("EditAnywhere fields to set on the spawned notify object; requires a notifyClass that resolves (add_anim_notify). EditAnywhere fields to set on the spawned notify state object, validated against the class first (add_anim_notify_state)"),
   notifyStateClass: z.string().optional().describe("UAnimNotifyState subclass: a class name, a bare suffix such as TimedParticleEffect, or a full path (add_anim_notify_state). Notify state class to match. Pass at least one of notifyName and notifyStateClass; both filters apply together (remove_anim_notify_state)"),
   numberOfPrincipalComponents: z.number().optional().describe("PCA components for PCAKDTree mode"),
-  numFrames: z.number().optional().describe("Frame count (default 30)"),
-  onConflict: z.string().optional().describe("skip (default) returns an existing section untouched, error refuses (add_montage_section). skip (default) returns an existing state untouched, error refuses (add_state). skip returns an existing output, error (default) refuses; it never overwrites (bake_control_rig_edit). skip returns the existing session, error (default) refuses; an existing session is never modified (begin_control_rig_edit). skip (default) returns an existing asset untouched, error refuses (create_anim_blueprint, create_anim_composite, create_anim_montage, create_blendspace, create_blendspace_1d, create_ik_retargeter, create_ik_rig, create_mirror_data_table, create_pose_search_database, create_pose_search_normalization_set, create_pose_search_schema, create_sequence). skip (default) returns the existing asset, error refuses; it never overwrites (create_control_rig). skip (default) | error. It never overwrites (create_skeleton). skip (default) returns an existing destination untouched, error refuses; it never overwrites (reverse_sequence)"),
+  numFrames: z.number().optional().describe("Frame count, 1 to 10000 (default 1); the sequence has numFrames + 1 keys (compose_pose_sequence). Frame count (default 30) (create_sequence)"),
+  onConflict: z.string().optional().describe("skip (default) returns an existing section untouched, error refuses (add_montage_section). skip (default) returns an existing state untouched, error refuses (add_state). skip returns an existing output, error (default) refuses; it never overwrites (bake_control_rig_edit). skip returns the existing session, error (default) refuses; an existing session is never modified (begin_control_rig_edit). skip (default) returns an existing asset untouched, error refuses; it never overwrites (compose_pose_sequence). skip (default) returns an existing asset untouched, error refuses (create_anim_blueprint, create_anim_composite, create_anim_montage, create_blendspace, create_blendspace_1d, create_ik_retargeter, create_ik_rig, create_mirror_data_table, create_pose_search_database, create_pose_search_normalization_set, create_pose_search_schema, create_sequence). skip (default) returns the existing asset, error refuses; it never overwrites (create_control_rig). skip (default) | error. It never overwrites (create_skeleton). skip (default) returns an existing destination untouched, error refuses; it never overwrites (reverse_sequence)"),
   operation: z.string().optional().describe("upsert (default) | remove | rename"),
   operations: z.array(z.discriminatedUnion("op", [z.object({ op: z.literal("set"), control: z.string().describe("Control name on the session's rig"), frame: z.number().int().optional().describe("One frame to key; pass exactly one of frame and frames"), frames: z.array(z.number().int()).optional().describe("Frames to key; pass exactly one of frame and frames"), transform: z.record(z.unknown()).describe("{translation {x,y,z}, rotationDegrees {pitch,yaw,roll}, scale {x,y,z}}"), space: z.string().optional().describe("local (default) | component | global, where global is an alias for component") }).strict().describe("Write one full absolute transform at frame or frames"), z.object({ op: z.literal("set_keys"), control: z.string().describe("Control name on the session's rig"), keys: z.array(z.record(z.unknown())).describe("[{frame, transform {translation {x,y,z}, rotationQuaternion {x,y,z,w}, scale {x,y,z}}}], frames strictly increasing"), space: z.string().optional().describe("local (default) | component | global, where global is an alias for component") }).strict().describe("Write strictly ordered full per-frame transforms from normalized quaternions"), z.object({ op: z.literal("offset"), control: z.string().describe("Control name on the session's rig"), startFrame: z.number().int().describe("First frame of the range"), endFrame: z.number().int().describe("Last frame of the range, at or after startFrame"), translationCm: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Translation delta in centimetres"), rotationDegrees: z.object({ pitch: z.number(), yaw: z.number(), roll: z.number() }).optional().describe("Rotation delta in degrees"), scaleMultiplier: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("Scale multiplier; one of translationCm, rotationDegrees and scaleMultiplier is required"), space: z.string().optional().describe("local (default) | component | global, where global is an alias for component"), blendInFrames: z.number().int().optional().describe("Frames to ease in over, from 0 (default 0)"), blendOutFrames: z.number().int().optional().describe("Frames to ease out over, from 0 (default 0)") }).strict().describe("Apply translation, rotation or scale deltas across an inclusive frame range"), z.object({ op: z.literal("contact_lock"), control: z.string().describe("Control name on the session's rig"), drivenReference: z.string().optional().describe("Bone or socket to constrain instead of the control; bake and analyze before accepting it"), startFrame: z.number().int().describe("First frame of the lock"), endFrame: z.number().int().describe("Last frame of the lock, at or after startFrame"), target: z.record(z.unknown()).optional().describe("{translation {x,y,z}, rotationQuaternion? {x,y,z,w}}: a fixed component-space target, or a transform relative to targetReference when that is set; pass target or targetReference"), targetReference: z.string().optional().describe("Source-animation bone or socket to follow. Without target, the first frame's subject-to-reference offset is kept"), blendInFrames: z.number().int().optional().describe("Frames to ease in over, from 0 (default 0)"), blendOutFrames: z.number().int().optional().describe("Frames to ease out over, from 0 (default 0)"), stabilizeControls: z.array(z.string()).optional().describe("Up to 8 pole or stabilizer controls to hold steady; never the locked control itself"), positionToleranceCm: z.number().optional().describe("Readback position tolerance, above 0 and up to 100 (default 0.1)"), rotationToleranceDegrees: z.number().optional().describe("Readback rotation tolerance, above 0 and up to 180 (default 0.5)") }).strict().describe("Constrain a translatable driver control, or a driven bone or socket, to a fixed component-space target"), z.object({ op: z.literal("set_bool"), control: z.string().describe("Control name on the session's rig"), frame: z.number().int().optional().describe("One frame to key; pass exactly one of frame and frames"), frames: z.array(z.number().int()).optional().describe("Frames to key; pass exactly one of frame and frames"), value: z.boolean().describe("Value to key") }).strict().describe("Key a bool control at frame or frames"), z.object({ op: z.literal("set_float"), control: z.string().describe("Control name on the session's rig"), frame: z.number().int().optional().describe("One frame to key; pass exactly one of frame and frames"), frames: z.array(z.number().int()).optional().describe("Frames to key; pass exactly one of frame and frames"), value: z.number().describe("Finite value to key") }).strict().describe("Key a float control at frame or frames"), z.object({ op: z.literal("set_int"), control: z.string().describe("Control name on the session's rig"), frame: z.number().int().optional().describe("One frame to key; pass exactly one of frame and frames"), frames: z.array(z.number().int()).optional().describe("Frames to key; pass exactly one of frame and frames"), value: z.number().int().describe("Value to key") }).strict().describe("Key an integer or enum control at frame or frames; an enum takes one of its enumOptions values"), z.object({ op: z.literal("propagate_pose"), baseline: z.record(z.unknown()).describe("Snapshot from capture_control_rig_pose before the edit"), accepted: z.record(z.unknown()).describe("Snapshot from capture_control_rig_pose after the edit, same session, rig instance, frame and control set"), controls: z.array(z.record(z.unknown())).describe("[{control, mode fixed | local_delta, donorFrames strictly increasing}], each control once; bool, enum and int controls take fixed only") }).strict().describe("Key the controls that changed between two live snapshots across each control's donor frames")])).optional().describe("Typed edits applied in one transaction, in order"),
   ops: z.array(z.object({ name: z.string().optional().describe("Op to write, by name"), index: z.number().int().optional().describe("Op to write, by stack index, when name is omitted"), enabled: z.boolean().optional().describe("Enable or disable the op"), settings: z.record(z.unknown()).optional().describe("Properties on the op's settings struct, e.g. RootMotionSource"), chainSettings: z.array(z.record(z.unknown())).optional().describe("Per-chain properties as [{chain, ...}], e.g. RotationMode") })).optional().describe("Per-op writes, at most 64. settings writes properties on the op's own settings struct, and chainSettings merges per-chain FK properties into the named chain rather than replacing the list"),
@@ -5424,7 +5556,7 @@ export const schema: Record<string, z.ZodType> = {
   outputDirectory: z.string().optional().describe("Directory under Project/Saved/Codex/AnimationQA for analysis artifacts; must not already contain them"),
   outputPath: z.string().optional().describe("Destination folder (default beside each source)"),
   overwrite: z.literal(false).optional().describe("Overwriting is not supported; omit or pass false"),
-  packagePath: z.string().optional().describe("Destination folder (default /Game/Animations) (create_anim_blueprint, create_anim_composite, create_anim_montage, create_blendspace, create_blendspace_1d, create_sequence). Destination folder (default the source's folder) (create_control_rig). Destination folder (default /Game) (create_ik_retargeter, create_ik_rig, create_skeleton). Destination folder (default /Game/MotionMatching) (create_mirror_data_table, create_pose_search_database, create_pose_search_normalization_set, create_pose_search_schema). Folder of the reversed copy (default the source's folder) (reverse_sequence)"),
+  packagePath: z.string().optional().describe("Destination folder (default the first source's folder) (compose_pose_sequence). Destination folder (default /Game/Animations) (create_anim_blueprint, create_anim_composite, create_anim_montage, create_blendspace, create_blendspace_1d, create_sequence). Destination folder (default the source's folder) (create_control_rig). Destination folder (default /Game) (create_ik_retargeter, create_ik_rig, create_skeleton). Destination folder (default /Game/MotionMatching) (create_mirror_data_table, create_pose_search_database, create_pose_search_normalization_set, create_pose_search_schema). Folder of the reversed copy (default the source's folder) (reverse_sequence)"),
   parentClass: z.string().optional().describe("Parent AnimInstance class name"),
   path: z.string().optional().describe("Alias for assetPath (add_anim_notify, add_anim_notify_state, add_blend_sample, add_curve, add_montage_section, add_montage_segment, add_motion_matching_node, add_pose_history_node, add_pose_search_sequence, add_sequence_evaluator, add_state, add_transition, analyze_animation, apply_animation_modifier, bake_keyframes_batch, bake_root_motion_from_bone, bind_anim_node_function, build_pose_search_index, create_state_machine, get_physics_asset_constraints, get_physics_asset_info, get_skeleton_info, inspect_anim_nodes, list_anim_modifiers, list_animation_sockets, list_control_rig_variables, list_montage_segments, measure_natural_speed, populate_blendspace, read_anim_blueprint, read_anim_graph, read_anim_montage, read_anim_sequence, read_blendspace, read_control_rig_graph, read_control_rig_hierarchy, read_ik_retargeter, read_ik_rig, read_mirror_data_table, read_pose_search_database, read_state_machine, remove_anim_curve, remove_anim_notify, remove_anim_notify_state, remove_montage_section, remove_montage_segment, remove_state, remove_state_machine, remove_transition, sample_pose, set_anim_curve_keys, set_blend_sample, set_bone_keyframes, set_montage_properties, set_montage_sequence, set_montage_slot, set_motion_matching_chooser, set_pose_search_clips, set_pose_search_database_settings, set_pose_search_schema, set_root_motion_settings, set_state_animation, set_state_machine_entry, set_sync_markers, set_transition_blend, set_transition_condition). Alias for skeletonPath (get_bone_transforms)"),
   playRate: z.number().optional().describe("Segment play rate; negative plays in reverse (default 1)"),
@@ -5434,7 +5566,7 @@ export const schema: Record<string, z.ZodType> = {
   position: z.object({ x: z.number().optional().describe("Horizontal axis value"), y: z.number().optional().describe("Vertical axis value") }).optional().describe("Sample position on the blendspace axes; wins over flat x and y (add_blend_sample). New sample position; wins over flat x and y, and an omitted axis keeps its value (set_blend_sample)"),
   prefix: z.string().optional().describe("Output name prefix"),
   profileName: z.string().optional().describe("Blend profile to create or edit"),
-  properties: z.record(z.unknown()).optional().describe("{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?}"),
+  properties: z.record(z.unknown()).optional().describe("{enableRootMotion?, forceRootLock?, useNormalizedRootMotionScale?, rootMotionRootLock?: RefPose|AnimFirstFrame|Zero, additiveAnimType?: None|LocalSpaceBase|RotationOffsetMeshSpace, refPoseType?: None|RefPose|AnimScaled|AnimFrame|LocalAnimFrame, refPoseSeq?, refFrameIndex?}. An unknown key or value refuses the whole call"),
   props: z.record(z.unknown()).optional().describe("EditAnywhere property values to set on the modifier before it runs"),
   rateScale: z.number().optional().describe("Playback rate scale"),
   recursive: z.boolean().optional().describe("Include subfolders (default true) (list_anim_assets, list_skeletal_meshes, scan_animation_tracks). With directory: include subfolders (default true) (read_anim_sequence)"),
@@ -5480,6 +5612,7 @@ export const schema: Record<string, z.ZodType> = {
   sourcePath: z.string().optional().describe("AnimSequence to reverse"),
   sourcePreviewMesh: z.string().optional().describe("Source preview SkeletalMesh"),
   sourceRig: z.string().optional().describe("Source IKRigDefinition to assign"),
+  sources: z.array(z.object({ assetPath: z.string().describe("AnimSequence to sample"), frame: z.number().int().optional().describe("Frame to sample (default 0); exclusive with time"), time: z.number().optional().describe("Time in seconds to sample; exclusive with frame") })).optional().describe("Poses to compose, at most 32; sources[0] is the base pose and sets the skeleton"),
   space: z.string().optional().describe("world (default) | component | local (get_bone_transform, get_live_bone_transforms). local (default) | component, which composes the parent chain (get_bone_transforms, read_bone_track). local (default) | component | global, where global is an alias for component (read_control_rig_edit). component (default) | local | world, which resolves to component on an asset (sample_pose)"),
   startFrame: z.number().int().optional().describe("Inclusive edit range start frame (default 0)"),
   startPos: z.number().optional().describe("Trim start inside the source, in seconds (default 0)"),
