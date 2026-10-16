@@ -25759,6 +25759,13 @@
           "description": "Case-insensitive substring filter on row names"
         },
         {
+          "name": "rowNames",
+          "type": "array",
+          "required": false,
+          "description": "Exact row names to return, in this order; names the table lacks are listed in missingRowNames",
+          "items": "string"
+        },
+        {
           "name": "columns",
           "type": "array",
           "required": false,

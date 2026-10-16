@@ -828,6 +828,7 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("read_datatable"), &ReadDataTable, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("DataTable asset path")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("rowFilter"), EType::String, TEXT("Case-insensitive substring filter on row names")),
+		MCPParam::Optional(TEXT("rowNames"), EType::Array, TEXT("Exact row names to return, in this order; names the table lacks are listed in missingRowNames")).Items(EType::String),
 		MCPParam::Optional(TEXT("columns"), EType::Array, TEXT("Row-struct fields to return; each row keeps Name and these fields, and an unknown name is refused with the valid list")).Items(EType::String),
 		MCPParam::Optional(TEXT("outputPath"), EType::String, TEXT("Write the rows to this JSON file instead of returning them; relative paths resolve under Saved/")),
 	});
