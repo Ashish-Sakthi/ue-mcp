@@ -3588,16 +3588,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::FocusViewportOnActor(const TSharedPtr<FJ
 
 	// Focus on the actor's bounding box
 	FBox ActorBounds = TargetActor->GetComponentsBoundingBox(true);
-	// Which branch runs decides whether the camera move is observable here.
-	// FocusViewportOnBox defaults bInstant to false and hands the move to
-	// TransitionToLocation, which, whenever the client has a real viewport
-	// widget, only sets DesiredLocation and starts a curve: ViewLocation is
-	// advanced by UpdateTransition on later ticks, so reading it back in this
-	// call still returns the location the camera had before the focus.
+	// Instant: the animated transition only advances on viewport ticks, which
+	// stop while the editor window is in the background, so the camera could
+	// stay where it was. The final pose is what a caller reads back.
 	const bool bFocusedOnBounds = ActorBounds.IsValid != 0;
 	if (ActorBounds.IsValid)
 	{
-		ViewportClient->FocusViewportOnBox(ActorBounds);
+		ViewportClient->FocusViewportOnBox(ActorBounds, /*bInstant=*/ true);
 	}
 	else
 	{
