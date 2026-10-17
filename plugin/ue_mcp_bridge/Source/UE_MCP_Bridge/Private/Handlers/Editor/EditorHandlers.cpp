@@ -3967,10 +3967,31 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunStatCommand(const TSharedPtr<FJsonObj
 
 	REQUIRE_EDITOR_WORLD(World);
 
+	// A stat overlay toggles on the viewport the engine is processing stats for,
+	// which is the level viewport here, so its enabled list is read either side.
+	FEditorViewportClient* Viewport = GCurrentLevelEditingViewportClient;
+	const TArray<FString> StatsBefore = (Viewport && Viewport->GetEnabledStats()) ? *Viewport->GetEnabledStats() : TArray<FString>();
+	FCommonViewportClient* PreviousStatViewport = GStatProcessingViewportClient;
+	if (Viewport) GStatProcessingViewportClient = Viewport;
 	GEditor->Exec(World, *Command);
+	GStatProcessingViewportClient = PreviousStatViewport;
+	const TArray<FString> StatsAfter = (Viewport && Viewport->GetEnabledStats()) ? *Viewport->GetEnabledStats() : TArray<FString>();
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("command"), Command);
+	TArray<TSharedPtr<FJsonValue>> Enabled, TurnedOn, TurnedOff;
+	for (const FString& Name : StatsAfter)
+	{
+		Enabled.Add(MakeShared<FJsonValueString>(Name));
+		if (!StatsBefore.Contains(Name)) TurnedOn.Add(MakeShared<FJsonValueString>(Name));
+	}
+	for (const FString& Name : StatsBefore)
+	{
+		if (!StatsAfter.Contains(Name)) TurnedOff.Add(MakeShared<FJsonValueString>(Name));
+	}
+	Result->SetArrayField(TEXT("enabledStats"), Enabled);
+	Result->SetArrayField(TEXT("statsTurnedOn"), TurnedOn);
+	Result->SetArrayField(TEXT("statsTurnedOff"), TurnedOff);
 	// The command was dispatched. Most stat commands toggle rather than set, so
 	// the overlay's state after this depends on what it was before, and Exec
 	// reports nothing back that this handler could compare.

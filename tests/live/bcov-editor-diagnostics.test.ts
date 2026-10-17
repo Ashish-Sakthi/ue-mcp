@@ -131,36 +131,15 @@ describe("performance readouts", () => {
     expect(typeof a.bound).toBe("string");
   }, 60_000);
 
-  it("run_stat_command stat startfile and stopfile write a stats capture under Saved/Profiling", async () => {
-    const crashes = await call("list_crashes", {});
-    const profiling = path.join(path.dirname(String(crashes.crashesDir)), "Profiling");
-    const since = Date.now() - 1000;
-
-    const started = await call("run_stat_command", { command: "stat startfile" });
-    expect(started.command).toBe("stat startfile");
-    await sleep(1500);
-    await call("run_stat_command", { command: "stat stopfile" });
-
-    const newest = (): string[] => {
-      const out: string[] = [];
-      const walk = (dir: string) => {
-        if (!fs.existsSync(dir)) return;
-        for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-          const full = path.join(dir, e.name);
-          if (e.isDirectory()) walk(full);
-          else if (/\.(ue4stats|uestats)$/i.test(e.name) && fs.statSync(full).mtimeMs >= since) out.push(full);
-        }
-      };
-      walk(profiling);
-      return out;
-    };
-    let files = newest();
-    for (let i = 0; i < 20 && files.length === 0; i++) {
-      await sleep(500);
-      files = newest();
-    }
-    expect(files.length).toBeGreaterThan(0);
-    for (const f of files) fs.rmSync(f, { force: true });
+  it("run_stat_command turns a stat overlay on the level viewport on, and stat none clears it", async () => {
+    // stat startfile writes nothing on newer engines (Insights replaced the stats file), so the overlay is the effect.
+    await call("run_stat_command", { command: "stat none" });
+    const on = await call("run_stat_command", { command: "stat fps" });
+    expect(on.statsTurnedOn as string[]).toContain("fps");
+    expect(on.enabledStats as string[]).toContain("fps");
+    const off = await call("run_stat_command", { command: "stat none" });
+    expect(off.statsTurnedOff as string[]).toContain("fps");
+    expect(off.enabledStats as string[]).toHaveLength(0);
   }, 60_000);
 });
 
