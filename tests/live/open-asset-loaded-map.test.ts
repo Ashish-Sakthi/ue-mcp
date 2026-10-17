@@ -28,8 +28,10 @@ afterAll(() => {
 describe("open_asset on the loaded map (#1218)", () => {
   it("reports it already open and leaves the editor running", async () => {
     // A saved map, loaded first: earlier suites can leave a transient Untitled world, which is not an asset.
-    const loaded = await callBridge(bridge, "load_level", { levelPath: MAP });
+    // Earlier suites can leave an unsaved Untitled map, which load_level refuses to drop unless told to.
+    const loaded = await callBridge(bridge, "load_level", { levelPath: MAP, discardUnsaved: true });
     expect(loaded.ok, loaded.error).toBe(true);
+    expect((loaded.result as { success?: boolean }).success, JSON.stringify(loaded.result)).not.toBe(false);
 
     const before = await callBridge(bridge, "get_current_level", {});
     expect(before.ok, before.error).toBe(true);
