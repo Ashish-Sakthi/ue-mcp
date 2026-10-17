@@ -71,7 +71,9 @@ async function waitFor(what: string, check: () => Promise<boolean> | boolean, ti
 }
 
 async function stopEditor(): Promise<Json> {
-  // stop_editor refuses on unsaved work by design, so save first.
+  // stop_editor refuses on unsaved work by design, so save first. An untitled map has no file to save to and
+  // would raise the engine's save prompt on close, so a saved map is loaded over it first.
+  await server.call("level", { action: "load", levelPath: "/Game/MCP_Home", discardUnsaved: true });
   await server.call("editor", { action: "save_dirty", includeMaps: true });
   return body(await server.call("editor", { action: "stop_editor" }));
 }
