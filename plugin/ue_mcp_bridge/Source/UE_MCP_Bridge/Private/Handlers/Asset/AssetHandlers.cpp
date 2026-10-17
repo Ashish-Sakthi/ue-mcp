@@ -4264,12 +4264,13 @@ TSharedPtr<FJsonValue> FAssetHandlers::GetReferencers(const TSharedPtr<FJsonObje
 	const bool bIncludeDetails = OptionalBool(Params, TEXT("includeDetails"), false);
 	const bool bIncludeMeshInfo = OptionalBool(Params, TEXT("includeMeshInfo"), false);
 	const int32 MaxDepth = OptionalInt(Params, TEXT("maxDepth"), 2);
-	if (MaxDepth < 1 || MaxDepth > 8) return MCPError(TEXT("maxDepth must be between 1 and 8"));
+	// Every declared parameter is read before anything can refuse (#1057).
 	TArray<FString> Packages;
 	const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
 	const bool bHasArray = TryGetArrayParam(Params, TEXT("packages"), Arr) && Arr;
 	FString Single;
 	const bool bHasSingle = TryGetStringParam(Params, TEXT("packagePath"), Single);
+	if (MaxDepth < 1 || MaxDepth > 8) return MCPError(TEXT("maxDepth must be between 1 and 8"));
 	if (bHasArray)
 	{
 		for (const TSharedPtr<FJsonValue>& V : *Arr)
