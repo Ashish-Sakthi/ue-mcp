@@ -104,8 +104,7 @@ describe("material instances", () => {
     expect(parent?.value).toBe(false);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("clear_material_instance_parameters drops every override", async () => {
+  it("clear_material_instance_parameters drops every override", async () => {
     const before = await call("read_material_instance", { assetPath: INSTANCE });
     expect(Number(before.overrideCount)).toBeGreaterThan(0);
     await call("clear_material_instance_parameters", { assetPath: INSTANCE });

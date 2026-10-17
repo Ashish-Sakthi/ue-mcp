@@ -299,8 +299,7 @@ describe("landscape paint layers", () => {
 });
 
 describe("landscape holes", () => {
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_landscape_holes punches and fills a region that get_landscape_holes reads back", async () => {
+  it("set_landscape_holes punches and fills a region that get_landscape_holes reads back", async () => {
     const region = { minX: 25, minY: 10, maxX: 27, maxY: 12 };
     const punched = await call("set_landscape_holes", { actorPath, region, hole: true });
     expect(punched.verticesChanged).toBe(9);

@@ -194,8 +194,7 @@ describe("sequence authoring", () => {
     expect(await virtualBones()).not.toContain(vbName);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("populate_blendspace sets the axis and samples, and set_blend_sample moves one", async () => {
+  it("populate_blendspace sets the axis and samples, and set_blend_sample moves one", async () => {
     await call("create_blendspace_1d", { name: "BS_BCov", skeletonPath: ENGINE_SKELETON, packagePath: DIR });
     const populated = await call("populate_blendspace", {
       assetPath: BLENDSPACE,

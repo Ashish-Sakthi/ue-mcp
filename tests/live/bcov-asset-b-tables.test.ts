@@ -190,8 +190,7 @@ describe("string table entries", () => {
 });
 
 describe("migrate", () => {
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("copies a saved package into another project's Content folder", async () => {
+  it("copies a saved package into another project's Content folder", async () => {
     await call("save_asset", { assetPath: ST, force: true });
     // Migrate refuses while anything is unsaved, so start from a saved level.
     await call("load_level", { levelPath: "/Game/MCP_Home" });

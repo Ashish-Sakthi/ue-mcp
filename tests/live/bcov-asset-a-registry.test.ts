@@ -141,8 +141,7 @@ describe("asset hygiene", () => {
     expect((reaudit.naming as { count: number }).count).toBe(0);
   }, 180_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("bulk_rename_assets moves a referenced material and fixup_redirectors repoints its referencer", async () => {
+  it("bulk_rename_assets moves a referenced material and fixup_redirectors repoints its referencer", async () => {
     mkdirSync(COLLECTION_DIR, { recursive: true });
     writeFileSync(COLLECTION_FILE, [
       "FileVersion:2", "Type:Static", `Guid:${randomUUID().toUpperCase()}`,

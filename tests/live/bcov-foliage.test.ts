@@ -107,8 +107,7 @@ describe("foliage types", () => {
 });
 
 describe("foliage instances", () => {
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("add_foliage_instances places exact transforms that get, sample and remove all see", async () => {
+  it("add_foliage_instances places exact transforms that get, sample and remove all see", async () => {
     const locations = [0, 300, 600].map((dx) => ({ x: PX + dx, y: PY, z: 0 }));
     const added = await call("add_foliage_instances", {
       foliageTypePath: FT, transforms: locations.map((location) => ({ location })),

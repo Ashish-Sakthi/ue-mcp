@@ -63,8 +63,7 @@ afterAll(async () => {
 }, 60_000);
 
 describe("an Insights trace", () => {
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("start_insights_trace writes a .utrace that get_insights_trace_status and stop_insights_trace report", async (ctx) => {
+  it("start_insights_trace writes a .utrace that get_insights_trace_status and stop_insights_trace report", async (ctx) => {
     if (tracingAtStart) ctx.skip("a trace was already running before this suite; it is left alone");
     const file = path.join(scratch, "bcov-editor.utrace");
     try {
@@ -94,8 +93,7 @@ describe("an Insights trace", () => {
     expect(fs.statSync(file).size).toBeGreaterThan(0);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_trace_channels turns a channel off and on, as list_trace_channels and add_trace_bookmark see it", async () => {
+  it("set_trace_channels turns a channel off and on, as list_trace_channels and add_trace_bookmark see it", async () => {
     const before = await channel("Bookmark");
     expect(before).toBeDefined();
     try {
@@ -113,8 +111,7 @@ describe("an Insights trace", () => {
     }
   }, 60_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("pause_insights_trace pauses and resumes a running trace, as get_insights_trace_status reads it", async (ctx) => {
+  it("pause_insights_trace pauses and resumes a running trace, as get_insights_trace_status reads it", async (ctx) => {
     if (tracingAtStart) ctx.skip("a trace was already running before this suite; it is left alone");
     await call("start_insights_trace", { channels: "default", traceTarget: "none" });
     try {

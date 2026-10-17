@@ -56,8 +56,7 @@ afterAll(async () => {
 });
 
 describe("collision and physics on a placed actor", () => {
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_collision_profile and set_collision_enabled land on the component's BodyInstance", async () => {
+  it("set_collision_profile and set_collision_enabled land on the component's BodyInstance", async () => {
     await call("set_collision_profile", { actorLabel: CUBE, profileName: "OverlapAll" });
     expect(await bodyInstance()).toMatch(/CollisionProfileName="?OverlapAll"?/);
 
@@ -67,8 +66,7 @@ describe("collision and physics on a placed actor", () => {
     expect(await bodyInstance()).toMatch(/CollisionEnabled=(ECollisionEnabled::)?NoCollision\b/);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_simulate_physics and set_physics_properties land on the component's BodyInstance", async () => {
+  it("set_simulate_physics and set_physics_properties land on the component's BodyInstance", async () => {
     await call("set_collision_profile", { actorLabel: CUBE, profileName: "PhysicsActor" });
     await call("set_simulate_physics", { actorLabel: CUBE, simulate: true });
     expect(await bodyInstance()).toMatch(/bSimulatePhysics=True/);

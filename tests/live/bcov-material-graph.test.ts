@@ -283,8 +283,7 @@ describe("whole-material operations", () => {
     expect(rough?.value).toBeCloseTo(0.9, 3);
   }, 180_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("render_material_preview writes a PNG of the material", async () => {
+  it("render_material_preview writes a PNG of the material", async () => {
     try { fs.rmSync(PREVIEW_FILE, { force: true }); } catch { /* none yet */ }
     const out = await call("render_material_preview", { assetPath: M_SIMPLE, outputPath: PREVIEW_FILE, width: 64, height: 64 });
     expect(out.width).toBe(64);

@@ -181,8 +181,7 @@ describe("Niagara modules and inputs", () => {
     expect(await peakParticles()).toBe(0);
   }, 240_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_niagara_dynamic_input wires a script into SpawnRate and remove_niagara_dynamic_input unwires it", async () => {
+  it("set_niagara_dynamic_input wires a script into SpawnRate and remove_niagara_dynamic_input unwires it", async () => {
     const set = await call("set_niagara_dynamic_input", {
       ...onEmitter, stackContext: "EmitterUpdate", moduleName: "SpawnRate", inputName: "SpawnRate", dynamicInputScript: RANGED_FLOAT,
     });

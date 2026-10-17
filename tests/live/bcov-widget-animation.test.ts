@@ -61,8 +61,7 @@ afterAll(async () => {
 });
 
 describe("widget animation authoring", () => {
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("create_widget_animation adds an animation get_widget_animation and read_widget_animations read", async () => {
+  it("create_widget_animation adds an animation get_widget_animation and read_widget_animations read", async () => {
     const created = await call("create_widget_animation", { assetPath: WBP, animationName: ANIM, durationSeconds: 2 });
     expect(created.animationName).toBe(ANIM);
 

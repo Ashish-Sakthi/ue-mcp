@@ -58,8 +58,7 @@ describe("chooser authoring", () => {
     expect(described.columns).toEqual([]);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("chooser_add_column adds a float range column chooser_describe lists", async () => {
+  it("chooser_add_column adds a float range column chooser_describe lists", async () => {
     const added = await call("chooser_add_column", {
       table: TABLE,
       columnType: "FloatRangeColumn",
@@ -75,8 +74,7 @@ describe("chooser authoring", () => {
     expect(columns[0].cellType).toBe("ChooserFloatRangeRowData");
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("chooser_add_row, chooser_set_row and chooser_delete_row reshape the rows chooser_list_rows reads", async () => {
+  it("chooser_add_row, chooser_set_row and chooser_delete_row reshape the rows chooser_list_rows reads", async () => {
     const first = await call("chooser_add_row", { table: TABLE, output: CUBE, cells: ["(Min=10,Max=20)"] });
     expect(first.rowIndex).toBe(0);
     expect(first.cellWarnings).toBeUndefined();
@@ -103,8 +101,7 @@ describe("chooser authoring", () => {
     expect(listed[0].output.output).toBe(CYLINDER);
   }, 180_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("chooser_list_object_references finds the row output and chooser_remap_object_references repoints it", async () => {
+  it("chooser_list_object_references finds the row output and chooser_remap_object_references repoints it", async () => {
     const refs = await call("chooser_list_object_references", { assetPath: TABLE, pathFilter: "Cylinder" });
     const found = refs.references as Ref[];
     expect(found).toHaveLength(1);

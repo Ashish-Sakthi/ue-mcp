@@ -88,8 +88,7 @@ describe("streaming sub-levels and the current edit level", () => {
     expect(levels.some((l) => l.type === "streaming" && String(l.name).endsWith(SUB_NAME))).toBe(true);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_current_edit_level switches the level get_current_edit_level reports", async () => {
+  it("set_current_edit_level switches the level get_current_edit_level reports", async () => {
     const before = await call("get_current_edit_level");
     expect(before.isPersistent).toBe(true);
     await call("set_current_edit_level", { levelName: SUB_NAME });
@@ -193,8 +192,7 @@ describe("World Partition actor descriptors", () => {
     expect(guid).not.toBe("");
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("load_actor_descs pins and unpins the descriptor", async () => {
+  it("load_actor_descs pins and unpins the descriptor", async () => {
     const pinned = await call("load_actor_descs", { mode: "pin", guids: [guid] });
     expect(pinned.matched).toBe(1);
     expect(pinned.pinStateChanged).toBe(1);

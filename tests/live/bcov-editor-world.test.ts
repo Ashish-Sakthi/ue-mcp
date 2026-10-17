@@ -149,8 +149,7 @@ describe("the level viewport", () => {
     expect(Number(hit.distance)).toBeLessThan(1500);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("focus_viewport_on_actor moves the camera to the actor, as get_viewport_info reads it", async () => {
+  it("focus_viewport_on_actor moves the camera to the actor, as get_viewport_info reads it", async () => {
     await call("set_viewport_camera", { location: { x: 0, y: 0, z: 5000 }, rotation: { pitch: -45, yaw: 0, roll: 0 } });
     const focused = await call("focus_viewport_on_actor", { actorLabel: TARGET });
     expect(focused.actorLabel).toBe(TARGET);
@@ -164,8 +163,7 @@ describe("the level viewport", () => {
     expect(dist(at, FAR)).toBeLessThan(3000);
   }, 120_000);
 
-  // Fails live (#1223): skipped so its actions stay in the gap ratchet until it passes.
-  it.skip("set_realtime writes the flag get_viewport_state reads and reports what it replaced", async () => {
+  it("set_realtime writes the flag get_viewport_state reads and reports what it replaced", async () => {
     const off = await call("set_realtime", { enabled: false });
     expect(Number(off.viewportsChanged)).toBeGreaterThan(0);
     const offState = await call("get_viewport_state", {});
