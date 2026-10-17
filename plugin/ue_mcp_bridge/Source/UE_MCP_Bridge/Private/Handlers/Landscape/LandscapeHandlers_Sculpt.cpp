@@ -3352,7 +3352,7 @@ TSharedPtr<FJsonValue> FLandscapeHandlers::GetHoles(const TSharedPtr<FJsonObject
 	MCPReadParamsAhead(Params, {
 		TEXT("actorLabel"), TEXT("actorPath"), TEXT("region"), TEXT("space"), TEXT("center"), TEXT("radius"),
 		TEXT("x"), TEXT("y"), TEXT("point"), TEXT("worldX"), TEXT("worldY"), TEXT("maxVertices"), TEXT("includeMask"),
-		TEXT("arrayEncodingLimit"),
+		TEXT("arrayEncodingLimit"), TEXT("editLayer"), TEXT("editLayerIndex"),
 	});
 
 	REQUIRE_EDITOR_WORLD(World);
@@ -3388,8 +3388,13 @@ TSharedPtr<FJsonValue> FLandscapeHandlers::GetHoles(const TSharedPtr<FJsonObject
 	}
 	if (!bPointQuery && !MCPLscResolveRegion(Landscape, Info, Params, 262144, Region, Error)) return Error;
 
+	FGuid LayerGuid;
+	FString EditLayerName;
+	bool bUseLayer = false;
+	if (!MCPLscResolveReadLayer(Landscape, Params, LayerGuid, EditLayerName, bUseLayer, Error)) return Error;
+
 	TArray<uint8> Weights;
-	if (!MCPLscReadWeights(Info, Visibility, FGuid(), false, Region, Weights, Error)) return Error;
+	if (!MCPLscReadWeights(Info, Visibility, LayerGuid, bUseLayer, Region, Weights, Error)) return Error;
 
 	// The renderer's own threshold, so "this action says hole" and "the terrain
 	// has a hole here" are the same statement.
@@ -3535,9 +3540,20 @@ TSharedPtr<FJsonValue> FLandscapeHandlers::SetHoles(const TSharedPtr<FJsonObject
 	Result->SetBoolField(TEXT("pointWrite"), bPointWrite);
 	Result->SetStringField(TEXT("visibilityNote"),
 		TEXT("Holes are stored as the landscape visibility weightmap. The data is written regardless, but the hole only renders and only stops collision if the landscape material routes a Landscape Visibility Mask node into opacity mask."));
-	return MCPLscWriteWeights(Landscape, Info, Visibility, TEXT("visibility"),
+	TSharedPtr<FJsonValue> Written = MCPLscWriteWeights(Landscape, Info, Visibility, TEXT("visibility"),
 		TEXT("set_landscape_holes"), /*bPayloadCarriesLayerName=*/false,
 		Params, Region, Previous, NewWeights, Result);
+	// Read back what the landscape now holds, so the answer is the effect, not the request.
+	TArray<uint8> After;
+	TSharedPtr<FJsonValue> ReadError;
+	if (MCPLscReadWeights(Info, Visibility, FGuid(), false, Region, After, ReadError))
+	{
+		int32 HolesAfter = 0;
+		for (const uint8 W : After) if (W >= 170) ++HolesAfter;
+		Result->SetNumberField(TEXT("holeVertexCountAfter"), HolesAfter);
+		Result->SetStringField(TEXT("visibilityLayer"), Visibility->GetPathName());
+	}
+	return Written;
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
