@@ -1419,21 +1419,28 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ListSmartObjectSlots(const TSharedPtr<
 		// Pull out common fields explicitly for ergonomics.
 		if (FProperty* Off = SA.SlotStruct->Struct->FindPropertyByName(FName(TEXT("Offset"))))
 		{
-			if (CastField<FStructProperty>(Off))
+			if (const FStructProperty* OffStruct = CastField<FStructProperty>(Off))
 			{
-				const FVector* V = reinterpret_cast<const FVector*>(Off->ContainerPtrToValuePtr<void>(SlotAddr));
+				// The slot stores a float vector (FVector3f); reading it as FVector read garbage.
+				const void* Addr = Off->ContainerPtrToValuePtr<void>(SlotAddr);
+				const FVector V = OffStruct->Struct == TVariantStructure<FVector3f>::Get()
+					? FVector(*static_cast<const FVector3f*>(Addr))
+					: *static_cast<const FVector*>(Addr);
 				TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
-				O->SetNumberField(TEXT("x"), V->X); O->SetNumberField(TEXT("y"), V->Y); O->SetNumberField(TEXT("z"), V->Z);
+				O->SetNumberField(TEXT("x"), V.X); O->SetNumberField(TEXT("y"), V.Y); O->SetNumberField(TEXT("z"), V.Z);
 				S->SetObjectField(TEXT("offset"), O);
 			}
 		}
 		if (FProperty* Rot = SA.SlotStruct->Struct->FindPropertyByName(FName(TEXT("Rotation"))))
 		{
-			if (CastField<FStructProperty>(Rot))
+			if (const FStructProperty* RotStruct = CastField<FStructProperty>(Rot))
 			{
-				const FRotator* R = reinterpret_cast<const FRotator*>(Rot->ContainerPtrToValuePtr<void>(SlotAddr));
+				const void* Addr = Rot->ContainerPtrToValuePtr<void>(SlotAddr);
+				const FRotator R = RotStruct->Struct == TVariantStructure<FRotator3f>::Get()
+					? FRotator(*static_cast<const FRotator3f*>(Addr))
+					: *static_cast<const FRotator*>(Addr);
 				TSharedPtr<FJsonObject> O = MakeShared<FJsonObject>();
-				O->SetNumberField(TEXT("pitch"), R->Pitch); O->SetNumberField(TEXT("yaw"), R->Yaw); O->SetNumberField(TEXT("roll"), R->Roll);
+				O->SetNumberField(TEXT("pitch"), R.Pitch); O->SetNumberField(TEXT("yaw"), R.Yaw); O->SetNumberField(TEXT("roll"), R.Roll);
 				S->SetObjectField(TEXT("rotation"), O);
 			}
 		}
@@ -1690,7 +1697,7 @@ TSharedPtr<FJsonValue> FGameplayHandlers::ListEqsQueries(const TSharedPtr<FJsonO
 
 	IAssetRegistry& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
 	TArray<FAssetData> Assets;
-	AR.GetAssetsByClass(FTopLevelAssetPath(TEXT("/Script/AIModule"), TEXT("EnvironmentQuery")), Assets, true);
+	AR.GetAssetsByClass(FTopLevelAssetPath(TEXT("/Script/AIModule"), TEXT("EnvQuery")), Assets, true);
 
 	TArray<TSharedPtr<FJsonValue>> AssetArray;
 	for (const FAssetData& Asset : Assets)
@@ -3530,10 +3537,11 @@ TSharedPtr<FJsonValue> FGameplayHandlers::AddStateTreeComponent(const TSharedPtr
 
 	REQUIRE_ASSET(UBlueprint, BP, BPPath);
 
-	UClass* CompClass = FindObject<UClass>(nullptr, TEXT("/Script/StateTreeModule.StateTreeComponent"));
+	// UStateTreeComponent lives in the GameplayStateTree plugin's module.
+	UClass* CompClass = LoadClass<UActorComponent>(nullptr, TEXT("/Script/GameplayStateTreeModule.StateTreeComponent"));
 	if (!CompClass)
 	{
-		return MCPError(TEXT("StateTreeComponent not found. Enable StateTree plugin."));
+		return MCPError(TEXT("StateTreeComponent not found. Enable the GameplayStateTree plugin."));
 	}
 
 	// Idempotency: check for existing component by name/class on the SCS

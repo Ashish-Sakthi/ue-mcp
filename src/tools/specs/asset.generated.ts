@@ -4875,6 +4875,18 @@ export const handlerSpecs: HandlerSpecs = {
         "aliases": [
           "filename"
         ]
+      },
+      {
+        "name": "preserveSettings",
+        "type": "boolean",
+        "required": false,
+        "description": "Texture: put back any compression, LOD group, sRGB, streaming, size, mip, filter or address setting the reimport changed (default true)"
+      },
+      {
+        "name": "save",
+        "type": "boolean",
+        "required": false,
+        "description": "Save the reimported asset's package (default false: it is left dirty)"
       }
     ]
   },
@@ -6325,7 +6337,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   read_stringtable: "Params: assetPath (or path), keyFilter?",
   read_uv_channels: "Params: assetPath (or path), lodIndex?, channels?, includeIslands?, includeOverlap?, rasterSize?",
   recenter_pivot: "Params: assetPath (or path) OR assetPaths",
-  reimport_asset: "Params: assetPath (or path), filePath? (or filename)",
+  reimport_asset: "Params: assetPath (or path), filePath? (or filename), preserveSettings?, save?",
   reimport_datatable: "Params: assetPath (or path), jsonPath?, jsonString?",
   reindex_assets_fts: "Params: directory?",
   reload_package: "Params: assetPath (or path)",
@@ -6588,6 +6600,7 @@ export const schema: Record<string, z.ZodType> = {
   planeOrigin: z.object({ x: z.number(), y: z.number(), z: z.number() }).optional().describe("A point on the mirror plane (default the mesh origin)"),
   posX: z.number().optional().describe("Node X position"),
   posY: z.number().optional().describe("Node Y position"),
+  preserveSettings: z.boolean().optional().describe("Texture: put back any compression, LOD group, sRGB, streaming, size, mip, filter or address setting the reimport changed (default true)"),
   preserveVertexOrder: z.boolean().optional().describe("Keep the existing vertex order (default true)"),
   preserveVertexPositions: z.boolean().optional().describe("Keep surviving vertices where they are (default false)"),
   preset: z.enum(["normal","masks","color"]).optional().describe("normal: Normalmap linear with no green flip; masks: Masks linear; color: Default sRGB. Explicit settings override the preset"),
@@ -6629,7 +6642,7 @@ export const schema: Record<string, z.ZodType> = {
   rows: z.record(z.unknown()).optional().describe("Rows to upsert: {rowName: {field: value}}"),
   rowStruct: z.string().optional().describe("Row struct, e.g. /Script/Module.MyRow or a UserDefinedStruct path"),
   sampleLimit: z.number().int().optional().describe("Sample asset names per group (default 5, max 25)"),
-  save: z.boolean().optional().describe("Save the asset after the edit (default true) (add_graph_node, connect_graph_pins, disconnect_graph_pins, remove_graph_node). Save the package after the write (default true) (append_asset_array_elements, set_asset_property). Save the written asset (default true) (apply_mesh_fracture, apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify, generate_mesh_collision, mesh_boolean). Save the changed packages (default true) (bulk_set_asset_properties, bulk_upsert_data_assets). Save the table after editing (default true) (clone_datatable_rows). Save the new asset (default true) (create_customizable_object). Save the owning package (default true) (create_subobject). Save the package after editing (default true) (edit_collection_entry). Save what changed (default true) (fix_asset_hygiene). Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference (fixup_redirectors). Save the mesh (default true) (generate_lightmap_uvs, set_uv_channel_count, transform_uvs, unwrap_uvs). Save each changed mesh (default true) (generate_skeletal_mesh_lods, set_mesh_materials_batch). Save each imported asset and report saved per asset (default true; false leaves them dirty) (import_file). Save all imported assets (default false) (import_skeletal_mesh). Save the table (default true) (import_stringtable_csv). Save changed assets (default true) (import_texture_batch). Save after removing rows (default true) (remove_datatable_row). Save the package after the write (default false) (set_datatable_cells). Save the mesh after the rebuild (default true) (set_static_mesh_build_settings). Save changed textures (default false; otherwise leave the packages dirty) (set_texture_settings)"),
+  save: z.boolean().optional().describe("Save the asset after the edit (default true) (add_graph_node, connect_graph_pins, disconnect_graph_pins, remove_graph_node). Save the package after the write (default true) (append_asset_array_elements, set_asset_property). Save the written asset (default true) (apply_mesh_fracture, apply_mesh_hole_fill, apply_mesh_mirror, apply_mesh_remesh, apply_mesh_simplify, generate_mesh_collision, mesh_boolean). Save the changed packages (default true) (bulk_set_asset_properties, bulk_upsert_data_assets). Save the table after editing (default true) (clone_datatable_rows). Save the new asset (default true) (create_customizable_object). Save the owning package (default true) (create_subobject). Save the package after editing (default true) (edit_collection_entry). Save what changed (default true) (fix_asset_hygiene). Save the repointed referencers (default true); false leaves them dirty in memory and keeps every redirector they reference (fixup_redirectors). Save the mesh (default true) (generate_lightmap_uvs, set_uv_channel_count, transform_uvs, unwrap_uvs). Save each changed mesh (default true) (generate_skeletal_mesh_lods, set_mesh_materials_batch). Save each imported asset and report saved per asset (default true; false leaves them dirty) (import_file). Save all imported assets (default false) (import_skeletal_mesh). Save the table (default true) (import_stringtable_csv). Save changed assets (default true) (import_texture_batch). Save the reimported asset's package (default false: it is left dirty) (reimport_asset). Save after removing rows (default true) (remove_datatable_row). Save the package after the write (default false) (set_datatable_cells). Save the mesh after the rebuild (default true) (set_static_mesh_build_settings). Save changed textures (default false; otherwise leave the packages dirty) (set_texture_settings)"),
   saveContentPackages: z.boolean().optional().describe("Include content packages (default true)"),
   saveMapPackages: z.boolean().optional().describe("Include map packages (default true)"),
   scale: z.record(z.unknown()).optional().describe("UV-space scale {u, v}; a zero component is refused"),

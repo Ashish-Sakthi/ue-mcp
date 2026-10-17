@@ -1076,6 +1076,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListTextureProperties(const TSharedPtr<FJ
 
 TSharedPtr<FJsonValue> FAssetHandlers::SetTextureProperties(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every declared parameter is read before anything can refuse (#1057); Parse
+	// stops at the first bad setting, which left the rest unread.
+	MCPReadParamsAhead(Params, { TEXT("preset"), TEXT("settings"), TEXT("compressionSettings"), TEXT("lodGroup"), TEXT("sRGB"),
+		TEXT("neverStream"), TEXT("flipGreenChannel"), TEXT("maxTextureSize") });
 	const FString AssetPath = OptionalString(Params, TEXT("assetPath"));
 	const TArray<TSharedPtr<FJsonValue>>* Paths = nullptr;
 	const bool bBatch = TryGetArrayParam(Params, TEXT("assetPaths"), Paths);
@@ -1498,11 +1502,11 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReadCurveTable(const TSharedPtr<FJsonObje
 	for (const TPair<FName, FRealCurve*>& Pair : Table->GetRowMap())
 	{
 		const FString Name = Pair.Key.ToString();
-		RowNames.Add(MakeShared<FJsonValueString>(Name));
 		if (!RowFilter.IsEmpty() && !Name.ToLower().Contains(RowFilter))
 		{
 			continue;
 		}
+		RowNames.Add(MakeShared<FJsonValueString>(Name));
 
 		TArray<TSharedPtr<FJsonValue>> Keys = CurveKeysToJson(Pair.Value, Mode);
 		TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
@@ -2205,6 +2209,8 @@ namespace
 
 TSharedPtr<FJsonValue> FAssetHandlers::ReadDataTable(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every declared parameter is read before anything can refuse (#1057).
+	MCPReadParamsAhead(Params, { TEXT("assetPath"), TEXT("rowFilter"), TEXT("rowNames"), TEXT("columns"), TEXT("outputPath") });
 	FString RowFilter = OptionalString(Params, TEXT("rowFilter"));
 	// A large table overflows the response inline, so outputPath writes the
 	// rows to a file under the shared dump convention (HandlerUtils.h) and
@@ -4012,16 +4018,24 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportStringTableCsv(const TSharedPtr<FJs
 			*CsvPath, *AssetPath));
 	}
 
+	// The engine importer resets the table before reading the CSV, so a merge
+	// puts back every earlier entry the CSV does not carry.
 	TArray<FString> RemovedKeys;
-	if (bReplaceExisting)
+	for (const TPair<FString, FString>& Entry : Before)
 	{
-		for (const TPair<FString, FString>& Entry : Before)
+		if (Incoming.Contains(Entry.Key)) continue;
+		if (bReplaceExisting)
 		{
-			if (!Incoming.Contains(Entry.Key))
-			{
-				StringTable->GetMutableStringTable()->RemoveSourceString(FTextKey(Entry.Key));
-				RemovedKeys.Add(Entry.Key);
-			}
+			StringTable->GetMutableStringTable()->RemoveSourceString(FTextKey(Entry.Key));
+			RemovedKeys.Add(Entry.Key);
+		}
+		else
+		{
+#if WITH_EDITORONLY_DATA && UE_MCP_HAS_5_8_API
+			StringTable->GetMutableStringTable()->SetSourceString(FTextKey(Entry.Key), Entry.Value, FString());
+#else
+			StringTable->GetMutableStringTable()->SetSourceString(FTextKey(Entry.Key), Entry.Value);
+#endif
 		}
 	}
 
@@ -4127,6 +4141,51 @@ TSharedPtr<FJsonValue> FAssetHandlers::ImportStringTableCsv(const TSharedPtr<FJs
 
 // --- Reimport ---------------------------------------------------------
 
+namespace
+{
+	/** The texture settings a reimport must not change: how the texture is
+	 *  compressed, grouped, streamed, sized, mipped, filtered and addressed.
+	 *  Names the class does not declare (AddressX on a cube) are skipped. */
+	const TCHAR* const GMCPReimportTextureSettings[] = {
+		TEXT("CompressionSettings"), TEXT("LODGroup"), TEXT("SRGB"), TEXT("NeverStream"),
+		TEXT("MaxTextureSize"), TEXT("MipGenSettings"), TEXT("Filter"), TEXT("AddressX"), TEXT("AddressY"),
+		TEXT("CompressionNoAlpha"), TEXT("CompressionQuality"), TEXT("LossyCompressionAmount"),
+		TEXT("VirtualTextureStreaming"), TEXT("PowerOfTwoMode"), TEXT("bFlipGreenChannel"),
+	};
+
+	/** Each listed setting the texture's class declares, as export text. */
+	TMap<FString, FString> MCPReimportSnapshotTextureSettings(UTexture* Texture)
+	{
+		TMap<FString, FString> Out;
+		for (const TCHAR* Name : GMCPReimportTextureSettings)
+		{
+			const FProperty* Property = Texture->GetClass()->FindPropertyByName(Name);
+			if (!Property) continue;
+			FString Text;
+			// ExportText_InContainer skips a value equal to zero (false, 0, the first
+			// enum entry), which is exactly what a reimport tends to flip.
+			Property->ExportTextItem_InContainer(Text, Texture, nullptr, Texture, PPF_None);
+			Out.Add(Name, Text);
+		}
+		return Out;
+	}
+
+	TSharedPtr<FJsonObject> MCPReimportSettingsJson(const TMap<FString, FString>& Settings)
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		for (const TPair<FString, FString>& Pair : Settings) Obj->SetStringField(Pair.Key, Pair.Value);
+		return Obj;
+	}
+
+	TSharedPtr<FJsonObject> MCPReimportSourceSize(UTexture* Texture)
+	{
+		TSharedPtr<FJsonObject> Obj = MakeShared<FJsonObject>();
+		Obj->SetNumberField(TEXT("x"), Texture->Source.GetSizeX());
+		Obj->SetNumberField(TEXT("y"), Texture->Source.GetSizeY());
+		return Obj;
+	}
+}
+
 TSharedPtr<FJsonValue> FAssetHandlers::ReimportAsset(const TSharedPtr<FJsonObject>& Params)
 {
 	FString AssetPath;
@@ -4134,6 +4193,8 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReimportAsset(const TSharedPtr<FJsonObjec
 	// Read before anything can fail (#1057). `filename` is an alias of filePath.
 	FString NewSourcePath;
 	const bool bHasNewSourcePath = TryGetStringParam(Params, TEXT("filePath"), NewSourcePath);
+	const bool bPreserveSettings = OptionalBool(Params, TEXT("preserveSettings"), true);
+	const bool bSave = OptionalBool(Params, TEXT("save"), false);
 
 	TSharedPtr<FJsonValue> LoadError;
 	UObject* Asset = MCPRequireAssetObject(AssetPath, LoadError);
@@ -4199,11 +4260,60 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReimportAsset(const TSharedPtr<FJsonObjec
 		bSourceFileUpdated = true;
 	}
 
+	// A texture's settings are the caller's, not the source file's. Whether a
+	// reimport keeps them depends on the import path (the legacy factory copies
+	// them across, an Interchange pipeline may apply its own), so they are read
+	// before and put back after rather than trusted to survive.
+	UTexture* Texture = Cast<UTexture>(Asset);
+	TMap<FString, FString> SettingsBefore;
+	TSharedPtr<FJsonObject> SizeBefore;
+	if (Texture)
+	{
+		SettingsBefore = MCPReimportSnapshotTextureSettings(Texture);
+		SizeBefore = MCPReimportSourceSize(Texture);
+	}
+
 	// Use FReimportManager to reimport
 	bool bSuccess = FReimportManager::Instance()->Reimport(Asset, /*bAskForNewFileIfMissing=*/false, /*bShowNotification=*/false);
 
 	auto Result = MCPSuccess();
 	if (bSuccess) MCPSetUpdated(Result);
+	if (Texture)
+	{
+		TArray<TSharedPtr<FJsonValue>> Restored;
+		if (bSuccess && bPreserveSettings)
+		{
+			const TMap<FString, FString> SettingsReimported = MCPReimportSnapshotTextureSettings(Texture);
+			bool bChanged = false;
+			for (const TPair<FString, FString>& Pair : SettingsBefore)
+			{
+				const FString* Now = SettingsReimported.Find(Pair.Key);
+				if (Now && *Now == Pair.Value) continue;
+				FProperty* Property = Texture->GetClass()->FindPropertyByName(*Pair.Key);
+				if (!Property) continue;
+				if (!bChanged) Texture->PreEditChange(nullptr);
+				bChanged = true;
+				Property->ImportText_InContainer(*Pair.Value, Texture, Texture, PPF_None);
+				TSharedPtr<FJsonObject> Row = MakeShared<FJsonObject>();
+				Row->SetStringField(TEXT("name"), Pair.Key);
+				Row->SetStringField(TEXT("reimportedValue"), Now ? *Now : FString());
+				Row->SetStringField(TEXT("restoredValue"), Pair.Value);
+				Restored.Add(MakeShared<FJsonValueObject>(Row));
+			}
+			if (bChanged)
+			{
+				// Rebuilds the platform data under the restored settings.
+				Texture->PostEditChange();
+				Texture->MarkPackageDirty();
+			}
+		}
+		Result->SetBoolField(TEXT("preserveSettings"), bPreserveSettings);
+		Result->SetObjectField(TEXT("settingsBefore"), MCPReimportSettingsJson(SettingsBefore));
+		Result->SetObjectField(TEXT("settingsAfter"), MCPReimportSettingsJson(MCPReimportSnapshotTextureSettings(Texture)));
+		Result->SetArrayField(TEXT("restoredSettings"), Restored);
+		Result->SetObjectField(TEXT("sourceSizeBefore"), SizeBefore);
+		Result->SetObjectField(TEXT("sourceSizeAfter"), MCPReimportSourceSize(Texture));
+	}
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetStringField(TEXT("assetClass"), Asset->GetClass()->GetName());
 	Result->SetBoolField(TEXT("success"), bSuccess);
@@ -4216,6 +4326,19 @@ TSharedPtr<FJsonValue> FAssetHandlers::ReimportAsset(const TSharedPtr<FJsonObjec
 	{
 		Result->SetStringField(TEXT("error"), TEXT("Reimport failed -- check that the asset has a valid source file"));
 	}
+	else if (bSave)
+	{
+		// A reimport leaves the package dirty and unsaved, which is the default:
+		// the caller looks before it keeps. save writes this one package only.
+		FString SaveReason;
+		const bool bSaved = SaveAssetPackageChecked(Asset, SaveReason);
+		MCPNoteSaveOutcome(Result, AssetPath, bSaved, SaveReason);
+	}
+	else
+	{
+		Result->SetBoolField(TEXT("saved"), false);
+	}
+	if (UPackage* Package = Asset->GetOutermost()) Result->SetBoolField(TEXT("packageDirty"), Package->IsDirty());
 	Result->SetBoolField(TEXT("rollbackPossible"), false);
 	Result->SetStringField(TEXT("rollbackNote"),
 		TEXT("A reimport rebuilds the asset from its source file in place, so the content it replaced is gone and the new ")

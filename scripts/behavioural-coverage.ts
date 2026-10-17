@@ -301,10 +301,14 @@ export function scanAutomationTests(
 // The inventory
 // ---------------------------------------------------------------------------
 
+/** bridge method -> the category it belongs to. A moved action's old address never names it. */
 function categoryOf(): Map<string, string> {
   const out = new Map<string, string>();
-  for (const [category, actions] of bridgeActionMap()) {
-    for (const bridge of actions.values()) if (!out.has(bridge)) out.set(bridge, category);
+  for (const tool of ALL_TOOLS) {
+    for (const spec of Object.values(tool.actions)) {
+      const { bridge, movedTo } = spec as { bridge?: string; movedTo?: unknown };
+      if (bridge && !movedTo && !out.has(bridge)) out.set(bridge, tool.name);
+    }
   }
   return out;
 }
@@ -312,6 +316,20 @@ function categoryOf(): Map<string, string> {
 export interface InventoryInputs {
   exemptions: Record<string, string>;
   ratchet: string[];
+  /** Bridge method -> whether any action dispatching it is declared mutate. Defaults to ALL_TOOLS. */
+  mutating?: Set<string>;
+}
+
+/** Bridge methods some category action declares with effect mutate. */
+export function mutatingBridgeMethods(): Set<string> {
+  const out = new Set<string>();
+  for (const tool of ALL_TOOLS) {
+    for (const spec of Object.values(tool.actions)) {
+      const { bridge, effect } = spec as { bridge?: string; effect?: string };
+      if (bridge && effect === "mutate") out.add(bridge);
+    }
+  }
+  return out;
 }
 
 export function buildInventory(inputs: InventoryInputs = { exemptions: readExemptions(), ratchet: readRatchet() }): Inventory {
@@ -407,6 +425,17 @@ export function inventoryProblems(inventory: Inventory, inputs: InventoryInputs)
         "Add a test in tests/live or a UE.MCP.* automation test that dispatches the action and asserts its effect, " +
         `or add it to ${EXEMPTIONS_FILE} with the reason no test can observe it. The gap list (${RATCHET_FILE}) ` +
         "only shrinks; new actions do not go there.",
+    );
+  }
+
+  // A mutating action changes something a test can read back, so it may not sit in
+  // the gap list: it gets a behavioural test, or an exemption saying why none can see it.
+  const mutating = inputs.mutating ?? mutatingBridgeMethods();
+  const mutatingGaps = inputs.ratchet.filter((m) => mutating.has(m));
+  if (mutatingGaps.length > 0) {
+    problems.push(
+      `${RATCHET_FILE} lists ${mutatingGaps.length} mutating action(s): ${mutatingGaps.join(", ")}. ` +
+        "Every action declared with effect mutate needs a behavioural test that asserts what it changed.",
     );
   }
 

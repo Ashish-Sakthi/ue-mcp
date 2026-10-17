@@ -641,6 +641,18 @@ export const handlerSpecs: HandlerSpecs = {
         "type": "integer",
         "required": false,
         "description": "Return the per-vertex array only up to this many values (default 16384)"
+      },
+      {
+        "name": "editLayer",
+        "type": "string",
+        "required": false,
+        "description": "Edit layer name"
+      },
+      {
+        "name": "editLayerIndex",
+        "type": "integer",
+        "required": false,
+        "description": "Edit layer index when editLayer is not given (default 0)"
       }
     ]
   },
@@ -1974,7 +1986,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   get_landscape_component: "Params: componentIndex?",
   get_landscape_height_at_point: "Params: x?, y?, point?, worldX?, worldY?, actorLabel?, actorPath?, editLayer?, editLayerIndex?",
   get_landscape_height_region: "Params: actorLabel?, actorPath?, region?, space?, center?, radius?, maxVertices?, editLayer?, editLayerIndex?, includeHeights?, encoding?, arrayEncodingLimit?",
-  get_landscape_holes: "Params: actorLabel?, actorPath?, region?, space?, center?, radius?, x?, y?, point?, worldX?, worldY?, maxVertices?, includeMask?, arrayEncodingLimit?",
+  get_landscape_holes: "Params: actorLabel?, actorPath?, region?, space?, center?, radius?, x?, y?, point?, worldX?, worldY?, maxVertices?, includeMask?, arrayEncodingLimit?, editLayer?, editLayerIndex?",
   get_landscape_info: "Params: none",
   get_landscape_layer_weight_region: "Params: layerName, actorLabel?, actorPath?, region?, space?, center?, radius?, maxVertices?, editLayer?, editLayerIndex?, includeWeights?, encoding?, arrayEncodingLimit?",
   get_landscape_material_usage_summary: "Params: none",

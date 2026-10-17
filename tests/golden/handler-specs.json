@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1136,
+  "handlerCount": 1143,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -580,6 +580,29 @@
             "fields",
             "data"
           ]
+        }
+      ]
+    },
+    "add_effect_component": {
+      "category": "gas",
+      "params": [
+        {
+          "name": "effectPath",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffect Blueprint asset path"
+        },
+        {
+          "name": "componentClass",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffectComponent class: a name such as TargetTagsGameplayEffectComponent, or a class path"
+        },
+        {
+          "name": "properties",
+          "type": "object",
+          "required": false,
+          "description": "Property values to write onto the component, keyed by property name"
         }
       ]
     },
@@ -10601,7 +10624,13 @@
           "name": "durationPolicy",
           "type": "string",
           "required": false,
-          "description": "Echoed back as durationPolicy (default Instant); it is not written onto the effect"
+          "description": "Instant (default) | Infinite | HasDuration, written onto the effect's class defaults"
+        },
+        {
+          "name": "durationMagnitude",
+          "type": "number",
+          "required": false,
+          "description": "Duration in seconds; only with durationPolicy HasDuration"
         }
       ],
       "contractExempt": "Creates, compiles and saves a Blueprint under the contract values; nothing it reads fails first"
@@ -16734,6 +16763,18 @@
           "type": "integer",
           "required": false,
           "description": "Return the per-vertex array only up to this many values (default 16384)"
+        },
+        {
+          "name": "editLayer",
+          "type": "string",
+          "required": false,
+          "description": "Edit layer name"
+        },
+        {
+          "name": "editLayerIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Edit layer index when editLayer is not given (default 0)"
         }
       ]
     },
@@ -27295,6 +27336,18 @@
           "aliases": [
             "filename"
           ]
+        },
+        {
+          "name": "preserveSettings",
+          "type": "boolean",
+          "required": false,
+          "description": "Texture: put back any compression, LOD group, sRGB, streaming, size, mip, filter or address setting the reimport changed (default true)"
+        },
+        {
+          "name": "save",
+          "type": "boolean",
+          "required": false,
+          "description": "Save the reimported asset's package (default false: it is left dirty)"
         }
       ]
     },
@@ -27758,6 +27811,23 @@
           "type": "string",
           "required": false,
           "description": "Runtime world scope: auto (default) | pie | editor"
+        }
+      ]
+    },
+    "remove_effect_component": {
+      "category": "gas",
+      "params": [
+        {
+          "name": "effectPath",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffect Blueprint asset path"
+        },
+        {
+          "name": "componentClass",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffectComponent class to remove: a name such as TargetTagsGameplayEffectComponent, or a class path"
         }
       ]
     },
@@ -33323,6 +33393,31 @@
           "type": "boolean",
           "required": false,
           "description": "Target every actor"
+        }
+      ]
+    },
+    "set_effect_granted_tags": {
+      "category": "gas",
+      "params": [
+        {
+          "name": "effectPath",
+          "type": "string",
+          "required": true,
+          "description": "GameplayEffect Blueprint asset path"
+        },
+        {
+          "name": "tags",
+          "type": "array",
+          "required": true,
+          "description": "Registered tags the effect grants its target, written whole",
+          "items": "string"
+        },
+        {
+          "name": "removedTags",
+          "type": "array",
+          "required": false,
+          "description": "Inherited tags to drop from a parent effect's grants, written whole",
+          "items": "string"
         }
       ]
     },
@@ -39361,6 +39456,18 @@
       ],
       "contractExempt": "Checks files out of the configured provider when called"
     },
+    "source_control_connect": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "password",
+          "type": "string",
+          "required": false,
+          "description": "Password or ticket for providers that log in (Perforce); sent to the provider only, never echoed"
+        }
+      ],
+      "contractExempt": "Connects the editor's configured provider when called"
+    },
     "source_control_diff": {
       "category": "source_control",
       "params": [
@@ -39412,6 +39519,23 @@
         }
       ]
     },
+    "source_control_history": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "path",
+          "type": "string",
+          "required": true,
+          "description": "One asset path or file whose revision history to read"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Most revisions to return, newest first (default 20); truncated says when more exist"
+        }
+      ]
+    },
     "source_control_list_changes": {
       "category": "source_control",
       "params": [
@@ -39436,6 +39560,19 @@
         }
       ]
     },
+    "source_control_mark_for_delete": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "paths",
+          "type": "array",
+          "required": true,
+          "description": "Asset or package paths (/Game/X), content folders, or files on disk (absolute or relative to the project)",
+          "items": "string"
+        }
+      ],
+      "contractExempt": "Marks files for delete in the configured provider when called"
+    },
     "source_control_revert": {
       "category": "source_control",
       "params": [
@@ -39457,6 +39594,12 @@
           "type": "boolean",
           "required": false,
           "description": "Drop unsaved editor edits to the named packages instead of refusing (default false)"
+        },
+        {
+          "name": "restoreFrom",
+          "type": "object",
+          "required": false,
+          "description": "File to saved copy, as mark_for_delete's rollback carries it: a deleted file the provider cannot revert is put back from its copy and marked for add"
         }
       ],
       "contractExempt": "Reverts files in the configured provider when called"
@@ -39495,6 +39638,19 @@
         }
       ],
       "contractExempt": "Submits files to the repository when called"
+    },
+    "source_control_sync": {
+      "category": "source_control",
+      "params": [
+        {
+          "name": "paths",
+          "type": "array",
+          "required": false,
+          "description": "Folders or files to sync to the latest revision (default the project's Content, Config, Source and Plugins folders and its .uproject)",
+          "items": "string"
+        }
+      ],
+      "contractExempt": "Syncs the workspace from the repository when called"
     },
     "spawn_actors_batch": {
       "category": "level",

@@ -1496,7 +1496,33 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenTab(const TSharedPtr<FJsonObject>& P
 	// Asked before invoking: TryInvokeTab draws attention to a tab that is
 	// already up and returns it either way, so this is the only point at which
 	// "was it already open" is answerable.
-	const bool bAlreadyOpen = FGlobalTabmanager::Get()->FindExistingLiveTab(FTabId(*TabId)).IsValid();
+	// FindExistingLiveTab misses a nomad tab docked under another tab manager (the
+	// Output Log in the level editor), so the open windows are searched for the tab.
+	bool bAlreadyOpen = FGlobalTabmanager::Get()->FindExistingLiveTab(FTabId(*TabId)).IsValid();
+	if (!bAlreadyOpen && FSlateApplication::IsInitialized())
+	{
+		const FName TabType(*TabId);
+		TFunction<bool(const TSharedRef<SWidget>&)> HasTab = [&HasTab, TabType](const TSharedRef<SWidget>& Widget) -> bool
+		{
+			if (Widget->GetType() == FName(TEXT("SDockTab"))
+				&& StaticCastSharedRef<SDockTab>(Widget)->GetLayoutIdentifier().TabType == TabType)
+			{
+				return true;
+			}
+			FChildren* Children = Widget->GetChildren();
+			for (int32 Index = 0; Children && Index < Children->Num(); ++Index)
+			{
+				if (HasTab(Children->GetChildAt(Index))) return true;
+			}
+			return false;
+		};
+		TArray<TSharedRef<SWindow>> Windows;
+		FSlateApplication::Get().GetAllVisibleWindowsOrdered(Windows);
+		for (const TSharedRef<SWindow>& Window : Windows)
+		{
+			if (HasTab(Window)) { bAlreadyOpen = true; break; }
+		}
+	}
 	TSharedPtr<SDockTab> Tab = FGlobalTabmanager::Get()->TryInvokeTab(FTabId(*TabId));
 
 	auto Result = MCPSuccess();
@@ -1983,7 +2009,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetRealtime(const TSharedPtr<FJsonObject
 	for (FLevelEditorViewportClient* ViewportClient : GEditor->GetLevelViewportClients())
 	{
 		if (!ViewportClient) continue;
-		if (ViewportClient->IsRealtime()) ++PreviouslyEnabled; else ++PreviouslyDisabled;
+		// The stored setting SetRealtime writes, not IsRealtime, which reports an
+		// active override (a background window, a modal) instead of the flag.
+		bool bWasRealtime = false;
+		ViewportClient->SaveRealtimeStateToConfig(bWasRealtime);
+		if (bWasRealtime) ++PreviouslyEnabled; else ++PreviouslyDisabled;
 		ViewportClient->SetRealtime(bEnabled);
 		ViewportsChanged++;
 	}
@@ -3558,16 +3588,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::FocusViewportOnActor(const TSharedPtr<FJ
 
 	// Focus on the actor's bounding box
 	FBox ActorBounds = TargetActor->GetComponentsBoundingBox(true);
-	// Which branch runs decides whether the camera move is observable here.
-	// FocusViewportOnBox defaults bInstant to false and hands the move to
-	// TransitionToLocation, which, whenever the client has a real viewport
-	// widget, only sets DesiredLocation and starts a curve: ViewLocation is
-	// advanced by UpdateTransition on later ticks, so reading it back in this
-	// call still returns the location the camera had before the focus.
+	// Instant: the animated transition only advances on viewport ticks, which
+	// stop while the editor window is in the background, so the camera could
+	// stay where it was. The final pose is what a caller reads back.
 	const bool bFocusedOnBounds = ActorBounds.IsValid != 0;
 	if (ActorBounds.IsValid)
 	{
-		ViewportClient->FocusViewportOnBox(ActorBounds);
+		ViewportClient->FocusViewportOnBox(ActorBounds, /*bInstant=*/ true);
 	}
 	else
 	{
@@ -3807,9 +3834,9 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 
 	// A map opens as the editor world through load_level. Loading it here first would leave its package resident,
 	// and the map load then fatals on "Old level package ... not cleaned up by garbage collection" (#1241).
-	FString PackageFilename;
-	if (FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(AssetPath), &PackageFilename)
-		&& FPaths::GetExtension(PackageFilename, /*bIncludeDot*/ true) == FPackageName::GetMapPackageExtension())
+	// Loading a map through the asset editor also destroys the world the handler holds, which read freed memory
+	// for the class name and crashed on it (#1422).
+	auto OpenMapViaLoadLevel = [&Params, &AssetPath]() -> TSharedPtr<FJsonValue>
 	{
 		TSharedPtr<FJsonObject> LevelParams = MakeShared<FJsonObject>();
 		LevelParams->SetStringField(TEXT("levelPath"), AssetPath);
@@ -3832,6 +3859,13 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 			}
 		}
 		return LevelResult;
+	};
+
+	FString PackageFilename;
+	if (FPackageName::DoesPackageExist(FPackageName::ObjectPathToPackageName(AssetPath), &PackageFilename)
+		&& FPaths::GetExtension(PackageFilename, /*bIncludeDot*/ true) == FPackageName::GetMapPackageExtension())
+	{
+		return OpenMapViaLoadLevel();
 	}
 
 	// The shared resolver checks the path's shape before loading: StaticLoadObject on a malformed
@@ -3865,6 +3899,12 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 		return MCPResult(Result);
 	}
 
+	// A world the package check above missed, such as one not yet saved to disk, still opens as a map.
+	if (Asset->IsA<UWorld>())
+	{
+		return OpenMapViaLoadLevel();
+	}
+
 	// StaticLoadObject returns an unrooted pointer and OpenEditorForAsset can run
 	// the GC, so the asset is held for the rest of the call.
 	FGCObjectScopeGuard AssetScopeGuard(Asset);
@@ -3879,17 +3919,19 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenAsset(const TSharedPtr<FJsonObject>&
 	// up and returns true either way, so this is the only point at which
 	// "was it already open" is answerable.
 	const bool bAlreadyOpen = AssetEditorSubsystem->FindEditorForAsset(Asset, /*bFocusIfOpen=*/false) != nullptr;
+	// Read before opening: an editor that loads a level can destroy objects on the way.
+	const FString AssetClassName = Asset->GetClass()->GetName();
 	bool bOpened = AssetEditorSubsystem->OpenEditorForAsset(Asset);
 
 	TSharedPtr<FJsonObject> Result = MakeShared<FJsonObject>();
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
-	Result->SetStringField(TEXT("assetClass"), Asset->GetClass()->GetName());
+	Result->SetStringField(TEXT("assetClass"), AssetClassName);
 	Result->SetBoolField(TEXT("success"), bOpened);
 	Result->SetBoolField(TEXT("alreadyOpen"), bAlreadyOpen);
 	Result->SetBoolField(TEXT("changed"), bOpened && !bAlreadyOpen);
 	if (!bOpened)
 	{
-		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to open editor for '%s' (%s)"), *AssetPath, *Asset->GetClass()->GetName()));
+		Result->SetStringField(TEXT("error"), FString::Printf(TEXT("Failed to open editor for '%s' (%s)"), *AssetPath, *AssetClassName));
 	}
 	// No rollback: nothing in the bridge closes an asset editor. close_sequence
 	// is the one exception and it only handles Level Sequences, so naming it
@@ -3925,10 +3967,31 @@ TSharedPtr<FJsonValue> FEditorHandlers::RunStatCommand(const TSharedPtr<FJsonObj
 
 	REQUIRE_EDITOR_WORLD(World);
 
+	// A stat overlay toggles on the viewport the engine is processing stats for,
+	// which is the level viewport here, so its enabled list is read either side.
+	FEditorViewportClient* Viewport = GCurrentLevelEditingViewportClient;
+	const TArray<FString> StatsBefore = (Viewport && Viewport->GetEnabledStats()) ? *Viewport->GetEnabledStats() : TArray<FString>();
+	FCommonViewportClient* PreviousStatViewport = GStatProcessingViewportClient;
+	if (Viewport) GStatProcessingViewportClient = Viewport;
 	GEditor->Exec(World, *Command);
+	GStatProcessingViewportClient = PreviousStatViewport;
+	const TArray<FString> StatsAfter = (Viewport && Viewport->GetEnabledStats()) ? *Viewport->GetEnabledStats() : TArray<FString>();
 
 	auto Result = MCPSuccess();
 	Result->SetStringField(TEXT("command"), Command);
+	TArray<TSharedPtr<FJsonValue>> Enabled, TurnedOn, TurnedOff;
+	for (const FString& Name : StatsAfter)
+	{
+		Enabled.Add(MakeShared<FJsonValueString>(Name));
+		if (!StatsBefore.Contains(Name)) TurnedOn.Add(MakeShared<FJsonValueString>(Name));
+	}
+	for (const FString& Name : StatsBefore)
+	{
+		if (!StatsAfter.Contains(Name)) TurnedOff.Add(MakeShared<FJsonValueString>(Name));
+	}
+	Result->SetArrayField(TEXT("enabledStats"), Enabled);
+	Result->SetArrayField(TEXT("statsTurnedOn"), TurnedOn);
+	Result->SetArrayField(TEXT("statsTurnedOff"), TurnedOff);
 	// The command was dispatched. Most stat commands toggle rather than set, so
 	// the overlay's state after this depends on what it was before, and Exec
 	// reports nothing back that this handler could compare.

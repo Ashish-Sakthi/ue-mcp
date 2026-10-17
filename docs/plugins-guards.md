@@ -151,4 +151,12 @@ export default class AuditGuard extends UeMcpGuard<{ file?: string }> {
 
 Multiple guards compose into one pipeline. `before` hooks run in order, `after` hooks in reverse order (the same nesting an interceptor stack gives you). A guard that denies short-circuits the rest of the `before` chain and the call itself.
 
-Guards from different plugins coexist - a source-control checkout guard, an access-policy deny guard, and an audit guard can all be installed at once, each shipped by whatever plugin owns that concern. The [`ue-mcp-perforce`](https://github.com/db-lyon/ue-mcp-perforce) plugin's source-control guard is the canonical example: a `before` hook scoped to writes, checking the target files out, or refusing when a person holds the lock, before the write reaches the editor.
+Guards from different plugins coexist - a source-control checkout guard, an access-policy deny guard, and an audit guard can all be installed at once, each shipped by whatever plugin owns that concern. The [`ue-mcp-perforce`](https://github.com/db-lyon/ue-mcp-perforce) plugin's source-control guard is an example: a `before` hook scoped to writes, checking the target files out, or refusing when a person holds the lock, before the write reaches the editor.
+
+## Source control: core first, guards opt-in
+
+Checkout on write belongs to core. `source_control(action="set_checkout_mode")` decides what a bridge write does with a read-only file under source control, for whichever provider the editor has configured: `manual` (the default) refuses the write and names `source_control(checkout)`, and `auto` checks the file out through the provider first and lists it on the result as `autoCheckedOut`. `UE_MCP_CHECKOUT_MODE=auto` at editor startup turns `auto` on from the start. No plugin is needed for any of that.
+
+A source control guard from a plugin is an opt-in extra on top: a policy core does not have, such as refusing a write early when a person holds the lock, or opening files in a named changelist. Install one when you want that policy; leave it out and core's checkout mode still applies.
+
+The `source_control_*` calls themselves are never seen by `writes`. They are the provider operations a guard would make, so a guard intercepting `checkout`, `revert` or `submit` would check a file out before checking it out. The write classification declares them as writing nothing guardable rather than relying on how their parameters happen to be named.

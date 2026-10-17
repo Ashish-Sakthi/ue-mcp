@@ -953,6 +953,8 @@ void FAssetHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 	Registry.RegisterHandler(TEXT("reimport_asset"), &ReimportAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Imported asset to rebuild from its source file")).Alias(TEXT("path")),
 		MCPParam::Optional(TEXT("filePath"), EType::String, TEXT("New source file to record and reimport from")).Alias(TEXT("filename")),
+		MCPParam::Optional(TEXT("preserveSettings"), EType::Boolean, TEXT("Texture: put back any compression, LOD group, sRGB, streaming, size, mip, filter or address setting the reimport changed (default true)")),
+		MCPParam::Optional(TEXT("save"), EType::Boolean, TEXT("Save the reimported asset's package (default false: it is left dirty)")),
 	});
 	Registry.RegisterHandler(TEXT("export_asset"), &ExportAsset, {
 		MCPParam::Required(TEXT("assetPath"), EType::String, TEXT("Asset to export")).Alias(TEXT("path")),
@@ -3779,9 +3781,12 @@ namespace
 		}
 
 		FMCPSaveDiagnostics SaveDiagnostics;
-		if (ToSave.Num() > 0)
+		// One package per call, so the engine's own success flag is per package.
+		// File mtimes are whole seconds, which cannot prove a same-second rewrite.
+		TMap<UPackage*, bool> SaveReported;
+		for (UPackage* Package : ToSave)
 		{
-			UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty=*/false);
+			SaveReported.Add(Package, UEditorLoadingAndSavingUtils::SavePackages({ Package }, /*bOnlyDirty=*/false));
 		}
 
 		TArray<TSharedPtr<FJsonValue>> Results;
@@ -3803,9 +3808,10 @@ namespace
 				ResolvePackageFileName(Package, FileName);
 				const FDateTime StampAfter = FileName.IsEmpty() ? FDateTime::MinValue() : IFileManager::Get().GetTimeStamp(*FileName);
 				const bool bFileExists = StampAfter != FDateTime::MinValue();
-				// ponytail: a forced save of a clean package is judged by the file's mtime alone; a same-second rewrite on a filesystem with one-second mtimes reads as failed until the save reports per package.
 				const bool bWritten = bFileExists
-					&& ((Row->GetBoolField(TEXT("wasDirty")) && !Package->IsDirty()) || StampAfter != StampBefore[i]);
+					&& ((SaveReported.FindRef(Package) && !Package->IsDirty())
+						|| (Row->GetBoolField(TEXT("wasDirty")) && !Package->IsDirty())
+						|| StampAfter != StampBefore[i]);
 				Row->SetBoolField(TEXT("stillDirty"), Package->IsDirty());
 				if (bWritten)
 				{
@@ -4070,14 +4076,30 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAllDirty(const TSharedPtr<FJsonObject
 	TArray<UPackage*> DirtyBefore;
 	if (bSaveContentPackages) FEditorFileUtils::GetDirtyContentPackages(DirtyBefore);
 	if (bSaveMapPackages) FEditorFileUtils::GetDirtyWorldPackages(DirtyBefore);
+	// A /Temp/ or /Memory/ package (an untitled map and its external actors)
+	// has no file to write, and the engine's sweep opens a modal Save As for
+	// it. The bridge never prompts, so those are reported and left alone.
 	TArray<FString> TargetNames;
+	TArray<UPackage*> ToSave;
+	TArray<FString> Skipped;
 	for (UPackage* Package : DirtyBefore)
 	{
-		if (Package && Package->IsDirty()) TargetNames.AddUnique(Package->GetName());
+		if (!Package || !Package->IsDirty()) continue;
+		const FString Name = Package->GetName();
+		if (FPackageName::IsTempPackage(Name) || FPackageName::IsMemoryPackage(Name))
+		{
+			Skipped.AddUnique(Name);
+			continue;
+		}
+		if (!TargetNames.Contains(Name))
+		{
+			TargetNames.Add(Name);
+			ToSave.Add(Package);
+		}
 	}
 
 	FMCPSaveDiagnostics SaveDiagnostics;
-	const bool bOk = UEditorLoadingAndSavingUtils::SaveDirtyPackages(bSaveMapPackages, bSaveContentPackages);
+	const bool bOk = ToSave.Num() == 0 || UEditorLoadingAndSavingUtils::SavePackages(ToSave, /*bOnlyDirty*/ true);
 
 	TArray<TSharedPtr<FJsonValue>> Written;
 	TArray<TSharedPtr<FJsonValue>> StillDirty;
@@ -4100,6 +4122,9 @@ TSharedPtr<FJsonValue> FAssetHandlers::SaveAllDirty(const TSharedPtr<FJsonObject
 	Result->SetNumberField(TEXT("attempted"), TargetNames.Num());
 	Result->SetArrayField(TEXT("saved"), Written);
 	Result->SetArrayField(TEXT("stillDirty"), StillDirty);
+	TArray<TSharedPtr<FJsonValue>> SkippedJson;
+	for (const FString& Name : Skipped) SkippedJson.Add(MakeShared<FJsonValueString>(Name));
+	Result->SetArrayField(TEXT("skippedUnsaveable"), SkippedJson);
 	// Keyed off what reached disk, not off what was dirty going in: a run where
 	// every package failed to write attempted work and changed nothing.
 	Result->SetBoolField(TEXT("unchanged"), Written.Num() == 0);
@@ -4239,12 +4264,13 @@ TSharedPtr<FJsonValue> FAssetHandlers::GetReferencers(const TSharedPtr<FJsonObje
 	const bool bIncludeDetails = OptionalBool(Params, TEXT("includeDetails"), false);
 	const bool bIncludeMeshInfo = OptionalBool(Params, TEXT("includeMeshInfo"), false);
 	const int32 MaxDepth = OptionalInt(Params, TEXT("maxDepth"), 2);
-	if (MaxDepth < 1 || MaxDepth > 8) return MCPError(TEXT("maxDepth must be between 1 and 8"));
+	// Every declared parameter is read before anything can refuse (#1057).
 	TArray<FString> Packages;
 	const TArray<TSharedPtr<FJsonValue>>* Arr = nullptr;
 	const bool bHasArray = TryGetArrayParam(Params, TEXT("packages"), Arr) && Arr;
 	FString Single;
 	const bool bHasSingle = TryGetStringParam(Params, TEXT("packagePath"), Single);
+	if (MaxDepth < 1 || MaxDepth > 8) return MCPError(TEXT("maxDepth must be between 1 and 8"));
 	if (bHasArray)
 	{
 		for (const TSharedPtr<FJsonValue>& V : *Arr)
@@ -5777,6 +5803,18 @@ TSharedPtr<FJsonValue> FAssetHandlers::MigrateAssets(const TSharedPtr<FJsonObjec
 	{
 		return MCPError(TEXT("destinationContentDir is this project's own Content folder; migrate targets a DIFFERENT project."));
 	}
+	// The engine aborts, into its message log only, unless the destination is a
+	// project's Content folder, so that is checked here and refused out loud.
+	{
+		TArray<FString> ProjectFiles;
+		IFileManager::Get().FindFiles(ProjectFiles, *(FPaths::GetPath(DestFull) / TEXT("*.uproject")), true, false);
+		if (ProjectFiles.Num() == 0 || !FPaths::GetCleanFilename(DestFull).Equals(TEXT("Content"), ESearchCase::IgnoreCase))
+		{
+			return MCPError(FString::Printf(
+				TEXT("destinationContentDir must be a project's Content folder, a folder named Content with the .uproject beside it; the engine refuses anything else. Got: %s"),
+				*DestContentDir));
+		}
+	}
 
 	// Resolve every asset before migrating any: a half-done migration with an
 	// error at the end is worse than a clean refusal.
@@ -5805,7 +5843,7 @@ TSharedPtr<FJsonValue> FAssetHandlers::MigrateAssets(const TSharedPtr<FJsonObjec
 		if (Package->IsDirty() && !bAllowDirty)
 		{
 			return MCPError(FString::Printf(
-				TEXT("'%s' has unsaved changes. Migrating now would copy the last SAVED state and silently omit your edits. Save it first (asset(save)), or pass allowDirty=true to migrate the on-disk version deliberately."),
+				TEXT("'%s' has unsaved changes. Migrating now would copy the last SAVED state and silently omit your edits. Save it first (asset(save)); the engine would prompt to save it before migrating."),
 				*Path));
 		}
 
@@ -5837,6 +5875,24 @@ TSharedPtr<FJsonValue> FAssetHandlers::MigrateAssets(const TSharedPtr<FJsonObjec
 		Result->SetBoolField(TEXT("dryRun"), true);
 		Result->SetStringField(TEXT("note"), TEXT("Dry run - nothing was copied. Re-run without dryRun to migrate."));
 		return MCPResult(Result);
+	}
+
+	// MigratePackages first saves every dirty package in the editor with a
+	// prompt, and an untitled map opens a modal Save As, so the editor would
+	// wait on a dialog nobody can answer.
+	TArray<UPackage*> DirtyPackages;
+	FEditorFileUtils::GetDirtyWorldPackages(DirtyPackages);
+	FEditorFileUtils::GetDirtyContentPackages(DirtyPackages);
+	if (DirtyPackages.Num() > 0)
+	{
+		TArray<FString> DirtyNames;
+		for (const UPackage* Package : DirtyPackages)
+		{
+			if (Package) DirtyNames.AddUnique(Package->GetName());
+		}
+		return MCPError(FString::Printf(
+			TEXT("Migrate saves every unsaved package first and prompts for each, which the bridge cannot answer. Save or discard these first (asset(save_all_dirty), or load a saved level for an untitled map): %s"),
+			*FString::Join(DirtyNames, TEXT(", "))));
 	}
 
 	FMigrationOptions Options;

@@ -1727,11 +1727,13 @@ TSharedPtr<FJsonValue> FBlueprintHandlers::AddTimelineTrack(const TSharedPtr<FJs
 	}
 	if (!Timeline)
 	{
-		// Mirror what FBlueprintEditorUtils does for new timelines: name the
-		// template "<TimelineName>_Template" so K2Node_Timeline lookup matches.
-		const FString TemplateName = UTimelineTemplate::TimelineVariableNameToTemplateName(TimelineFName);
-		Timeline = NewObject<UTimelineTemplate>(Blueprint, FName(*TemplateName), RF_Transactional);
-		Blueprint->Timelines.Add(Timeline);
+		// The compiler requires the template outered to the generated class, which
+		// AddNewTimeline does; one outered to the Blueprint fails that check.
+		Timeline = FBlueprintEditorUtils::AddNewTimeline(Blueprint, TimelineFName);
+		if (!Timeline)
+		{
+			return MCPError(FString::Printf(TEXT("Could not add timeline '%s' to '%s': the name is taken by another member."), *TimelineName, *AssetPath));
+		}
 	}
 
 	const FName TrackFName(*TrackName);
