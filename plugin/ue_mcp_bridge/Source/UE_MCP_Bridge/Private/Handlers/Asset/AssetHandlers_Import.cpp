@@ -1076,6 +1076,10 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListTextureProperties(const TSharedPtr<FJ
 
 TSharedPtr<FJsonValue> FAssetHandlers::SetTextureProperties(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every declared parameter is read before anything can refuse (#1057); Parse
+	// stops at the first bad setting, which left the rest unread.
+	MCPReadParamsAhead(Params, { TEXT("preset"), TEXT("settings"), TEXT("compressionSettings"), TEXT("lodGroup"), TEXT("sRGB"),
+		TEXT("neverStream"), TEXT("flipGreenChannel"), TEXT("maxTextureSize") });
 	const FString AssetPath = OptionalString(Params, TEXT("assetPath"));
 	const TArray<TSharedPtr<FJsonValue>>* Paths = nullptr;
 	const bool bBatch = TryGetArrayParam(Params, TEXT("assetPaths"), Paths);
