@@ -180,6 +180,10 @@ describe("World Partition actor descriptors", () => {
     expect(created.worldPartition).toBe(true);
     await cube(LABEL, { x: 0, y: 0, z: 100 });
     await call("save_level");
+    // Reopened from disk, as a saved World Partition map is used: the descriptors and the
+    // pinned-actor loader belong to the loaded map, not to the one just created in memory.
+    await call("load_level", { levelPath: HOME });
+    await call("load_level", { levelPath: WP });
   }, 300_000);
 
   it("list_actor_descs finds the saved actor's descriptor", async () => {
@@ -187,8 +191,9 @@ describe("World Partition actor descriptors", () => {
     expect(out.matched).toBe(1);
     const desc = (out.actorDescs as Json[])[0];
     expect(desc.label).toBe(LABEL);
-    expect(desc.loaded).toBe(true);
     guid = String(desc.guid);
+    // Reopened from disk, the actor is a descriptor until something loads it; pinning below does.
+    expect(desc.loaded).toBe(false);
     expect(guid).not.toBe("");
   }, 120_000);
 
