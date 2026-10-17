@@ -429,12 +429,23 @@ UStateTreeState* FStateTreeHandlers::FindStateByID(UStateTreeEditorData* EditorD
 	return EditorData->GetMutableStateByID(StateID);
 }
 
+FString FStateTreeHandlers::StateDotPath(const UStateTreeState* State)
+{
+	TArray<FString> Names;
+	for (const UStateTreeState* S = State; S; S = S->Parent)
+	{
+		Names.Insert(S->Name.ToString(), 0);
+	}
+	return FString::Join(Names, TEXT("."));
+}
+
 UStateTreeState* FStateTreeHandlers::FindStateByPath(UStateTreeEditorData* EditorData, const FString& Path)
 {
 	if (!EditorData || Path.IsEmpty()) return nullptr;
 
+	// Dots are the documented separator; UStateTreeState::GetPath writes slashes.
 	TArray<FString> Segments;
-	Path.ParseIntoArray(Segments, TEXT("."));
+	Path.Replace(TEXT("/"), TEXT(".")).ParseIntoArray(Segments, TEXT("."));
 	if (Segments.Num() == 0) return nullptr;
 
 	UStateTreeState* Current = nullptr;
@@ -520,8 +531,7 @@ static FGuid ParseGuid(const FString& Str)
 
 static FString GetStatePath(const UStateTreeState* State)
 {
-	if (!State) return TEXT("");
-	return State->GetPath();
+	return FStateTreeHandlers::StateDotPath(State);
 }
 
 static TSharedPtr<FJsonObject> SerializeEditorNode(const FStateTreeEditorNode& Node)
