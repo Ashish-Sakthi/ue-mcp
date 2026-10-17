@@ -167,12 +167,16 @@ describe("the level viewport", () => {
     const off = await call("set_realtime", { enabled: false });
     expect(Number(off.viewportsChanged)).toBeGreaterThan(0);
     const offState = await call("get_viewport_state", {});
+    // realtimeSetting is the stored flag; realtime is the effective state, which an editor override can hold down.
+    expect(offState.realtimeSetting).toBe(false);
     if (offState.realtimeOverridden !== true) expect(offState.realtime).toBe(false);
 
     const on = await call("set_realtime", { enabled: true });
     expect(on.previouslyEnabled).toBe(0);
     expect(Number(on.previouslyDisabled)).toBeGreaterThan(0);
-    expect((await call("get_viewport_state", {})).realtime).toBe(true);
+    const onState = await call("get_viewport_state", {});
+    expect(onState.realtimeSetting).toBe(true);
+    if (onState.realtimeOverridden !== true) expect(onState.realtime).toBe(true);
   }, 120_000);
 });
 

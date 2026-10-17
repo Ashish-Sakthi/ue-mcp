@@ -2009,7 +2009,11 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetRealtime(const TSharedPtr<FJsonObject
 	for (FLevelEditorViewportClient* ViewportClient : GEditor->GetLevelViewportClients())
 	{
 		if (!ViewportClient) continue;
-		if (ViewportClient->IsRealtime()) ++PreviouslyEnabled; else ++PreviouslyDisabled;
+		// The stored setting SetRealtime writes, not IsRealtime, which reports an
+		// active override (a background window, a modal) instead of the flag.
+		bool bWasRealtime = false;
+		ViewportClient->SaveRealtimeStateToConfig(bWasRealtime);
+		if (bWasRealtime) ++PreviouslyEnabled; else ++PreviouslyDisabled;
 		ViewportClient->SetRealtime(bEnabled);
 		ViewportsChanged++;
 	}
