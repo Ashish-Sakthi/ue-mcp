@@ -11141,6 +11141,26 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/editor-lifecycle.test.ts",
+          "test": "build_project names a locked output and the process holding it, then builds once it is released"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/editor-lifecycle.test.ts",
+          "test": "start_editor returns only once the editor answers, as a new process"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/editor-lifecycle.test.ts",
+          "test": "stop_editor after a real crash ends the crash reporter, and the build that follows links (#1221)"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/editor-lifecycle.test.ts",
+          "test": "stop_editor closes the project's editor and its process exits"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/level-roots-and-templates.test.ts",
           "test": "refuses to load a level that does not exist"
         },
