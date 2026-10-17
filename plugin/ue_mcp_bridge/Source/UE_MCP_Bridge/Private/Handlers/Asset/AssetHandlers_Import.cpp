@@ -2209,6 +2209,8 @@ namespace
 
 TSharedPtr<FJsonValue> FAssetHandlers::ReadDataTable(const TSharedPtr<FJsonObject>& Params)
 {
+	// Every declared parameter is read before anything can refuse (#1057).
+	MCPReadParamsAhead(Params, { TEXT("assetPath"), TEXT("rowFilter"), TEXT("rowNames"), TEXT("columns"), TEXT("outputPath") });
 	FString RowFilter = OptionalString(Params, TEXT("rowFilter"));
 	// A large table overflows the response inline, so outputPath writes the
 	// rows to a file under the shared dump convention (HandlerUtils.h) and
