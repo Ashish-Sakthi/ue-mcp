@@ -123,7 +123,8 @@ describe("level component properties", () => {
     const name = String((await meshComponent(B1)).name);
     const out = await call("bulk_set_component_property", { labelPrefix: `${PREFIX}Bulk`, componentName: name, propertyName: "CastShadow", value: false });
     expect(out.matchedActors).toBe(2);
-    expect(out.updated).toBe(2);
+    expect(out.updatedCount).toBe(2);
+    expect(out.updated).toBe(true);
     for (const label of [B1, B2]) {
       expect(String(await componentValue(label, name, "CastShadow")).toLowerCase()).toBe("false");
     }

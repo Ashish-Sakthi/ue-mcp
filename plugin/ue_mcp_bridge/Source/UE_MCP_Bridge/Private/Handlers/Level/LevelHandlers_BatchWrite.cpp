@@ -557,7 +557,8 @@ TSharedPtr<FJsonValue> FLevelHandlers::BulkSetComponentProperty(const TSharedPtr
 		Result->SetStringField(TEXT("error"), FString::Printf(
 			TEXT("%d of %d matched actors did not accept the write; see results[]."), Failed, Actors.Num()));
 	}
-	Result->SetNumberField(bDryRun ? TEXT("wouldUpdate") : TEXT("updated"), Updated);
+	// updatedCount, not updated: MCPSetUpdated below writes updated=true over a number.
+	Result->SetNumberField(bDryRun ? TEXT("wouldUpdate") : TEXT("updatedCount"), Updated);
 	Result->SetNumberField(TEXT("failed"), Failed);
 	Result->SetNumberField(TEXT("actorsWithoutComponent"), WithoutComponent);
 	Result->SetNumberField(TEXT("returnedResults"), Rows.Num());
