@@ -986,7 +986,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetOutliner(const TSharedPtr<FJsonObject>
 		}
 		if (!FolderPathFilter.IsEmpty() || !FolderPathPrefixFilter.IsEmpty())
 		{
-			const FString Folder = Actor->GetFolderPath().ToString();
+			const FString Folder = MCPActorFolderPath(Actor);
 			if (!FolderPathFilter.IsEmpty() && !Folder.Equals(FolderPathFilter, ESearchCase::IgnoreCase))
 			{
 				continue;
@@ -1018,7 +1018,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetOutliner(const TSharedPtr<FJsonObject>
 		ActorObj->SetStringField(TEXT("path"), Actor->GetPathName());
 		// #767: the outliner folder is what an agent sees in the editor tree,
 		// so report it alongside the label rather than only being able to set it.
-		ActorObj->SetStringField(TEXT("folderPath"), Actor->GetFolderPath().ToString());
+		ActorObj->SetStringField(TEXT("folderPath"), MCPActorFolderPath(Actor));
 		ActorObj->SetBoolField(TEXT("editorHidden"), bEditorHidden);
 
 		FVector Location = Actor->GetActorLocation();
@@ -1398,7 +1398,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::GetActorDetails(const TSharedPtr<FJsonObj
 	// back into any actor-targeting action is a copy of one field.
 	Result->SetStringField(TEXT("actorPath"), Actor->GetPathName());
 	Result->SetStringField(TEXT("actorLabel"), Actor->GetActorLabel());
-	Result->SetStringField(TEXT("folderPath"), Actor->GetFolderPath().ToString());
+	Result->SetStringField(TEXT("folderPath"), MCPActorFolderPath(Actor));
 
 	FVector Location = Actor->GetActorLocation();
 	TSharedPtr<FJsonObject> LocationObj = MCPVec3ToJsonObject(Location);
@@ -4646,7 +4646,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetActorFolderPath(const TSharedPtr<FJson
 	{
 		for (AActor* A : Matches)
 		{
-			const FString Previous = A->GetFolderPath().ToString();
+			const FString Previous = MCPActorFolderPath(A);
 			TSharedPtr<FJsonObject> Entry = MakeShared<FJsonObject>();
 			Entry->SetStringField(TEXT("label"), A->GetActorLabel());
 			Entry->SetStringField(TEXT("previousFolderPath"), Previous);
@@ -4661,7 +4661,7 @@ TSharedPtr<FJsonValue> FLevelHandlers::SetActorFolderPath(const TSharedPtr<FJson
 				A->SetFolderPath(NewFolder);
 				++Changed;
 				// Read the value back rather than trusting the setter.
-				const bool bOk = A->GetFolderPath().ToString() == FolderPath;
+				const bool bOk = MCPActorFolderPath(A) == FolderPath;
 				Entry->SetBoolField(TEXT("verified"), bOk);
 				if (bOk) ++Verified;
 			}

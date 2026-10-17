@@ -142,12 +142,12 @@ namespace
 			return false;
 		}
 		if (!Selector.FolderPath.IsEmpty() &&
-			!Actor->GetFolderPath().ToString().Equals(Selector.FolderPath, ESearchCase::IgnoreCase))
+			!MCPActorFolderPath(Actor).Equals(Selector.FolderPath, ESearchCase::IgnoreCase))
 		{
 			return false;
 		}
 		if (!Selector.FolderPathPrefix.IsEmpty() &&
-			!Actor->GetFolderPath().ToString().StartsWith(Selector.FolderPathPrefix, ESearchCase::IgnoreCase))
+			!MCPActorFolderPath(Actor).StartsWith(Selector.FolderPathPrefix, ESearchCase::IgnoreCase))
 		{
 			return false;
 		}
