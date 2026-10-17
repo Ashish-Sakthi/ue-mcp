@@ -957,6 +957,8 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Revert(const TSharedPtr<FJsonObje
 	if (auto Err = RequireArray(Params, TEXT("paths"), PathValues)) return Err;
 	const bool bDryRun = OptionalBool(Params, TEXT("dryRun"), false);
 	const bool bDiscardUnsaved = OptionalBool(Params, TEXT("discardUnsaved"), false);
+	const TSharedPtr<FJsonObject>* RestoreFromParam = nullptr;
+	const TSharedPtr<FJsonObject> RestoreFrom = TryGetObjectParam(Params, TEXT("restoreFrom"), RestoreFromParam) && RestoreFromParam ? *RestoreFromParam : nullptr;
 	TArray<FResolvedPath> Paths;
 	if (auto Err = ResolvePaths(*PathValues, Paths)) return Err;
 	ISourceControlProvider* Provider = nullptr;
@@ -1035,6 +1037,26 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::Revert(const TSharedPtr<FJsonObje
 	// so a loaded asset does not keep the reverted file open or stale.
 	if (PackageFiles.Num() > 0) USourceControlHelpers::RevertAndReloadPackages(PackageFiles);
 	if (OtherFiles.Num() > 0) Provider->Execute(ISourceControlOperation::Create<FRevert>(), OtherFiles);
+
+	// A provider whose revert cannot undo a delete it staged (Git checks the file
+	// out of an index that no longer has it) leaves the file gone. When the call
+	// that deleted it saved a copy (mark_for_delete's rollback names it under
+	// restoreFrom), the copy is put back and marked for add, which returns the file
+	// to its state before the delete.
+	if (RestoreFrom.IsValid() && OtherFiles.Num() > 0)
+	{
+		TArray<FSourceControlStateRef> AfterRevert;
+		QueryStates(*Provider, OtherFiles, AfterRevert);
+		TArray<FString> Restored;
+		for (const FSourceControlStateRef& State : AfterRevert)
+		{
+			const FString File = State->GetFilename();
+			FString Copy;
+			if (!State->IsDeleted() || FPaths::FileExists(File) || !RestoreFrom->TryGetStringField(File, Copy)) continue;
+			if (FPaths::FileExists(Copy) && IFileManager::Get().Copy(*File, *Copy) == COPY_OK) Restored.Add(File);
+		}
+		if (Restored.Num() > 0) Provider->Execute(ISourceControlOperation::Create<FMarkForAdd>(), Restored);
+	}
 
 	TArray<FString> Reverted;
 	if (Candidates.Num() > 0)
@@ -1309,6 +1331,16 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::MarkForDelete(const TSharedPtr<FJ
 		return MCPResult(Error);
 	}
 
+	// A copy of each file, so the rollback can put back a file whose provider
+	// cannot revert its own delete.
+	TSharedPtr<FJsonObject> Stash = MakeShared<FJsonObject>();
+	const FString StashDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("UE-MCP") / TEXT("SourceControlStash") / FGuid::NewGuid().ToString());
+	for (const FString& File : ToDelete)
+	{
+		const FString Copy = StashDir / FPaths::GetCleanFilename(File) + FString::Printf(TEXT(".%08x"), GetTypeHash(File));
+		if (IFileManager::Get().Copy(*Copy, *File) == COPY_OK) Stash->SetStringField(File, Copy);
+	}
+
 	TArray<FString> Deleted;
 	if (ToDelete.Num() > 0)
 	{
@@ -1338,6 +1370,7 @@ TSharedPtr<FJsonValue> FSourceControlHandlers::MarkForDelete(const TSharedPtr<FJ
 	{
 		TSharedPtr<FJsonObject> Payload = MakeShared<FJsonObject>();
 		Payload->SetArrayField(TEXT("paths"), MCPStringListToJson(Deleted));
+		if (Stash->Values.Num() > 0) Payload->SetObjectField(TEXT("restoreFrom"), Stash);
 		MCPSetRollback(Result, TEXT("source_control_revert"), Payload);
 	}
 	else
@@ -1564,6 +1597,7 @@ void FSourceControlHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		PathsSpec,
 		MCPParam::Optional(TEXT("dryRun"), EType::Boolean, TEXT("Report what would be reverted and lost, and change nothing")),
 		MCPParam::Optional(TEXT("discardUnsaved"), EType::Boolean, TEXT("Drop unsaved editor edits to the named packages instead of refusing (default false)")),
+		MCPParam::Optional(TEXT("restoreFrom"), EType::Object, TEXT("File to saved copy, as mark_for_delete's rollback carries it: a deleted file the provider cannot revert is put back from its copy and marked for add")),
 	}, MCPSpec::ContractExempt(TEXT("Reverts files in the configured provider when called")));
 	Registry.RegisterHandlerWithTimeout(TEXT("source_control_diff"), &Diff, 120.0f, {
 		MCPParam::Required(TEXT("path"), EType::String, TEXT("One asset path or file to diff against its latest repository revision")),

@@ -16763,6 +16763,18 @@
           "type": "integer",
           "required": false,
           "description": "Return the per-vertex array only up to this many values (default 16384)"
+        },
+        {
+          "name": "editLayer",
+          "type": "string",
+          "required": false,
+          "description": "Edit layer name"
+        },
+        {
+          "name": "editLayerIndex",
+          "type": "integer",
+          "required": false,
+          "description": "Edit layer index when editLayer is not given (default 0)"
         }
       ]
     },
@@ -39582,6 +39594,12 @@
           "type": "boolean",
           "required": false,
           "description": "Drop unsaved editor edits to the named packages instead of refusing (default false)"
+        },
+        {
+          "name": "restoreFrom",
+          "type": "object",
+          "required": false,
+          "description": "File to saved copy, as mark_for_delete's rollback carries it: a deleted file the provider cannot revert is put back from its copy and marked for add"
         }
       ],
       "contractExempt": "Reverts files in the configured provider when called"
