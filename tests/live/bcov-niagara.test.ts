@@ -50,7 +50,7 @@ async function peakParticles(): Promise<number> {
   return Math.max(...emitter.numInstancesPerFrame);
 }
 
-interface Override { kind: string; scriptPath?: string; inputName?: string }
+interface Override { kind: string; wiredTo?: { scriptPath?: string }; inputName?: string }
 async function spawnRateOverrides(): Promise<Override[]> {
   const out = await call("list_niagara_dynamic_inputs", { ...onEmitter, stackContext: "EmitterUpdate", moduleName: "SpawnRate" });
   const mod = (out.modules as Array<{ overrides: Override[] }>)[0];
@@ -187,7 +187,8 @@ describe("Niagara modules and inputs", () => {
     });
     expect(String(set.dynamicInputScript)).toContain("UniformRangedFloat");
     const wired = await spawnRateOverrides();
-    expect(wired.some((o) => o.kind === "dynamicInput" && String(o.scriptPath).includes("UniformRangedFloat"))).toBe(true);
+    // The wired script is reported under wiredTo, beside the override kind.
+    expect(wired.some((o) => o.kind === "dynamicInput" && String(o.wiredTo?.scriptPath).includes("UniformRangedFloat"))).toBe(true);
 
     const removed = await call("remove_niagara_dynamic_input", { ...onEmitter, stackContext: "EmitterUpdate", moduleName: "SpawnRate", inputName: "SpawnRate" });
     expect(removed.removedKind).toBe("dynamicInput");
