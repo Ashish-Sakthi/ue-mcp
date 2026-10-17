@@ -227,10 +227,20 @@ describe("the gate", () => {
     expect(problems.join("\n")).toMatch(/Drop the exemption/);
   });
 
-  it("accepts a reasoned exemption and a still-open gap", () => {
+  it("refuses a mutating action in the gap list", () => {
+    const problems = inventoryProblems(fakeInventory([["writes_thing", "gap"]]), {
+      exemptions: {},
+      ratchet: ["writes_thing"],
+      mutating: new Set(["writes_thing"]),
+    });
+    expect(problems.join("\n")).toMatch(/mutating action\(s\): writes_thing/);
+  });
+
+  it("accepts a reasoned exemption and a still-open read-only gap", () => {
     const problems = inventoryProblems(fakeInventory([["exempt_one", "exempt"], ["gap_one", "gap"]]), {
       exemptions: { exempt_one: reason },
       ratchet: ["gap_one"],
+      mutating: new Set(),
     });
     expect(problems).toEqual([]);
   });
