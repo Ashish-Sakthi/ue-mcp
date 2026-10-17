@@ -141,7 +141,7 @@ describe("asset hygiene", () => {
     expect((reaudit.naming as { count: number }).count).toBe(0);
   }, 180_000);
 
-  it("bulk_rename_assets moves a referenced material and fixup_redirectors repoints its referencer", async () => {
+  it("bulk_rename_assets moves a referenced material and fixup_redirectors removes the redirector it leaves", async () => {
     mkdirSync(COLLECTION_DIR, { recursive: true });
     writeFileSync(COLLECTION_FILE, [
       "FileVersion:2", "Type:Static", `Guid:${randomUUID().toUpperCase()}`,
@@ -166,7 +166,9 @@ describe("asset hygiene", () => {
 
     const fixup = await call("fixup_redirectors", { paths: [DIR] });
     expect(Number(fixup.redirectorCount)).toBeGreaterThan(0);
-    expect(Number(fixup.rewrittenPackageCount)).toBeGreaterThan(0);
+    // The rename already repointed the loaded referencer; the collection is what held the redirector, so the
+    // effect here is the redirector being deleted, with every referencer pointing at the destination below.
+    expect(Number(fixup.deletedRedirectorCount)).toBeGreaterThan(0);
 
     expect(await listNames(DIR, "ObjectRedirector")).toHaveLength(0);
     const deps = await call("get_asset_dependencies", { packagePath: CHILD });
