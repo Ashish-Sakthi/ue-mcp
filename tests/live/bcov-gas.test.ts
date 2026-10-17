@@ -104,8 +104,9 @@ describe("GAS blueprint authoring", () => {
   }, 180_000);
 
   it("set_effect_modifier adds a modifier the effect CDO then carries", async () => {
-    await call("create_gameplay_effect", { name: "GE_BCovGas", packagePath: DIR });
-    await call("set_asset_property", { assetPath: EFFECT, propertyName: "DurationPolicy", value: "Infinite" });
+    // DurationPolicy lives on the generated class defaults, which create_gameplay_effect writes (#1423).
+    const created = await call("create_gameplay_effect", { name: "GE_BCovGas", packagePath: DIR, durationPolicy: "Infinite" });
+    expect(created.durationPolicy).toBe("Infinite");
     const mod = await call("set_effect_modifier", {
       effectPath: EFFECT, attribute: "AS_BCovGas.Health", operation: "Additive", magnitude: 5,
     });

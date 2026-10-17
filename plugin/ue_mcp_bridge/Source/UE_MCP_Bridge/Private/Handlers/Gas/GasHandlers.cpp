@@ -36,18 +36,41 @@ FGameplayAttribute MCPGas::FindAttributeAcrossSets(const FString& Name, FString*
 	{
 		Name.Split(TEXT("."), &SetFilter, &AttrName);
 	}
-	for (TObjectIterator<UClass> It; It; ++It)
+	// A Blueprint set also has a skeleton class (SKEL_) and, after a recompile,
+	// stale REINST_/TRASHCLASS_ copies. A modifier bound to one of those never
+	// matches the generated class the ASC instantiates, so only live classes
+	// count, and an exact set name wins over a substring.
+	auto IsLiveSetClass = [](const UClass* C)
 	{
-		UClass* C = *It;
-		if (C == UAttributeSet::StaticClass() || !C->IsChildOf(UAttributeSet::StaticClass())) continue;
-		if (!SetFilter.IsEmpty() && !C->GetName().Contains(SetFilter)) continue;
-		for (TFieldIterator<FProperty> P(C); P; ++P)
+		if (C == UAttributeSet::StaticClass() || !C->IsChildOf(UAttributeSet::StaticClass())) return false;
+		if (C->HasAnyClassFlags(CLASS_NewerVersionExists)) return false;
+		const FString ClassName = C->GetName();
+		return !ClassName.StartsWith(TEXT("SKEL_")) && !ClassName.StartsWith(TEXT("REINST_")) && !ClassName.StartsWith(TEXT("TRASHCLASS_"));
+	};
+	for (int32 Pass = 0; Pass < 2; ++Pass)
+	{
+		for (TObjectIterator<UClass> It; It; ++It)
 		{
-			FStructProperty* SP = CastField<FStructProperty>(*P);
-			if (SP && SP->Struct == FGameplayAttributeData::StaticStruct() && SP->GetName() == AttrName)
+			UClass* C = *It;
+			if (!IsLiveSetClass(C)) continue;
+			if (!SetFilter.IsEmpty())
 			{
-				if (OutSetName) *OutSetName = C->GetName();
-				return FGameplayAttribute(SP);
+				const FString ClassName = C->GetName();
+				const bool bExact = ClassName == SetFilter || ClassName == SetFilter + TEXT("_C");
+				if (Pass == 0 ? !bExact : !ClassName.Contains(SetFilter)) continue;
+			}
+			else if (Pass == 1)
+			{
+				continue;
+			}
+			for (TFieldIterator<FProperty> P(C); P; ++P)
+			{
+				FStructProperty* SP = CastField<FStructProperty>(*P);
+				if (SP && SP->Struct == FGameplayAttributeData::StaticStruct() && SP->GetName() == AttrName)
+				{
+					if (OutSetName) *OutSetName = C->GetName();
+					return FGameplayAttribute(SP);
+				}
 			}
 		}
 	}
