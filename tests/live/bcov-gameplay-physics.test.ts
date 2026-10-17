@@ -33,6 +33,13 @@ async function bodyInstance(): Promise<string> {
   return String((mesh?.values as Row | undefined)?.BodyInstance ?? "");
 }
 
+/** The component's live physics state. BodyInstance export text leaves out a value equal to the struct default and
+ *  has no gravity field on newer engines, so collision and gravity are read from the component itself. */
+async function physics(): Promise<Row> {
+  const found = await call("query_components", { actorLabelContains: CUBE, componentClass: "StaticMeshComponent", fields: ["physics"] });
+  return (rows(found.rows)[0]?.physics ?? {}) as Row;
+}
+
 async function wipe(): Promise<void> {
   await callBridge(bridge, "delete_actor", { actorLabel: CUBE });
   await callBridge(bridge, "delete_folder", { path: DIR, force: true });
@@ -61,9 +68,9 @@ describe("collision and physics on a placed actor", () => {
     expect(await bodyInstance()).toMatch(/CollisionProfileName="?OverlapAll"?/);
 
     await call("set_collision_enabled", { actorLabel: CUBE, collisionEnabled: "QueryOnly" });
-    expect(await bodyInstance()).toMatch(/CollisionEnabled=(ECollisionEnabled::)?QueryOnly\b/);
+    expect((await physics()).collisionEnabled).toBe("QueryOnly");
     await call("set_collision_enabled", { actorLabel: CUBE, collisionEnabled: "NoCollision" });
-    expect(await bodyInstance()).toMatch(/CollisionEnabled=(ECollisionEnabled::)?NoCollision\b/);
+    expect((await physics()).collisionEnabled).toBe("NoCollision");
   }, 120_000);
 
   it("set_simulate_physics and set_physics_properties land on the component's BodyInstance", async () => {
@@ -76,10 +83,11 @@ describe("collision and physics on a placed actor", () => {
     expect(text).toMatch(/MassInKgOverride=42(\.0+)?\b/);
     expect(text).toMatch(/LinearDamping=0\.70*\b/);
     expect(text).toMatch(/AngularDamping=0\.30*\b/);
-    expect(text).toMatch(/bEnableGravity=False/);
+    expect((await physics()).gravityEnabled).toBe(false);
 
     await call("set_simulate_physics", { actorLabel: CUBE, simulate: false });
-    expect(await bodyInstance()).toMatch(/bSimulatePhysics=False/);
+    // Export text leaves out a flag at its default, so off reads as the True entry being gone.
+    expect(await bodyInstance()).not.toMatch(/bSimulatePhysics=True/);
   }, 120_000);
 });
 
