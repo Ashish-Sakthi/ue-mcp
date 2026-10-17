@@ -658,6 +658,11 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/bcov-landscape.test.ts",
+          "test": "set_landscape_holes punches and fills a region that get_landscape_holes reads back"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/bcov-material-graph.test.ts",
           "test": "set_custom_expression rebuilds a Custom node's code and input pins"
         },
@@ -3446,6 +3451,11 @@
           "suite": "live",
           "file": "tests/live/asset-native-pipeline.test.ts",
           "test": "authors texture parameters, tint and UV scale, creates an instance, and exports parameter JSON"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-landscape.test.ts",
+          "test": "set_landscape_holes punches and fills a region that get_landscape_holes reads back"
         }
       ]
     },
@@ -4277,6 +4287,11 @@
           "suite": "live",
           "file": "tests/live/bcov-editor-world.test.ts",
           "test": "list_dirty_packages and get_world_state report a package left dirty by an unsaved write"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-landscape.test.ts",
+          "test": "set_landscape_holes punches and fills a region that get_landscape_holes reads back"
         },
         {
           "suite": "live",
@@ -17439,6 +17454,11 @@
         {
           "suite": "live",
           "file": "tests/live/bcov-landscape.test.ts",
+          "test": "set_landscape_holes punches and fills a region that get_landscape_holes reads back"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-landscape.test.ts",
           "test": "set_landscape_material assigns the material the usage summary reports"
         }
       ]
@@ -17542,6 +17562,11 @@
       "registeredIn": "MaterialHandlers.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-landscape.test.ts",
+          "test": "set_landscape_holes punches and fills a region that get_landscape_holes reads back"
+        },
         {
           "suite": "live",
           "file": "tests/live/bcov-material-graph.test.ts",
