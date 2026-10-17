@@ -3548,10 +3548,27 @@ TSharedPtr<FJsonValue> FLandscapeHandlers::SetHoles(const TSharedPtr<FJsonObject
 	TSharedPtr<FJsonValue> ReadError;
 	if (MCPLscReadWeights(Info, Visibility, FGuid(), false, Region, After, ReadError))
 	{
-		int32 HolesAfter = 0;
+		int32 HolesAfter = 0, HolesWanted = 0;
 		for (const uint8 W : After) if (W >= 170) ++HolesAfter;
+		for (const uint8 W : NewWeights) if (W >= 170) ++HolesWanted;
 		Result->SetNumberField(TEXT("holeVertexCountAfter"), HolesAfter);
 		Result->SetStringField(TEXT("visibilityLayer"), Visibility->GetPathName());
+		if (HolesAfter != HolesWanted)
+		{
+			// The engine took the write and kept nothing, which on some versions is what
+			// happens to the visibility layer. Whatever did land is put back, and the
+			// call says so rather than reporting holes that are not there.
+			TSharedPtr<FJsonObject> Undo = MakeShared<FJsonObject>();
+			MCPLscWriteWeights(Landscape, Info, Visibility, TEXT("visibility"), TEXT("set_landscape_holes"), false, Params, Region, After, Previous, Undo);
+			TSharedPtr<FJsonObject> NotLanded = MCPErrorObject(FString::Printf(
+				TEXT("The hole write did not land: %d vertex(es) were asked to become holes and the landscape holds %d after the write. The engine accepted the visibility weights through its edit interface and kept none of them, so nothing was changed. This engine version does not take hole writes through the bridge; paint holes in the editor's Visibility tool."),
+				HolesWanted, HolesAfter));
+			NotLanded->SetObjectField(TEXT("region"), MCPLscRegionJson(Region));
+			NotLanded->SetNumberField(TEXT("holeVertexCountRequested"), HolesWanted);
+			NotLanded->SetNumberField(TEXT("holeVertexCountAfter"), HolesAfter);
+			NotLanded->SetStringField(TEXT("visibilityLayer"), Visibility->GetPathName());
+			return MCPResult(NotLanded);
+		}
 	}
 	return Written;
 }
