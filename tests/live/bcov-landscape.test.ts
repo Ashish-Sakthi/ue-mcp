@@ -300,8 +300,21 @@ describe("landscape paint layers", () => {
 
 describe("landscape holes", () => {
   it("set_landscape_holes punches and fills a region that get_landscape_holes reads back", async () => {
+    // The engine keeps visibility data only where the landscape material has a Landscape Visibility Mask node,
+    // so without one the action refuses rather than reporting holes that are not there.
+    const refused = await callBridge(bridge, "set_landscape_holes", { actorPath, region: { minX: 25, minY: 10, maxX: 27, maxY: 12 }, hole: true });
+    expect((refused.result as Json | undefined)?.success).toBe(false);
+    expect(String((refused.result as Json | undefined)?.error)).toContain("Landscape Visibility Mask");
+    const holeMaterial = `${DIR}/M_BCovHoles`;
+    await call("create_material", { name: "M_BCovHoles", packagePath: DIR });
+    await call("set_material_blend_mode", { assetPath: holeMaterial, blendMode: "Masked" });
+    const mask = await call("add_material_expression", { materialPath: holeMaterial, expressionType: "LandscapeVisibilityMask" });
+    await call("connect_to_material_property", { materialPath: holeMaterial, expressionName: String(mask.expressionName ?? "MaterialExpressionLandscapeVisibilityMask_0"), property: "OpacityMask" });
+    await call("set_landscape_material", { materialPath: holeMaterial, landscapeName: actorPath });
+
     const region = { minX: 25, minY: 10, maxX: 27, maxY: 12 };
     const punched = await call("set_landscape_holes", { actorPath, region, hole: true });
+    expect(punched.holeVertexCountAfter).toBe(9);
     expect(punched.verticesChanged).toBe(9);
     const holes = await settle(() => call("get_landscape_holes", { actorPath, region }), (b) => b.holeVertexCount === 9);
     expect(holes.holeVertexCount).toBe(9);
