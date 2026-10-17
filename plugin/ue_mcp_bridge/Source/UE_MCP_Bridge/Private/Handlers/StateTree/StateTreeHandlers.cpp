@@ -529,6 +529,20 @@ static FGuid ParseGuid(const FString& Str)
 	return G;
 }
 
+/** A binding path as segment names, the form add_state_tree_binding parses. ToString writes
+ *  display names once the editor has resolved a path, which do not round-trip. */
+static FString BindingPathString(const FUE_MCPStateTreePropertyPath& Path)
+{
+	FString Out;
+	for (const auto& Segment : Path.GetSegments())
+	{
+		if (!Out.IsEmpty()) Out += TEXT(".");
+		Out += Segment.GetName().ToString();
+		if (Segment.GetArrayIndex() != INDEX_NONE) Out += FString::Printf(TEXT("[%d]"), Segment.GetArrayIndex());
+	}
+	return Out;
+}
+
 static FString GetStatePath(const UStateTreeState* State)
 {
 	return FStateTreeHandlers::StateDotPath(State);
@@ -1136,9 +1150,9 @@ TSharedPtr<FJsonValue> FStateTreeHandlers::ReadStateTree(const TSharedPtr<FJsonO
 		{
 			auto BObj = MakeShared<FJsonObject>();
 			BObj->SetStringField(TEXT("sourceStructId"), GuidToString(B.GetSourcePath().GetStructID()));
-			BObj->SetStringField(TEXT("sourcePath"), B.GetSourcePath().ToString());
+			BObj->SetStringField(TEXT("sourcePath"), BindingPathString(B.GetSourcePath()));
 			BObj->SetStringField(TEXT("targetStructId"), GuidToString(B.GetTargetPath().GetStructID()));
-			BObj->SetStringField(TEXT("targetPath"), B.GetTargetPath().ToString());
+			BObj->SetStringField(TEXT("targetPath"), BindingPathString(B.GetTargetPath()));
 			BindArr.Add(MakeShared<FJsonValueObject>(BObj));
 		}
 		Result->SetArrayField(TEXT("editorBindings"), BindArr);
@@ -2785,15 +2799,15 @@ TSharedPtr<FJsonValue> FStateTreeHandlers::AddBinding(const TSharedPtr<FJsonObje
 	if (const FStateTreeEditorPropertyBindings* ExistingBindings = EditorData->GetPropertyEditorBindings())
 	{
 		const FGuid TargetStructGuid = ParseGuid(TargetStructIdStr);
-		const FString TargetPathString = TargetPath.ToString();
+		const FString TargetPathString = BindingPathString(TargetPath);
 		for (const FStateTreePropertyPathBinding& B : ExistingBindings->GetBindings())
 		{
 			if (B.GetTargetPath().GetStructID() == TargetStructGuid
-				&& B.GetTargetPath().ToString() == TargetPathString)
+				&& BindingPathString(B.GetTargetPath()) == TargetPathString)
 			{
 				bReplacedBinding = true;
 				ReplacedSourceStructId = GuidToString(B.GetSourcePath().GetStructID());
-				ReplacedSourcePath = B.GetSourcePath().ToString();
+				ReplacedSourcePath = BindingPathString(B.GetSourcePath());
 				break;
 			}
 		}
@@ -2945,25 +2959,25 @@ TSharedPtr<FJsonValue> FStateTreeHandlers::RemoveBinding(const TSharedPtr<FJsonO
 	// Read the bindings this is about to drop, so the inverse can name the
 	// source each one came from.
 	const FGuid TargetStructGuid = ParseGuid(TargetStructIdStr);
-	const FString TargetPathString = TargetPath.ToString();
+	const FString TargetPathString = BindingPathString(TargetPath);
 	TArray<TSharedPtr<FJsonValue>> RemovedBindings;
 	FString FirstSourceStructId;
 	FString FirstSourcePath;
 	for (const FStateTreePropertyPathBinding& B : Bindings->GetBindings())
 	{
 		if (B.GetTargetPath().GetStructID() != TargetStructGuid
-			|| B.GetTargetPath().ToString() != TargetPathString)
+			|| BindingPathString(B.GetTargetPath()) != TargetPathString)
 		{
 			continue;
 		}
 		if (FirstSourceStructId.IsEmpty())
 		{
 			FirstSourceStructId = GuidToString(B.GetSourcePath().GetStructID());
-			FirstSourcePath = B.GetSourcePath().ToString();
+			FirstSourcePath = BindingPathString(B.GetSourcePath());
 		}
 		auto BObj = MakeShared<FJsonObject>();
 		BObj->SetStringField(TEXT("sourceStructId"), GuidToString(B.GetSourcePath().GetStructID()));
-		BObj->SetStringField(TEXT("sourcePath"), B.GetSourcePath().ToString());
+		BObj->SetStringField(TEXT("sourcePath"), BindingPathString(B.GetSourcePath()));
 		RemovedBindings.Add(MakeShared<FJsonValueObject>(BObj));
 	}
 
@@ -3042,9 +3056,9 @@ TSharedPtr<FJsonValue> FStateTreeHandlers::ListBindings(const TSharedPtr<FJsonOb
 
 			auto BObj = MakeShared<FJsonObject>();
 			BObj->SetStringField(TEXT("sourceStructId"), GuidToString(B.GetSourcePath().GetStructID()));
-			BObj->SetStringField(TEXT("sourcePath"), B.GetSourcePath().ToString());
+			BObj->SetStringField(TEXT("sourcePath"), BindingPathString(B.GetSourcePath()));
 			BObj->SetStringField(TEXT("targetStructId"), GuidToString(B.GetTargetPath().GetStructID()));
-			BObj->SetStringField(TEXT("targetPath"), B.GetTargetPath().ToString());
+			BObj->SetStringField(TEXT("targetPath"), BindingPathString(B.GetTargetPath()));
 			BindArr.Add(MakeShared<FJsonValueObject>(BObj));
 		}
 	}
