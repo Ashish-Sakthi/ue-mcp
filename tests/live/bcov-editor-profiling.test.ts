@@ -113,7 +113,8 @@ describe("an Insights trace", () => {
 
   it("pause_insights_trace pauses and resumes a running trace, as get_insights_trace_status reads it", async (ctx) => {
     if (tracingAtStart) ctx.skip("a trace was already running before this suite; it is left alone");
-    await call("start_insights_trace", { channels: "default", traceTarget: "none" });
+    // A file target: the engine refuses to start a trace with no destination on newer versions.
+    await call("start_insights_trace", { channels: "default", file: path.join(scratch, "bcov-pause.utrace") });
     try {
       const paused = await call("pause_insights_trace", { paused: true });
       expect(paused.paused).toBe(true);
