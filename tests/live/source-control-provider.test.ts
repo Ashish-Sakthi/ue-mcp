@@ -83,10 +83,14 @@ function stageUpstreamChange(content: string): string | null {
   const remote = typeof info.remote === "string" ? info.remote : "";
   const repository = typeof info.repository === "string" ? info.repository : "";
   if (!remote || !repository || !fs.existsSync(path.join(repository, ".git"))) return null;
+  // A submit on a distributed provider commits locally and pushes nothing, so the probe the earlier
+  // cases recorded reaches the remote first; the upstream edit is then a plain fast-forward to sync.
+  execFileSync("git", ["push", "-q", "origin", "HEAD"], { cwd: repository, stdio: "pipe" });
   const clone = fs.mkdtempSync(path.join(os.tmpdir(), "ue-mcp-scm-upstream-"));
   const git = (...args: string[]) => execFileSync("git", args, { cwd: clone, stdio: "pipe" }).toString();
   execFileSync("git", ["clone", "-q", remote, clone], { stdio: "pipe" });
   const relInRepo = path.relative(repository, probe);
+  fs.mkdirSync(path.dirname(path.join(clone, relInRepo)), { recursive: true });
   fs.writeFileSync(path.join(clone, relInRepo), content);
   git("add", relInRepo);
   git("-c", "user.name=ue-mcp-live", "-c", "user.email=live@ue-mcp.invalid", "commit", "-q", "-m", "upstream probe change");
@@ -148,7 +152,8 @@ describe("source control with a provider (#1357)", () => {
     const reverted = await call(rollback.method, rollback.payload);
     expect(reverted.success, String(reverted.error)).toBe(true);
     expect((await probeState()).deleted).toBe(false);
-    expect(fs.readFileSync(probe, "utf8")).toBe(before);
+    // Restored from the repository, so line endings follow its checkout settings.
+    expect(fs.readFileSync(probe, "utf8").replace(/\r\n/g, "\n")).toBe(before.replace(/\r\n/g, "\n"));
   });
 
   it("sync brings a change made upstream into the workspace file", async (ctx) => {
