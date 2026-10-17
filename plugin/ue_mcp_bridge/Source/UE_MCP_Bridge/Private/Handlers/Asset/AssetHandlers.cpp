@@ -5802,6 +5802,18 @@ TSharedPtr<FJsonValue> FAssetHandlers::MigrateAssets(const TSharedPtr<FJsonObjec
 	{
 		return MCPError(TEXT("destinationContentDir is this project's own Content folder; migrate targets a DIFFERENT project."));
 	}
+	// The engine aborts, into its message log only, unless the destination is a
+	// project's Content folder, so that is checked here and refused out loud.
+	{
+		TArray<FString> ProjectFiles;
+		IFileManager::Get().FindFiles(ProjectFiles, *(FPaths::GetPath(DestFull) / TEXT("*.uproject")), true, false);
+		if (ProjectFiles.Num() == 0 || !FPaths::GetCleanFilename(DestFull).Equals(TEXT("Content"), ESearchCase::IgnoreCase))
+		{
+			return MCPError(FString::Printf(
+				TEXT("destinationContentDir must be a project's Content folder, a folder named Content with the .uproject beside it; the engine refuses anything else. Got: %s"),
+				*DestContentDir));
+		}
+	}
 
 	// Resolve every asset before migrating any: a half-done migration with an
 	// error at the end is worse than a clean refusal.

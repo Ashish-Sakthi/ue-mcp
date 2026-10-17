@@ -193,10 +193,12 @@ describe("migrate", () => {
   it("copies a saved package into another project's Content folder", async () => {
     await call("save_asset", { assetPath: ST, force: true });
     // Migrate refuses while anything is unsaved, so start from a saved level.
-    await call("load_level", { levelPath: "/Game/MCP_Home" });
+    await call("load_level", { levelPath: "/Game/MCP_Home", discardUnsaved: true });
     await call("save_all_dirty", {});
     const content = join(scratch, "OtherProject", "Content");
     mkdirSync(content, { recursive: true });
+    // The engine migrates only into a project's Content folder.
+    writeFileSync(join(scratch, "OtherProject", "OtherProject.uproject"), JSON.stringify({ FileVersion: 3 }));
     const migrated = await call("migrate", { assetPaths: [ST], destinationContentDir: content, includeDependencies: false }, 110_000);
     expect(migrated.packageCount).toBe(1);
     expect(migrated.packagesPresentAtDestination).toBe(1);
