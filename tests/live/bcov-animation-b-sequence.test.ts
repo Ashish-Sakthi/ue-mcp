@@ -16,7 +16,9 @@ const PROPS = `${DIR}/AS_BCovProps`;
 const MESH = `${DIR}/SKM_BCovTPP`;
 const SKELETON = `${DIR}/SK_BCovTPP`;
 const BLENDSPACE = `${DIR}/BS_BCov`;
-const ASSETS = [BLENDSPACE, IDLE, WALK, PROPS, MESH, SKELETON];
+// A walk on the engine skeleton the blendspace uses: WALK moves to the duplicate skeleton and PROPS is edited.
+const BS_WALK = `${DIR}/AS_BCovBlendWalk`;
+const ASSETS = [BLENDSPACE, IDLE, WALK, PROPS, MESH, SKELETON, BS_WALK];
 
 type Json = Record<string, unknown>;
 type Vec = { x: number; y: number; z: number };
@@ -195,27 +197,29 @@ describe("sequence authoring", () => {
   }, 120_000);
 
   it("populate_blendspace sets the axis and samples, and set_blend_sample moves one", async () => {
+    await call("duplicate_asset", { sourcePath: `${ENGINE}/Tutorial_Walk_Fwd`, destinationPath: BS_WALK });
     await call("create_blendspace_1d", { name: "BS_BCov", skeletonPath: ENGINE_SKELETON, packagePath: DIR });
     const populated = await call("populate_blendspace", {
       assetPath: BLENDSPACE,
       axisHorizontal: "BCovSpeed",
       horizontalMin: 0,
       horizontalMax: 300,
-      samples: [{ animationPath: IDLE, x: 0 }, { animationPath: WALK, x: 300 }],
+      samples: [{ animationPath: IDLE, x: 0 }, { animationPath: BS_WALK, x: 300 }],
     });
+    expect(populated.failed, JSON.stringify(populated.failed)).toBeUndefined();
     expect(populated.sampleCount).toBe(2);
     let read = await call("read_blendspace", { assetPath: BLENDSPACE });
     const axis = (read.axes as Array<{ displayName: string; max: number }>)[0];
     expect(axis.displayName).toBe("BCovSpeed");
     expect(axis.max).toBe(300);
     type Sample = { animation: string; sampleValue: { x: number } };
-    const walkIndex = (read.samples as Sample[]).findIndex((s) => s.animation.includes("AS_BCovWalk"));
+    const walkIndex = (read.samples as Sample[]).findIndex((s) => s.animation.includes("AS_BCovBlendWalk"));
     expect(walkIndex).toBeGreaterThanOrEqual(0);
     expect((read.samples as Sample[])[walkIndex].sampleValue.x).toBe(300);
 
     await call("set_blend_sample", { assetPath: BLENDSPACE, sampleIndex: walkIndex, x: 150 });
     read = await call("read_blendspace", { assetPath: BLENDSPACE });
     expect((read.samples as Sample[])[walkIndex].sampleValue.x).toBe(150);
-    expect((read.samples as Sample[])[walkIndex].animation).toContain("AS_BCovWalk");
+    expect((read.samples as Sample[])[walkIndex].animation).toContain("AS_BCovBlendWalk");
   }, 120_000);
 });
