@@ -1496,7 +1496,33 @@ TSharedPtr<FJsonValue> FEditorHandlers::OpenTab(const TSharedPtr<FJsonObject>& P
 	// Asked before invoking: TryInvokeTab draws attention to a tab that is
 	// already up and returns it either way, so this is the only point at which
 	// "was it already open" is answerable.
-	const bool bAlreadyOpen = FGlobalTabmanager::Get()->FindExistingLiveTab(FTabId(*TabId)).IsValid();
+	// FindExistingLiveTab misses a nomad tab docked under another tab manager (the
+	// Output Log in the level editor), so the open windows are searched for the tab.
+	bool bAlreadyOpen = FGlobalTabmanager::Get()->FindExistingLiveTab(FTabId(*TabId)).IsValid();
+	if (!bAlreadyOpen && FSlateApplication::IsInitialized())
+	{
+		const FName TabType(*TabId);
+		TFunction<bool(const TSharedRef<SWidget>&)> HasTab = [&HasTab, TabType](const TSharedRef<SWidget>& Widget) -> bool
+		{
+			if (Widget->GetType() == FName(TEXT("SDockTab"))
+				&& StaticCastSharedRef<SDockTab>(Widget)->GetLayoutIdentifier().TabType == TabType)
+			{
+				return true;
+			}
+			FChildren* Children = Widget->GetChildren();
+			for (int32 Index = 0; Children && Index < Children->Num(); ++Index)
+			{
+				if (HasTab(Children->GetChildAt(Index))) return true;
+			}
+			return false;
+		};
+		TArray<TSharedRef<SWindow>> Windows;
+		FSlateApplication::Get().GetAllVisibleWindowsOrdered(Windows);
+		for (const TSharedRef<SWindow>& Window : Windows)
+		{
+			if (HasTab(Window)) { bAlreadyOpen = true; break; }
+		}
+	}
 	TSharedPtr<SDockTab> Tab = FGlobalTabmanager::Get()->TryInvokeTab(FTabId(*TabId));
 
 	auto Result = MCPSuccess();
