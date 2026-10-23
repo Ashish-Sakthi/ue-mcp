@@ -5332,6 +5332,11 @@
       "tests": [
         {
           "suite": "live",
+          "file": "tests/live/bcov-asset-b-tables.test.ts",
+          "test": "copies a saved package into another project's Content folder"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/bcov-demo.test.ts",
           "test": "demo_go_home leaves another map for the home level"
         }
