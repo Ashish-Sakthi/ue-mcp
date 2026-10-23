@@ -13,6 +13,7 @@ import * as crypto from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { userDir } from "../core/user-dir.js";
+import { compareVersions } from "../extensions/version.js";
 
 export interface UiManifest {
   name: string;
@@ -122,7 +123,8 @@ export class UiBundleStore {
         // Not ours, tampered, or for a key no extension trusts: never served.
       }
     }
-    candidates.sort((a, b) => a.manifest.version.localeCompare(b.manifest.version, undefined, { numeric: true }));
+    // Semver order: a release ranks above its own prereleases, so 1.2.0 outranks 1.2.0-beta.3.
+    candidates.sort((a, b) => compareVersions(a.manifest.version, b.manifest.version));
     this.current = candidates.at(-1) ?? null;
     return this.current;
   }
