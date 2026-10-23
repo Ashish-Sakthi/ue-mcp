@@ -62,6 +62,20 @@ async function main() {
   log(`Editor: ${editorExe}`);
   log('');
 
+  // An editor already answering for this project is the one to use; a second would fight it for the lockfile.
+  const { askOnce, bridgePortCandidates } = await import('./bridge-target.mjs');
+  const { candidates } = bridgePortCandidates({ projectDir: path.dirname(projectFile) });
+  const lockfile = candidates.find((c) => c.source === 'lockfile');
+  if (lockfile) {
+    try {
+      await askOnce(`ws://127.0.0.1:${lockfile.port}`, 'get_bridge_capabilities', {}, 2000);
+      log(`An editor is already running on this project (bridge port ${lockfile.port}); not launching another.`, 'green');
+      return;
+    } catch {
+      // Nothing answering: launch.
+    }
+  }
+
   log('Launching Unreal Editor...', 'green');
 
   // Launch editor with project file.
