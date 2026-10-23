@@ -1785,6 +1785,11 @@ TSharedPtr<FJsonValue> FDialogHandlers::ListDialogs(const TSharedPtr<FJsonObject
 	return MCPResult(Result);
 }
 
+bool FDialogHandlers::OpensAnIde(const FString& ButtonLabel, const FString& Message)
+{
+	return MCPDialogPolicy::OpensAnIde(ButtonLabel, Message);
+}
+
 TSharedPtr<FJsonValue> FDialogHandlers::RespondToDialog(const TSharedPtr<FJsonObject>& Params)
 {
 	using namespace MCPDialogPolicy;
