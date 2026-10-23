@@ -125,8 +125,11 @@ describe("performance readouts", () => {
     expect(Number((stats.memory as Json).usedPhysical)).toBeGreaterThan(0);
 
     const a = await call("get_frame_timing", {});
-    await sleep(500);
-    const b = await call("get_frame_timing", {});
+    let b = await call("get_frame_timing", {});
+    for (let i = 0; i < 100 && Number(b.frame) <= Number(a.frame); i++) {
+      await sleep(50);
+      b = await call("get_frame_timing", {});
+    }
     expect(Number(b.frame)).toBeGreaterThan(Number(a.frame));
     expect(Number((a.timings as Json).frameMs)).toBeGreaterThan(0);
     expect(typeof a.bound).toBe("string");
