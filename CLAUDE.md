@@ -81,13 +81,25 @@ The merge style follows the commit count, and writing five commits only to squas
 
 ### Live tests
 
-`npm run test:live` runs `tests/live/` against an editor that is **already running**, through the shipped server: the connected golden baseline, per-path dispatch and leak assertions, addressing, gating, the union surface, and the records the bridge publishes. It never starts or stops an editor.
+`npm run test:live` runs every file in `tests/live/` through the shipped server, sharded across editors it launches itself, and has a release-gate budget: the whole run must finish in 10 minutes and every test within its own budget (#1436).
 
-- Targets `tests/ue_mcp` only, verified by asking the editor which project it has open, and aborts before sending anything otherwise.
-- One editor is enough. Cases needing more than one use a second session for a project whose editor is not running, since the session count is what arms targeting and gating.
-- The leak assertions need the parameter echo, which is armed at editor startup: launch with `UE_MCP_PARAM_ECHO=1` to include them. Without it they skip and say why.
+- **Shards.** Each shard is a copy of `tests/ue_mcp` under `tests/.shards/<name>/ue_mcp` with its own editor and port, verified by asking the editor which project it has open before anything is sent. Files are split by the measured time in `tests/live/timing-baseline.json`, and the results are merged into one report.
+- **Editor kinds.** Every live file starts with `// @live-editor <kind>`, and `tests/unit/live-shards.test.ts` fails on a file without one:
+  - `headless`: `-nullrhi -unattended`. The default for anything that does not draw.
+  - `render`: `-RenderOffScreen -unattended`, for rendering, shader, landscape-edit, Niagara and skeletal-export cases.
+  - `interactive`: `-RenderOffScreen` without `-unattended`, so modal dialogs come up. No window is shown.
+  - `base`: headless on `tests/ue_mcp` itself, for cases that need its build intermediates (Live Coding). It attaches to an editor already running there and leaves it running.
+  - `scm`: headless, in a copy made into a throwaway git repository with a bare remote and the Git provider on.
+  - `none` needs no editor; `lifecycle` runs only under `--lifecycle`.
+  Tag a file by what it needs, proven by running it headless first. Never move a file to a heavier editor to hide a handler bug.
+- **Memory.** The runner reads free memory at launch, keeps `max(4 GB, 12%)` free for the rest of the machine, and starts only as many headless shards as fit beside the other editors (`EDITOR_PEAK_MB` in `scripts/live-shards.mjs`: about 3.6 GB headless, 5.6 GB render). Each editor waits for room before it starts. `--shards N` caps the headless count; it never raises it past what fits.
+- **An editor that dies** is reported with its cause from its own log (crash, quit, or no crash recorded), and the files it never ran go to a fresh editor. The file it died in stays a failure.
+- **Gates.** The run fails on any failed or skipped test, any file that did not run, a test over its budget (`tests/live/budgets.json`, a default plus named exceptions), or a run over the wall-clock budget. Every run prints the 15 slowest tests and writes `tests/.shards/last-run.json`.
+- **One shard:** `npm run test:live -- --shard h1`, with the shard names the run prints. `--files a,b` runs only files whose path contains one of the strings. `--record-timing` on a full run rewrites the committed baseline.
+- **Attach mode:** `--attach`, `--only <file>`, `--record-golden` and `--lifecycle` drive the `tests/ue_mcp` editor that is already running, as the suite did before sharding.
+- The leak assertions need the parameter echo, which shard editors are launched with. In attach mode, launch with `UE_MCP_PARAM_ECHO=1` to include them.
 - `tests/live/matrix.ts` is the written form of plan item 7.3 of #817: every case, and where its assertion lives (live, engine-free and referenced, owned by the C++ suite, or pending on unshipped work). `tests/live/coverage.test.ts` fails when a reference stops resolving.
-- `npm run test:live -- --lifecycle` runs only `tests/live/editor-lifecycle.test.ts`: stop_editor, start_editor, stop_editor after a real crash with the crash reporter up (#1221), build_project against a locked output, and the rebuild flow. It stops, crashes and restarts the tests/ue_mcp editor and leaves one running. The default run skips it.
+- `npm run test:live -- --lifecycle` runs only `tests/live/editor-lifecycle.test.ts`: stop_editor, start_editor, stop_editor after a real crash with the crash reporter up (#1221), build_project against a locked output, and the rebuild flow. It stops, crashes and restarts the tests/ue_mcp editor and leaves one running.
 
 ### Behavioural coverage gate
 

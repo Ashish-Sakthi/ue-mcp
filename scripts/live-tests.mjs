@@ -1,29 +1,35 @@
 /**
- * The live tests (#817, plan items 1.10 and 7.3).
+ * The live tests (#817, plan items 1.10 and 7.3; sharded in #1436).
  *
  *     npm run test:live
  *
- * Everything under tests/live needs an Unreal editor that is already running,
- * and it only ever drives this repository's own test project. This script is
- * the preflight for both of those facts: it finds the bridge, proves the
- * editor has tests/ue_mcp open, prints what it found, and only then hands over
- * to vitest. A suite that discovered the editor inside the tests would report
- * "no editor" as a wall of failed assertions; this reports it as one message
- * with the ports it tried and the lockfile it read.
+ * By default the run is sharded: scripts/live-sharded-run.mjs copies
+ * tests/ue_mcp once per shard, launches an editor on each with the flags its
+ * files declare (`// @live-editor <kind>`), splits the files by measured
+ * time, and merges the results under the run's time budgets. It starts and
+ * stops those editors itself, and never touches any other project.
  *
- * It never starts or stops an editor. The suite attaches to one somebody else
- * owns and leaves it as it found it.
+ * Attach mode drives the tests/ue_mcp editor that is already running, through
+ * the preflight below: it finds the bridge, proves the editor has tests/ue_mcp
+ * open, prints what it found, and only then hands over to vitest. It never
+ * starts or stops that editor, except in --lifecycle.
  *
  * Flags:
+ *   --shards <n>      Most headless shards; fewer start when memory is short.
+ *   --shard <name>    Run one shard of the plan (h1, r1, b1, ...).
+ *   --files a,b       Run only files whose path contains one of these.
+ *   --record-timing   Make this full run the committed timing baseline.
+ *   --attach          Attach mode for the whole suite.
  *   --record-golden   Re-record tests/golden/editor-connected.json instead of
- *                     asserting against it. Reviews the diff yourself.
- *   --only <file>     Run one file under tests/live.
+ *                     asserting against it, in attach mode. Review the diff.
+ *   --only <file>     Run one file under tests/live, in attach mode.
  *   --lifecycle       Run only tests/live/editor-lifecycle.test.ts, which stops,
  *                     crashes, builds and restarts the tests/ue_mcp editor and
  *                     leaves one running at the end (#1223). Part of the
  *                     release check, never of the default run.
  */
 import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -45,6 +51,39 @@ const onlyIndex = argv.indexOf("--only");
 const ONLY = onlyIndex !== -1 ? argv[onlyIndex + 1] : null;
 const LIFECYCLE = argv.includes("--lifecycle");
 const LIFECYCLE_FILE = "tests/live/editor-lifecycle.test.ts";
+
+const flagValue = (name) => {
+  const i = argv.indexOf(name);
+  return i !== -1 ? argv[i + 1] : null;
+};
+// Attach mode drives the tests/ue_mcp editor already running; the default
+// launches one editor per shard on its own copy of the project.
+const ATTACH = argv.includes("--attach") || LIFECYCLE || RECORD_GOLDEN || ONLY !== null;
+// The most headless shards to run; fewer start when free memory says so.
+const SHARDS_FLAG = flagValue("--shards") ?? process.env.UE_MCP_LIVE_SHARDS ?? null;
+const HEADLESS_SHARDS = SHARDS_FLAG === null ? null : Number(SHARDS_FLAG);
+
+if (!ATTACH) {
+  const { runSharded } = await import("./live-sharded-run.mjs");
+  try {
+    process.exit(await runSharded({
+      repoRoot: REPO_ROOT,
+      headless: HEADLESS_SHARDS,
+      render: Number(flagValue("--render-shards") ?? 1),
+      interactive: Number(flagValue("--interactive-shards") ?? 1),
+      scm: 1,
+      files: flagValue("--files")?.split(",").filter(Boolean) ?? null,
+      onlyShard: flagValue("--shard"),
+      recordTiming: argv.includes("--record-timing"),
+      exeKind: flagValue("--editor-exe") === "cmd" ? "cmd" : "editor",
+    }));
+  } catch (err) {
+    console.error(`
+[live] ${err instanceof Error ? err.message : err}
+`);
+    process.exit(1);
+  }
+}
 
 const HOST = process.env.UE_MCP_LIVE_HOST ?? process.env.UE_MCP_TEST_HOST ?? "127.0.0.1";
 const CONNECT_TIMEOUT_MS = 5000;
@@ -124,9 +163,15 @@ console.error(
 );
 
 const targets = LIFECYCLE ? [LIFECYCLE_FILE] : ONLY ? [ONLY] : ["tests/live"];
+// Every run records its timing; --record-timing on a full run makes it the baseline.
+const attachReport = path.join(REPO_ROOT, "tests", ".shards", "attach-report.json");
+fs.mkdirSync(path.dirname(attachReport), { recursive: true });
+fs.rmSync(attachReport, { force: true });
+const attachStarted = Date.now();
 const result = spawnSync(
   process.execPath,
-  [path.join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs"), "run", ...targets],
+  [path.join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs"), "run", ...targets,
+    "--reporter=verbose", "--reporter=json", `--outputFile.json=${attachReport}`],
   {
     cwd: REPO_ROOT,
     stdio: "inherit",
@@ -144,5 +189,21 @@ const result = spawnSync(
 if (result.error) {
   console.error(`[live] failed to run vitest: ${result.error.message}`);
   process.exit(1);
+}
+{
+  const { timingFromReports, slowest } = await import("./live-shards.mjs");
+  const report = fs.existsSync(attachReport) ? JSON.parse(fs.readFileSync(attachReport, "utf8")) : null;
+  if (report) {
+    const wallS = (Date.now() - attachStarted) / 1000;
+    const record = { recordedAt: new Date().toISOString(), mode: "attach", wallS, ...timingFromReports([report], REPO_ROOT) };
+    fs.writeFileSync(path.join(REPO_ROOT, "tests", ".shards", "last-run.json"), `${JSON.stringify(record, null, 2)}
+`);
+    if (argv.includes("--record-timing") && targets[0] === "tests/live") {
+      fs.writeFileSync(path.join(REPO_ROOT, "tests", "live", "timing-baseline.json"), `${JSON.stringify(record, null, 2)}
+`);
+    }
+    console.error(`[live] wall clock ${wallS.toFixed(0)}s; slowest tests:`);
+    for (const t of slowest(record.tests, 10)) console.error(`[live]   ${(t.ms / 1000).toFixed(1).padStart(6)}s  ${t.test}`);
+  }
 }
 process.exit(result.status ?? 1);
