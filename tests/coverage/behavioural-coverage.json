@@ -16099,6 +16099,11 @@
           "suite": "live",
           "file": "tests/live/bcov-asset-b-tables.test.ts",
           "test": "copies a saved package into another project's Content folder"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-level-multilevel.test.ts",
+          "test": "exact-label deletes across maps"
         }
       ]
     },
