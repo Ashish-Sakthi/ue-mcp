@@ -225,7 +225,10 @@ export async function waitForEditorReady(
     // since this launch, and hand over to the snapshot as soon as there is one,
     // otherwise the timeline walks backwards through two different sessions.
     const logIsCurrent = (logState.secondsSinceWrite ?? Infinity) < elapsed() + 1;
-    const snapshotIsCurrent = snapshot !== null && (snapshot.ageSeconds ?? 999) < 10;
+    // Written by this launch: a previous session's last snapshot can be seconds old and still name its modal.
+    const snapshotWrittenAt = Date.now() - (snapshot?.ageSeconds ?? 999) * 1000;
+    const snapshotIsCurrent =
+      snapshot !== null && (snapshot.ageSeconds ?? 999) < 10 && snapshotWrittenAt >= (opts.launchedAtMs ?? startTime) - 1000;
     if (snapshotIsCurrent) sawSnapshot = true;
 
     // Once the snapshot has spoken, it owns the phase. A momentarily missed
@@ -289,7 +292,7 @@ export async function waitForEditorReady(
     if (logIsCurrent && logState.phase === "crashed") {
       return finish({ ready: false, elapsedSeconds: elapsed(), timeline, reason: "the editor crashed during startup", state: await readEngineState(projectPath ?? null) });
     }
-    if (snapshot?.modal && modalBlocksGameThread(snapshot.modal)) {
+    if (snapshotIsCurrent && snapshot?.modal && modalBlocksGameThread(snapshot.modal)) {
       // No bridge yet, so no gate and no press: name the prompt as the reason the
       // launch did not finish. dialogPolicy is how a caller answers one this early.
       //
