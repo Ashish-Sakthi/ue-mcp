@@ -4,12 +4,11 @@
  *
  *   node scripts/release-run.mjs [--binaries] [--log-dir DIR] [--record-baseline]
  *
- * Two lanes start together. The editor lane deploys, builds, runs the sharded
- * live suite, then launches tests/ue_mcp for smoke, automation and the
- * lifecycle cases. The editor-free lane runs the release gates and the unit,
- * multi-editor and integration suites, which need no editor. With --binaries,
- * the per-engine binary builds start once the live suite is done, so they do
- * not compete with it for cores.
+ * The editor lane deploys, builds, runs the sharded live suite, then launches
+ * tests/ue_mcp for smoke, automation and the lifecycle cases. Once the live
+ * suite is done, the editor-free lane (the release gates and the unit,
+ * multi-editor and integration suites) and, with --binaries, the per-engine
+ * binary builds run beside the rest of the editor lane.
  *
  * Every step is run, none is skipped on another's failure, and each one's
  * output goes to its own log. The timing goes to release-timing.json in the
@@ -80,14 +79,16 @@ async function lane(list, afterEach) {
   }
 }
 
-let binaries = Promise.resolve();
-await Promise.all([
-  lane(EDITOR_LANE, (name) => {
-    if (name === "live" && argv.includes("--binaries")) binaries = run(BINARIES);
-  }),
-  lane(FREE_LANE),
-]);
-await binaries;
+// The live suite sizes its shards to the cores and memory free, so nothing else
+// runs beside it: on the reference machine the unit suite alongside it took the
+// live run from 301 s to 505 s. Everything editor-free starts when it is done.
+const after = [];
+await lane(EDITOR_LANE, (name) => {
+  if (name !== "live") return;
+  after.push(lane(FREE_LANE));
+  if (argv.includes("--binaries")) after.push(run(BINARIES));
+});
+await Promise.all(after);
 
 const wallS = (Date.now() - t0) / 1000;
 const record = {
