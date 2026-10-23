@@ -35,6 +35,7 @@
 #include "Engine/Texture2D.h"
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
+#include "Misc/App.h"
 #include "Animation/Skeleton.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
@@ -4465,6 +4466,13 @@ TSharedPtr<FJsonValue> FAssetHandlers::ExportAsset(const TSharedPtr<FJsonObject>
 	}
 	else
 	{
+		// The skeletal mesh exporter reads the render-side mesh object, which a -nullrhi editor
+		// never builds; the engine asserts on it instead of failing the export.
+		if (!FApp::CanEverRender() && Asset->IsA<USkeletalMesh>())
+		{
+			return MCPError(FString::Printf(TEXT("Exporting skeletal mesh '%s' needs an editor that renders; this one runs with -nullrhi. Use -RenderOffScreen for a windowless editor that can export it."), *AssetPath));
+		}
+
 		// Use UE's AssetExportTask - same as unreal.AssetExportTask in Python
 		UAssetExportTask* ExportTask = NewObject<UAssetExportTask>();
 		FGCRootScope ExportTaskRoot(ExportTask);
