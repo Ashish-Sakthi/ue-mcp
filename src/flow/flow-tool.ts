@@ -38,6 +38,8 @@ import {
   type EditorLossReport,
 } from "./editor-loss.js";
 import { taskEffect } from "../surface/action-effects.js";
+import { LOCAL_ACTIONS } from "../dispatch/offline.js";
+import { EDITOR_OPERATION_TASKS } from "./editor-op-task.js";
 
 /**
  * Name a failed rollback by the bridge method it tried to call. Every record
@@ -251,6 +253,7 @@ function makeLossGuard(
     policy,
     timeoutMs: timeoutSeconds ? timeoutSeconds * 1000 : DEFAULT_EDITOR_LOSS_TIMEOUT_MS,
     isReadOnly: (taskName) => taskEffect(taskName, graph).effect === "read",
+    needsEditor: (taskName) => !Object.hasOwn(LOCAL_ACTIONS, taskName) && !EDITOR_OPERATION_TASKS.has(taskName),
     // Filesystem only, and only while the editor is away, so it never holds stale copies.
     restoreWhileDown: () => {
       if (!snapshot.current) return false;
