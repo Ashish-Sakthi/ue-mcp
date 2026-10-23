@@ -598,7 +598,7 @@ export async function startEditor(
     const launchedAtMs = Date.now();
     // Outside this server's process tree, so a client that ends the tree on
     // reconnect does not take the editor with it (#1274).
-    spawnOutsideTree(editorExe, [project.projectPath], {
+    spawnOutsideTree(editorExe, [project.projectPath, ...(project.config.editor?.launchArgs ?? [])], {
       env: buildEditorLaunchEnv(opts.dialogPolicy, opts.paramEcho),
     });
 

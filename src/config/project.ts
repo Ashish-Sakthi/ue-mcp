@@ -50,6 +50,8 @@ export interface UeMcpConfig {
   editor?: {
     path?: string;
     buildToolPath?: string;
+    /** Extra command-line arguments start_editor and restart_editor pass to this project's editor. */
+    launchArgs?: string[];
   };
   /** Per-project equivalent of UE_MCP_ENV (#817): the `ue-mcp.<env>.yml`
    *  overlay this project merges. The env var still wins. */
