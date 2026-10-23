@@ -40,14 +40,9 @@ jobs:
           cache: "npm"
 
       - name: Install
-        # The committed package-lock.json was generated on Windows; npm has a
-        # known optional-deps bug (npm/cli#4828) where Linux-native rollup
-        # binaries are skipped when the lockfile is from another platform.
-        # Drop the lockfile and reinstall with --include=optional so vitest
-        # can load @rollup/rollup-linux-x64-gnu on the Ubuntu runner.
-        run: |
-          rm -f package-lock.json
-          npm install --include=optional
+        # Exact lockfile versions with integrity checks. Re-resolving here would
+        # pull whatever was published minutes ago, which is how npm worms spread.
+        run: npm ci --include=optional
 
       - name: Repo audits
         # npm run audit: docs and param drift, TS/C++ handler parity, prose
@@ -284,11 +279,10 @@ jobs:
 
       - name: Install & Build
         if: steps.version.outputs.should_publish == 'true'
-        # See note on the build job's Install step re: the rollup
-        # optional-deps bug.
+        # Lockfile install: this job holds id-token: write, so no freshly
+        # resolved dependency may run install scripts here.
         run: |
-          rm -f package-lock.json
-          npm install --include=optional
+          npm ci --include=optional
           npx tsc
 
       - name: Prose rules, against what will be published
