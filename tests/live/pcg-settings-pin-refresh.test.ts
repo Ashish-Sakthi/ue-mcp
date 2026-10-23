@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * Settings writes refresh a PCG node's pins (#1256), against a real editor.
  *

@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * Profiling: an Insights trace written to a scratch file (start, status,
  * channels, pause, regions, bookmarks, stop), a deliberate hitch, and a

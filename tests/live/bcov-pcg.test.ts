@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * PCG graph listing, component reads, graph swaps, cleanup, instance-node
  * unwrapping and level-to-asset export, each read back from the editor.

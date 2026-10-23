@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * Folders, the asset registry and asset hygiene, read back through list_assets
  * and the registry queries: create/delete folders, referencers and

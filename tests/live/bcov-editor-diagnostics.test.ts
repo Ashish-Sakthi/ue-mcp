@@ -1,3 +1,4 @@
+// @live-editor render
 /**
  * Editor diagnostics and settings, each read back: the output log, crash
  * folders, screenshots, Python module purges, stat commands, scalability,

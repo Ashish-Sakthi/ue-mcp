@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * `material(list_parameters)` loading a MaterialInstanceConstant (#1183).
  *

@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * Play In Editor runtime actions, each read back from the running session:
  * the player pawn and view, input mode, time dilation, PIE instances, live

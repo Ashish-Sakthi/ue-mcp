@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * Data table, curve table and string table row edits, each read back through a
  * second action, plus a string table CSV import and a migrate to a scratch

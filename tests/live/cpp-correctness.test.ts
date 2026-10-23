@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * The C++ correctness actions, against a real installed engine.
  *
