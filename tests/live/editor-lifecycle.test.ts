@@ -163,7 +163,11 @@ async function build(): Promise<Json> {
 describe.skipIf(!ENABLED)("editor lifecycle (opt-in: npm run test:live -- --lifecycle)", () => {
   beforeAll(async () => {
     target = await liveTarget();
-    server = await LiveServer.start({ projects: [target.uproject] });
+    // The editors these cases start inherit the server's environment. Under the sandboxed profile they got
+    // an empty derived data cache of their own, and a relaunch took minutes rebuilding it. The server's own
+    // files stay redirected by LiveServer.
+    const profile = process.env.USERPROFILE ?? process.env.HOME ?? "";
+    server = await LiveServer.start({ projects: [target.uproject], env: profile ? { USERPROFILE: profile } : {} });
   }, 120_000);
 
   afterAll(async () => {
