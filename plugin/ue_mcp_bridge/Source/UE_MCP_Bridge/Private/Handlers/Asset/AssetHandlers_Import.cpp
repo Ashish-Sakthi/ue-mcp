@@ -36,6 +36,7 @@
 #include "Engine/StaticMesh.h"
 #include "Engine/SkeletalMesh.h"
 #include "Misc/App.h"
+#include "TextureCompiler.h"
 #include "Animation/Skeleton.h"
 #include "Animation/AnimSequence.h"
 #include "Animation/AnimData/IAnimationDataModel.h"
@@ -1064,12 +1065,16 @@ TSharedPtr<FJsonValue> FAssetHandlers::ListTextureProperties(const TSharedPtr<FJ
 	if (!Asset) return LoadError;
 	UTexture2D* Texture = Cast<UTexture2D>(Asset);
 	if (!Texture) return MCPAssetWrongTypeError(AssetPath, Asset, TEXT("Texture2D"));
+	// A texture imported a moment ago may still be compiling, and reads 0 x 0 until it is done.
+	FTextureCompilingManager::Get().FinishCompilation({ Texture });
 	auto Result = AssetTextureSettings::Read(Texture);
 	Result->SetBoolField(TEXT("success"), true);
 	Result->SetStringField(TEXT("assetPath"), AssetPath);
 	Result->SetStringField(TEXT("name"), Texture->GetName());
-	Result->SetNumberField(TEXT("sizeX"), Texture->GetSizeX());
-	Result->SetNumberField(TEXT("sizeY"), Texture->GetSizeY());
+	// With no RHI there is no platform data to size; the source is the same image.
+	const bool bFromSource = Texture->GetSizeX() == 0 && Texture->Source.IsValid();
+	Result->SetNumberField(TEXT("sizeX"), bFromSource ? Texture->Source.GetSizeX() : Texture->GetSizeX());
+	Result->SetNumberField(TEXT("sizeY"), bFromSource ? Texture->Source.GetSizeY() : Texture->GetSizeY());
 	Result->SetNumberField(TEXT("numMips"), Texture->GetNumMips());
 	Result->SetStringField(TEXT("pixelFormat"), GPixelFormats[Texture->GetPixelFormat()].Name);
 	return MCPResult(Result);
