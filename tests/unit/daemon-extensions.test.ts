@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { startDaemon, type Daemon } from "../../src/daemon/daemon.js";
-import { signBundle } from "../../src/daemon/ui-bundles.js";
+import { signBundle, UiBundleStore } from "../../src/daemon/ui-bundles.js";
 import { DAEMON_API_VERSION } from "../../src/daemon/discovery.js";
 import { restoreEnv } from "../helpers/env.js";
 import { userSandboxEnv } from "../helpers/user-sandbox.js";
@@ -251,6 +251,13 @@ describe("UI bundles", () => {
     expect((await fetch(`${base}/ui/`)).status).toBe(401);
     // The cookie also opens the daemon API for the page.
     expect((await fetch(`${base}/v1/health`, { headers: { cookie } })).status).toBe(200);
+  });
+
+  it("ranks a release above its own prereleases", () => {
+    const store = new UiBundleStore(DAEMON_API_VERSION, path.join(sandbox, "ui-semver"));
+    store.trustKey(publicPem);
+    for (const v of ["1.2.0-beta.3", "1.2.0", "1.2.0-beta.10", "1.1.9"]) store.install(bundle("semver", v));
+    expect(store.active()?.manifest.version).toBe("1.2.0");
   });
 
   it("names its cookie by port, so another project's daemon on the same host cannot overwrite it", async () => {
