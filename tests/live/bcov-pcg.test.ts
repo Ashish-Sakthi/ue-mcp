@@ -149,6 +149,8 @@ describe("PCG instance nodes", () => {
 
 describe("PCG level assets", () => {
   it("export_level_to_pcg_asset writes a data asset update_pcg_level_assets re-exports", async () => {
+    // Export reads a saved level; whatever an earlier file left open may be an unsaved one.
+    await call("demo_go_home", {});
     const levelPackage = await python(
       "import unreal; print(unreal.get_editor_subsystem(unreal.UnrealEditorSubsystem).get_editor_world().get_outermost().get_name())",
     );

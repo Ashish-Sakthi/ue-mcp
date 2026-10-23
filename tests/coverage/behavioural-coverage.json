@@ -5339,6 +5339,11 @@
           "suite": "live",
           "file": "tests/live/bcov-demo.test.ts",
           "test": "demo_go_home leaves another map for the home level"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pcg.test.ts",
+          "test": "export_level_to_pcg_asset writes a data asset update_pcg_level_assets re-exports"
         }
       ]
     },
