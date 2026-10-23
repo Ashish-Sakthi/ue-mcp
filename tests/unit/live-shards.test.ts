@@ -65,6 +65,11 @@ describe("timing and budgets", () => {
     expect(t.tests["tests/live/x.test.ts > suite slow"]).toBe(45_000);
   });
 
+  it("takes a file's time from the file reporter, which counts hooks and setup", () => {
+    const t = timingFromReports([report], REPO_ROOT, { "tests/live/x.test.ts": 61_000 });
+    expect(t.files["tests/live/x.test.ts"].durationMs).toBe(61_000);
+  });
+
   it("flags a test over the default budget unless it has its own", () => {
     const t = timingFromReports([report], REPO_ROOT);
     expect(overBudget(t.tests, { defaultTestMs: 30_000, tests: {} }).map((o) => o.test)).toEqual(["tests/live/x.test.ts > suite slow"]);

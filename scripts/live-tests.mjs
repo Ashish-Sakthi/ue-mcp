@@ -167,11 +167,14 @@ const targets = LIFECYCLE ? [LIFECYCLE_FILE] : ONLY ? [ONLY] : ["tests/live"];
 const attachReport = path.join(REPO_ROOT, "tests", ".shards", "attach-report.json");
 fs.mkdirSync(path.dirname(attachReport), { recursive: true });
 fs.rmSync(attachReport, { force: true });
+const attachFileTiming = path.join(REPO_ROOT, "tests", ".shards", "attach-file-timing.json");
+fs.rmSync(attachFileTiming, { force: true });
 const attachStarted = Date.now();
 const result = spawnSync(
   process.execPath,
   [path.join(REPO_ROOT, "node_modules", "vitest", "vitest.mjs"), "run", ...targets,
-    "--reporter=verbose", "--reporter=json", `--outputFile.json=${attachReport}`],
+    "--reporter=verbose", "--reporter=json", `--outputFile.json=${attachReport}`,
+    "--reporter=./scripts/live-file-timing-reporter.mjs"],
   {
     cwd: REPO_ROOT,
     stdio: "inherit",
@@ -180,6 +183,7 @@ const result = spawnSync(
       UE_MCP_LIVE_HOST: HOST,
       UE_MCP_LIVE_PORT: String(target.port),
       UE_MCP_LIVE_PROJECT_DIR: target.projectDir,
+      UE_MCP_LIVE_FILE_TIMING: attachFileTiming,
       ...(RECORD_GOLDEN ? { UE_MCP_RECORD_GOLDEN: "1" } : {}),
       ...(LIFECYCLE ? { UE_MCP_LIVE_LIFECYCLE: "1" } : {}),
     },
@@ -195,7 +199,7 @@ if (result.error) {
   const report = fs.existsSync(attachReport) ? JSON.parse(fs.readFileSync(attachReport, "utf8")) : null;
   if (report) {
     const wallS = (Date.now() - attachStarted) / 1000;
-    const record = { recordedAt: new Date().toISOString(), mode: "attach", wallS, ...timingFromReports([report], REPO_ROOT) };
+    const record = { recordedAt: new Date().toISOString(), mode: "attach", wallS, ...timingFromReports([report], REPO_ROOT, fs.existsSync(attachFileTiming) ? JSON.parse(fs.readFileSync(attachFileTiming, "utf8")) : {}) };
     fs.writeFileSync(path.join(REPO_ROOT, "tests", ".shards", "last-run.json"), `${JSON.stringify(record, null, 2)}
 `);
     if (argv.includes("--record-timing") && targets[0] === "tests/live") {

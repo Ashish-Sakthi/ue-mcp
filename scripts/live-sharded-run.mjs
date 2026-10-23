@@ -206,13 +206,15 @@ function runVitest(job, repoRoot) {
   const dir = path.join(LIVE_SHARD_ROOT, job.name);
   fs.mkdirSync(dir, { recursive: true });
   const report = path.join(dir, "report.json");
+  const fileTiming = path.join(dir, "file-timing.json");
   const logFile = path.join(dir, "vitest.log");
-  fs.rmSync(report, { force: true });
+  for (const f of [report, fileTiming]) fs.rmSync(f, { force: true });
   const log = fs.createWriteStream(logFile);
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [
       path.join(repoRoot, "node_modules", "vitest", "vitest.mjs"), "run", ...job.files,
       "--reporter=verbose", "--reporter=json", `--outputFile.json=${report}`,
+      "--reporter=./scripts/live-file-timing-reporter.mjs",
     ], {
       cwd: repoRoot,
       env: {
@@ -222,6 +224,7 @@ function runVitest(job, repoRoot) {
         UE_MCP_LIVE_PORT: String(job.port),
         UE_MCP_LIVE_PROJECT_DIR: job.dir,
         UE_MCP_LIVE_EDITOR_KIND: job.kind,
+        UE_MCP_LIVE_FILE_TIMING: fileTiming,
         ...(job.kind === "scm" ? { UE_MCP_LIVE_SCM: "1" } : {}),
         FORCE_COLOR: "0",
         NO_COLOR: "1",
@@ -238,7 +241,7 @@ function runVitest(job, repoRoot) {
     child.stderr.on("data", (d) => log.write(d));
     child.on("close", (code) => {
       log.end();
-      resolve({ code, report: readJson(report, null) });
+      resolve({ code, report: readJson(report, null), fileTimes: readJson(fileTiming, {}) });
     });
   });
 }
@@ -346,6 +349,7 @@ export async function runSharded(opts) {
   const queue = plan.map((s) => ({ ...s, dir: s.kind === "base" ? baseDir : path.join(LIVE_SHARD_ROOT, s.name, "ue_mcp") }));
   const jobs = [];
   const results = new Map();
+  const fileTimes = {};
   const deaths = [];
   const launchFailures = [];
   const running = new Set();
@@ -373,7 +377,8 @@ export async function runSharded(opts) {
     jobs.push(job);
     say(`  ${job.name} ${job.launched ? `ready in ${job.launchS.toFixed(1)}s` : "attached to the running editor"} on port ${job.port}, ${job.memoryAtReady?.privateMB ?? "?"} MB, ${freeMB()} MB free`);
     const t = Date.now();
-    const { code, report } = await runVitest(job, repoRoot);
+    const { code, report, fileTimes: times } = await runVitest(job, repoRoot);
+    Object.assign(fileTimes, times);
     job.testsS = (Date.now() - t) / 1000;
     job.memoryAtEnd = processMemoryMB(job.pid);
     const died = !isAlive(job.pid);
@@ -397,7 +402,7 @@ export async function runSharded(opts) {
   const wallS = (Date.now() - started) / 1000;
 
   const merged = { testResults: [...results.values()] };
-  const timing = timingFromReports([merged], repoRoot);
+  const timing = timingFromReports([merged], repoRoot, fileTimes);
   const all = merged.testResults.flatMap((f) => (f.assertionResults ?? []).map((a) => ({ file: rel(repoRoot, f.name), a })));
   const totals = {
     passed: all.filter((x) => x.a.status === "passed").length,

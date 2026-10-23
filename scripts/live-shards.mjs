@@ -119,7 +119,7 @@ export function testKey(file, fullName) {
  * Fold vitest JSON reports into one timing record.
  * @returns {{ files: Record<string, { durationMs: number }>, tests: Record<string, number> }}
  */
-export function timingFromReports(reports, repoRoot) {
+export function timingFromReports(reports, repoRoot, fileTimes = {}) {
   /** @type {Record<string, { durationMs: number }>} */
   const files = {};
   /** @type {Record<string, number>} */
@@ -127,7 +127,8 @@ export function timingFromReports(reports, repoRoot) {
   for (const report of reports) {
     for (const r of report.testResults ?? []) {
       const file = path.relative(repoRoot, r.name).split(path.sep).join("/");
-      files[file] = { durationMs: Math.max(0, (r.endTime ?? 0) - (r.startTime ?? 0)) };
+      // The file reporter's time covers hooks and setup too; the JSON report's covers tests only.
+      files[file] = { durationMs: fileTimes[file] ?? Math.max(0, (r.endTime ?? 0) - (r.startTime ?? 0)) };
       for (const a of r.assertionResults ?? []) {
         if (a.status === "skipped" || a.status === "pending" || a.status === "todo") continue;
         tests[testKey(file, a.fullName ?? [...(a.ancestorTitles ?? []), a.title].join(" > "))] = Math.round(a.duration ?? 0);
