@@ -1578,6 +1578,16 @@ export const handlerSpecs: HandlerSpecs = {
         "description": "Hold the run at each manual block until every step in it has a verdict (default true)"
       },
       {
+        "name": "mode",
+        "type": "string",
+        "required": false,
+        "description": "full (default) plays the script in PIE; manual starts no PIE, observer or recording, leaves auto steps unchecked and puts every manual step up for its verdict at once",
+        "enum": [
+          "full",
+          "manual"
+        ]
+      },
+      {
         "name": "default_within_ms",
         "type": "integer",
         "required": false,
@@ -2117,7 +2127,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   pie_script_read: "Params: path",
   pie_script_replay: "Params: run_id?, results_path?, time_scale?, auto_stop_pie?, pie_instance?, client_id?, wait?, timeout_seconds?",
   pie_script_results: "Params: run_id?, results_path?",
-  pie_script_run: "Params: script OR steps, name?, profile?, record?, start_pie?, block_on_manual?, default_within_ms?, pie_instance?, client_id?, wait?, timeout_seconds?",
+  pie_script_run: "Params: script OR steps, name?, profile?, record?, start_pie?, block_on_manual?, mode?, default_within_ms?, pie_instance?, client_id?, wait?, timeout_seconds?",
   pie_script_status: "Params: run_id?, since_seq?, wait?, timeout_seconds?",
   pie_script_stop: "Params: run_id?, reason?",
   pie_script_update: "Params: path, steps?, description?, profile?, default_within_ms?, manual_only?",
@@ -2183,7 +2193,7 @@ export const schema: Record<string, z.ZodType> = {
   max_rotation_drift_deg: z.number().optional().describe("Most rotation drift allowed (default 5)"),
   max_velocity_drift_cms: z.number().optional().describe("Most velocity drift allowed (default 50)"),
   min_verbosity: z.string().optional().describe("Lowest severity kept (default warning) (pie_session_errors). Lowest severity kept (default log) (pie_session_log)"),
-  mode: z.enum(["replay","monitor"]).optional().describe("replay drives input; monitor only samples (default replay)"),
+  mode: z.string().optional().describe("replay drives input; monitor only samples (default replay) (pie_replay_arm, pie_replay_run). full (default) plays the script in PIE; manual starts no PIE, observer or recording, leaves auto steps unchecked and puts every manual step up for its verdict at once (pie_script_run)"),
   name: z.string().optional().describe("Asset name (pie_profile_create, pie_script_create). Scenario name (default scenario) (pie_scenario_scaffold). Name for an inline run (default inline) (pie_script_run). Test name (default repro) (pie_test_run, pie_test_scaffold)"),
   note: z.string().optional().describe("Tester's note"),
   offset: z.number().int().min(0).optional().describe("csv/tracked: first row (pie_observe_read). Rows to skip (pie_record_list). csv: first row (pie_record_read). First row (pie_session_log)"),

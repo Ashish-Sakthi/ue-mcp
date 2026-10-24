@@ -12109,6 +12109,11 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_replay re-evaluates the auto steps on the run's recording and reports what regressed"
         },
@@ -12822,6 +12827,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_create, script_read, script_update, script_list and script_delete round-trip one asset"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
         }
       ]
     },
@@ -12935,6 +12945,11 @@
       "tests": [
         {
           "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_replay re-evaluates the auto steps on the run's recording and reports what regressed"
         },
@@ -12963,6 +12978,11 @@
       "tests": [
         {
           "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_run evaluates auto steps live, holds at the manual step, and takes its verdict"
         },
@@ -12984,6 +13004,11 @@
       "registeredIn": "PIEHandlers_Script.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
+        },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
@@ -13017,6 +13042,11 @@
       "registeredIn": "PIEHandlers_Script.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
+        },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
@@ -13079,6 +13109,11 @@
       "registeredIn": "PIEHandlers_Script.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
+        },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",

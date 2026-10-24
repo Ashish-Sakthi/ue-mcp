@@ -25694,6 +25694,16 @@
           "description": "Hold the run at each manual block until every step in it has a verdict (default true)"
         },
         {
+          "name": "mode",
+          "type": "string",
+          "required": false,
+          "description": "full (default) plays the script in PIE; manual starts no PIE, observer or recording, leaves auto steps unchecked and puts every manual step up for its verdict at once",
+          "enum": [
+            "full",
+            "manual"
+          ]
+        },
+        {
           "name": "default_within_ms",
           "type": "integer",
           "required": false,
