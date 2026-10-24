@@ -17,6 +17,7 @@ import { absentToolset, registeredMethodsOf } from "../surface/registered-surfac
 import { PLUGIN_UPGRADE_POINTER } from "../bridge/bridge.js";
 import { actions as epicActions, schema as epicSchema } from "./epic/editor.generated.js";
 import { specBp, schema as specSchema } from "./specs/editor.generated.js";
+import { checkpointActions, checkpointSchema } from "./checkpoints.js";
 
 /**
  * Which gate candidates dispatch to a bridge method the connected plugin does
@@ -478,6 +479,7 @@ export const editorTool: ToolDef = categoryTool(
           : result;
       },
     },
+    ...checkpointActions,
     ...epicActions,
   },
   {
@@ -504,5 +506,6 @@ export const editorTool: ToolDef = categoryTool(
     waitForAssetRegistry: z.boolean().optional().describe("play_in_editor / play_in_editor_ignore_blueprint_errors start: block until AssetRegistry finishes the initial scan (default true)"),
     assetRegistryTimeoutSeconds: z.number().optional().describe("play_in_editor / play_in_editor_ignore_blueprint_errors start: wait budget for the AssetRegistry scan (default 180s)"),
     className: z.string().optional().describe("invoke_static_function: reflected class declaring a static UFUNCTION - short name or /Script/Module.Class path. find_object: class to search for, including Blueprint generated classes (#802)"),
+    ...checkpointSchema,
   },
 );
