@@ -121,7 +121,7 @@ const ciGreen = async () => {
   for (let i = 0; i < 60 && !tryRun("gh", ["pr", "checks", pr, "--json", "name", "--jq", ".[0].name"]); i++) {
     await new Promise((r) => setTimeout(r, 3000));
   }
-  return run("ci", "gh", ["pr", "checks", pr, "--watch", "--required", "--fail-fast"]);
+  return run("ci", "gh", ["pr", "checks", pr, "--watch", "--fail-fast"]);
 };
 
 // The editor lanes use tests/ue_mcp itself and start once it is built; the live suite runs on
