@@ -81,10 +81,17 @@ if (dryRun) {
   console.log("dry run: stopping before the push");
   process.exit(0);
 }
-// 3. Draft before the push, so the merge always finds it.
-sh("gh", ["release", "create", `v${version}`, "--draft", "--notes-file", notes, "--title", `v${version}`]);
-git("push", "-u", "origin", branch, "--force-with-lease");
-const pr = sh("gh", ["pr", "create", "--base", "main", "--head", branch, "--title", `chore(release): ${version}`, "--body", `Release ${version}.`]);
+// 3. Draft before the push, so the merge always finds it. A rerun reuses the draft and the pull request.
+const quiet = { stdio: ["ignore", "pipe", "ignore"] };
+const tryRun = (cmd, args) => { try { return sh(cmd, args, quiet); } catch { return ""; } };
+if (tryRun("gh", ["release", "view", `v${version}`, "--json", "isDraft", "--jq", ".isDraft"]) === "true") {
+  sh("gh", ["release", "edit", `v${version}`, "--notes-file", notes]);
+} else {
+  sh("gh", ["release", "create", `v${version}`, "--draft", "--notes-file", notes, "--title", `v${version}`]);
+}
+git("push", "-u", "origin", branch, "--force");
+const pr = tryRun("gh", ["pr", "view", branch, "--json", "url", "--jq", "select(.state == \"OPEN\") | .url"])
+  || sh("gh", ["pr", "create", "--base", "main", "--head", branch, "--title", `chore(release): ${version}`, "--body", `Release ${version}.`]);
 console.log(`${stamp()} pull request ${pr}`);
 
 // 4. Lanes.
@@ -109,31 +116,34 @@ async function lane(list) {
   for (const s of list) if (!(await run(...s))) return false;
   return true;
 }
+// gh pr checks fails while GitHub has not registered any check yet, so wait for the first one.
 const ciGreen = async () => {
-  const logFile = path.join(logDir, "ci.log");
-  const ok = await run("ci", "gh", ["pr", "checks", pr, "--watch", "--required", "--fail-fast"]);
-  return ok || (console.log(`CI failed, see ${logFile}`), false);
+  for (let i = 0; i < 60 && !tryRun("gh", ["pr", "checks", pr, "--json", "name", "--jq", ".[0].name"]); i++) {
+    await new Promise((r) => setTimeout(r, 3000));
+  }
+  return run("ci", "gh", ["pr", "checks", pr, "--watch", "--required", "--fail-fast"]);
 };
+
+// The editor lanes use tests/ue_mcp itself and start once it is built; the live suite runs on
+// its own shard copies beside them.
+const editorLane = [];
+if (pluginChanged) {
+  editorLane.push(["up", npm, ["run", "up"]], ["smoke", node, ["scripts/smoke-test.js", "--uncovered"]], ["automation", npm, ["run", "test:automation"]]);
+}
+if (lifecycleChanged) editorLane.push(["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]);
 
 const lanes = [
   lane([
     ["binaries", npm, ["run", "binaries:build"]],
     ["binaries-upload", npm, ["run", "binaries:upload"]],
   ]),
-  lane([
-    ["deploy", node, ["scripts/deploy.mjs"]],
-    ["build", npm, ["run", "build"]],
-    ["live", npm, ["run", "test:live"]],
-  ]),
+  (async () => {
+    if (!(await lane([["deploy", node, ["scripts/deploy.mjs"]], ["build", npm, ["run", "build"]]]))) return false;
+    const after = await Promise.all([lane([["live", npm, ["run", "test:live"]]]), editorLane.length ? lane(editorLane) : true]);
+    return after.every(Boolean);
+  })(),
   ciGreen(),
 ];
-// The editor lanes use tests/ue_mcp itself; the live suite runs on its own shard copies beside them.
-const editorLane = [];
-if (pluginChanged) {
-  editorLane.push(["up", npm, ["run", "up"]], ["smoke", node, ["scripts/smoke-test.js", "--uncovered"]], ["automation", npm, ["run", "test:automation"]]);
-}
-if (lifecycleChanged) editorLane.push(["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]);
-if (editorLane.length) lanes.push(lane(editorLane));
 
 const results = await Promise.all(lanes);
 const wallS = (Date.now() - t0) / 1000;
