@@ -126,11 +126,12 @@ const ciGreen = async () => {
 
 // tests/ue_mcp is built once, then the short editor lane (smoke over the actions no behavioural
 // test dispatches, and the UE.MCP.* suite) runs and closes its editor, so the live suite sizes its
-// shards to the whole machine. Lifecycle runs beside live on tests/ue_mcp itself.
+// shards to the whole machine. Lifecycle runs after live, on tests/ue_mcp itself.
 const editorLane = pluginChanged
   ? [["up", npm, ["run", "up"]], ["smoke", node, ["scripts/smoke-test.js", "--uncovered"]], ["automation", npm, ["run", "test:automation"]], ["down", node, ["scripts/stop-editor.mjs"]]]
   : [];
-const besideLive = lifecycleChanged ? [["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]] : [];
+// The lifecycle cases attach to a running editor and stop, crash and restart it.
+const besideLive = lifecycleChanged ? [["up-lifecycle", npm, ["run", "up"]], ["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]] : [];
 
 const lanes = [
   lane([
@@ -139,8 +140,8 @@ const lanes = [
   ]),
   (async () => {
     if (!(await lane([["deploy", node, ["scripts/deploy.mjs"]], ["build", npm, ["run", "build"]], ...editorLane]))) return false;
-    const after = await Promise.all([lane([["live", npm, ["run", "test:live"]]]), besideLive.length ? lane(besideLive) : true]);
-    return after.every(Boolean);
+    // Lifecycle after live, not beside it: its editor beside the shards ran the machine out of memory.
+    return lane([["live", npm, ["run", "test:live"]], ...besideLive]);
   })(),
   ciGreen(),
 ];
