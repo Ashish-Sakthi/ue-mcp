@@ -88,7 +88,7 @@ describe("feedback routing", () => {
 
   it("routes on registry keywords alone when the plugin is not installed", async () => {
     const d = await routeFeedback({
-      title: "recorder(inject_input) drops the first frame of a tape",
+      title: "recorder(record) drops the first frame of a tape",
       summary:
         "Injecting a recorded input tape loses the very first frame, so a jump queued on frame 0 never fires during the replayed session.",
       catalog: CATALOG,

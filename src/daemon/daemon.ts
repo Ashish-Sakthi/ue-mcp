@@ -51,13 +51,15 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "events.dialog", "modes"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "events.dialog", "events.script", "modes"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
 import { applyUpdate, checkForUpdate, readPendingUpdate, repinClientConfigs, settlePendingUpdate } from "../editor/bridge-update.js";
 import { subscribeFlowEvents } from "../flow/events.js";
+import { subscribeScriptEvents } from "../pie/script-events.js";
+import { stopAllScriptWatches } from "../pie/script-watch.js";
 import { pluginRoutes } from "./plugin-routes.js";
 import { releaseStartLock, waitForStartTurn } from "./start-lock.js";
 
@@ -244,6 +246,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // Flow progress joins the same resumable stream the UI reads.
   const unsubscribeFlows = subscribeFlowEvents((e) => {
     events.publish(`flow.${e.type}`, { ...(e as unknown as Record<string, unknown>) });
+  });
+  // PIE test script progress, as the script watcher reads it off the bridge.
+  const unsubscribeScripts = subscribeScriptEvents(({ type, ...data }) => {
+    events.publish(`script.${type}`, data as unknown as Record<string, unknown>);
   });
 
   for (const s of rt.sessions.list()) follow(s);
@@ -658,6 +664,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       clearInterval(stallTimer);
       for (const t of updateTimers) clearTimeout(t);
       unsubscribeFlows();
+      unsubscribeScripts();
+      stopAllScriptWatches();
       unsubscribeDialogs();
       for (const x of extensions) await Promise.resolve(x.dispose?.()).catch((e) => warn("extension", `${x.name} dispose failed`, e));
       for (const w of watchers) w.close();

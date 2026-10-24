@@ -452,6 +452,11 @@
       "summary": "the daemon streams tool calls and editor events on /v1/events"
     },
     {
+      "id": "daemon.script-events",
+      "group": "daemon",
+      "summary": "the daemon streams PIE test script step events on /v1/events"
+    },
+    {
       "id": "daemon.reconnect",
       "group": "daemon",
       "summary": "the shim replaces a daemon that dies without the client reconnecting"
