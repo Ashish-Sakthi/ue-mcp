@@ -21,6 +21,10 @@
 export { DAEMON_API_VERSION, readDiscovery, readLiveDiscovery, discoveryPath, type DaemonDiscovery } from "./daemon/discovery.js";
 export {
   EXTENSION_API_VERSION,
+  EXTENSION_API_MIN_VERSION,
+  type ModelProvider,
+  type ModelRequest,
+  type ModelResponse,
   type ActionResult,
   type CallActionOptions,
   type DialogEventData,

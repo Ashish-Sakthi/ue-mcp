@@ -11,7 +11,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { extensionsDir } from "./extensions.js";
-import { EXTENSION_API_VERSION } from "./extension-api.js";
+import { EXTENSION_API_MIN_VERSION, EXTENSION_API_VERSION, extensionApiSupported } from "./extension-api.js";
 
 export interface InstalledExtension {
   name: string;
@@ -88,8 +88,8 @@ export async function installExtension(
     if (!pkg.main || !fs.existsSync(path.join(pkgDir, pkg.main))) throw new Error(`${name}: main ${pkg.main ?? "(unset)"} is missing from the archive`);
     const min = pkg.ueMcpExtension?.api?.min ?? 1;
     const max = pkg.ueMcpExtension?.api?.max ?? min;
-    if (EXTENSION_API_VERSION < min || EXTENSION_API_VERSION > max) {
-      throw new Error(`${name} needs extension API ${min}..${max}; this ue-mcp has ${EXTENSION_API_VERSION}`);
+    if (!extensionApiSupported(min, max)) {
+      throw new Error(`${name} needs extension API ${min}..${max}; this ue-mcp serves ${EXTENSION_API_MIN_VERSION}..${EXTENSION_API_VERSION}`);
     }
 
     const root = opts.root ?? extensionsDir();

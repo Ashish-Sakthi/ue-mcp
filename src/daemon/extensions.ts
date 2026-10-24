@@ -16,7 +16,7 @@ import { info, warn } from "../core/log.js";
 import { readEnv } from "../core/env.js";
 import { userDir } from "../core/user-dir.js";
 import type { DaemonExtension, DaemonExtensionApi, ExtensionHandler, ExtensionResponse } from "./extension-api.js";
-import { EXTENSION_API_VERSION } from "./extension-api.js";
+import { EXTENSION_API_MIN_VERSION, EXTENSION_API_VERSION, extensionApiSupported } from "./extension-api.js";
 
 export function extensionsDir(): string {
   return readEnv("extensionsDir") ?? path.join(userDir(), "extensions");
@@ -64,8 +64,8 @@ function readPackages(root: string): ExtensionPackage[] {
       }
       const min = ext.api?.min ?? 1;
       const max = ext.api?.max ?? min;
-      if (EXTENSION_API_VERSION < min || EXTENSION_API_VERSION > max) {
-        warn("extension", `${ext.name} supports extension API ${min}..${max}; this daemon has ${EXTENSION_API_VERSION}. Not loaded.`);
+      if (!extensionApiSupported(min, max)) {
+        warn("extension", `${ext.name} supports extension API ${min}..${max}; this daemon serves ${EXTENSION_API_MIN_VERSION}..${EXTENSION_API_VERSION}. Not loaded.`);
         continue;
       }
       out.push({ dir, name: ext.name, version: pkg.version ?? "0.0.0", main: path.join(dir, pkg.main) });
