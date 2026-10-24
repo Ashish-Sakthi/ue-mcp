@@ -52,9 +52,9 @@ The merge style follows the commit count, and writing five commits only to squas
 - `npm run up:build` stops the editor, builds, and relaunches. Use when iterating live.
 - The deployer (`scripts/deploy.mjs`) syncs `plugin/` → `tests/ue_mcp/Plugins/UE_MCP_Bridge/`. Neither `npm run up` nor `npm run build` runs it, so run it after plugin source edits and before building.
 
-### Smoke tests - REQUIRED
+### Smoke tests
 
-`npm run test:smoke` exercises every registered handler via the live WebSocket bridge. **Run this before shipping a release.**
+`npm run test:smoke` exercises every registered handler via the live WebSocket bridge. A release runs `node scripts/smoke-test.js --uncovered`, only the actions no behavioural test dispatches, because the live and automation tests already call the rest and assert their effect. Run the full sweep after a change to the registration or dispatch layer.
 
 - Target **only** `tests/ue_mcp/ue_mcp.uproject`. Confirm the MCP connection via `project(get_status)` before running. If the editor is connected to anything else (the user's real project, another workspace), abort.
 - Smoke tests execute real mutations (create blueprints, delete assets, modify levels). A misrouted run against a real project can corrupt an active editor session.
@@ -133,9 +133,15 @@ UBT's incremental build + Live Coding can mask registration failures from earlie
 
 CI **gates the publish job** on a single pre-staged input: the draft GitHub release for `vX.Y.Z`. The draft body must begin with YAML frontmatter declaring a `headline:` array. CI parses, validates against the regex enforced by `scripts/release-headline.mjs`, joins with ` · `, posts the `landing/headline` commit status itself, strips the frontmatter from the body, then promotes the draft. No manual `gh api ... statuses` step.
 
-0. **Green gates first**, all against `tests/ue_mcp`: `npm run test:smoke`, `npm run test:live`, `npm run test:live -- --lifecycle`, `npm run test:automation`, and `node scripts/check-release-gates.mjs all`, whose `behavioural-coverage` gate prints the covered-action share. The release notes state that share.
-   - Run them from the release worktree: `node scripts/release-worktree.mjs` creates `../ue-mcp-release` once and moves it to `origin/main` after that, keeping its build output, so the gate build compiles only what changed.
-   - `node scripts/release-run.mjs` runs every gate there with per-step timing: deploy, build, live, editor launch, smoke, automation and lifecycle in one lane; the release gates, `npm test` and, with `--binaries`, `binaries:build` start once the live suite is done and run beside the rest. It writes `release-logs/<step>.log` and `release-logs/release-timing.json`; compare the timing with `tests/timing/`.
+**One command, from the release worktree** (`node scripts/release-worktree.mjs` creates `../ue-mcp-release` once and moves it to `origin/main` after that, keeping its build output):
+
+```bash
+npm run release -- --version X.Y.Z[-beta.N] --notes /path/to/notes.md
+```
+
+It checks the notes, bumps on `bump/<version>` with `npm run generate:metadata`, creates the draft, pushes and opens the PR, then runs in parallel: the PR's CI (unit, integration, release gates, once), the bridge binaries (incremental, uploaded to the draft), the sharded live suite against `tests/ue_mcp`, smoke over the actions no behavioural test dispatches plus `test:automation` when `plugin/` changed, and the lifecycle cases when editor, bridge, daemon or build code changed. It merges when all of them are green, and the merge publishes. Timing goes to `release-logs/release-timing.json`. The target is a release in under 10 minutes; a run over that is a defect to fix, not a budget to raise.
+
+Main and `release/*` take only pull requests that are up to date with them and whose `build` check passed (ruleset "Tested once, up to date"). CI builds and tests a commit once, on its PR; the push to main only publishes.
 
 1. **Author release notes locally** with frontmatter. Notes file lives anywhere (gitignored, scratch, /tmp). The frontmatter must be the first thing in the file:
    ```yaml
@@ -160,23 +166,9 @@ CI **gates the publish job** on a single pre-staged input: the draft GitHub rele
    - Joined string (`items.join(" · ")`) must be ≤140 chars.
    - Style: concrete noun phrases naming features. **No sentences. No editorializing the value.** Match the historical voice (see prior releases on the GitHub releases page).
 
-2. **Create the draft release:**
-   ```bash
-   gh release create vX.Y.Z --draft --notes-file /path/to/local-notes.md
-   ```
+2. **Binaries.** `npm run release` builds and uploads them. By hand: `npm run binaries:build` compiles the plugin's editor modules per installed engine in a host project kept under the temp folder between runs, so an unchanged plugin takes seconds and a cold one a few minutes, then `npm run binaries:upload` attaches the zips and manifest to the draft. `--engines 5.7,5.8` narrows the build; `UE_MCP_BINARY_ENGINES="5.4=D:/UE_5.4;5.5=..."` names engines outside the launcher's location. The publish job fails before npm when the draft does not carry `UE_MCP_Bridge-<version>-UE5.7-Win64.zip`, `-UE5.8-Win64.zip` and `UE_MCP_Bridge-<version>-manifest.json` (`scripts/release-binaries.mjs`).
 
-3. **Build and attach the prebuilt bridge binaries** (machines without a C++ toolchain install these). On a machine with the engines installed, after the version bump is committed locally (with `npm run generate:metadata`, which stamps it into the plugin descriptor the binaries carry) and before it is pushed:
-   ```bash
-   npm run binaries:build      # RunUAT BuildPlugin per installed engine -> dist-binaries/
-   npm run binaries:upload     # zips + manifest onto the draft release; refuses a published one
-   ```
-   `--engines 5.7,5.8` narrows the build; `UE_MCP_BINARY_ENGINES="5.4=D:/UE_5.4;5.5=..."` names engines outside the launcher's location. An engine without a build here is an engine whose binary install fails with a plain "no prebuilt bridge for UE x.y" until one is uploaded.
-
-   **CI enforces this.** The publish job fails before npm when the draft does not carry `UE_MCP_Bridge-<version>-UE5.7-Win64.zip`, `-UE5.8-Win64.zip` and `UE_MCP_Bridge-<version>-manifest.json` (`scripts/release-binaries.mjs`). 1.4.0-beta.2 shipped without them and broke every binary install's update.
-
-4. **Push the version bump.** That's it - CI takes over.
-
-5. **CI validates → publishes → promotes.** If the headline frontmatter is missing or malformed, the publish job fails with a pointer to the offending item *before* npm publish runs. On success, the published release page shows the body with frontmatter stripped, and the `landing/headline` commit status is posted automatically.
+3. **CI validates, publishes and promotes** on the merge to main. If the headline frontmatter is missing or malformed, the publish job fails before npm publish runs. On success, the release page shows the body with frontmatter stripped, and the `landing/headline` commit status is posted automatically.
 
 Release notes structure (below the frontmatter): **`## Features` / `## Fixes` / `## Mentions` / `## Contributions`**, in that order. Read `docs/release-notes-style.md` before writing any of it. The rules that get broken most:
 
