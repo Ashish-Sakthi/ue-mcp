@@ -4311,7 +4311,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetCVars(const TSharedPtr<FJsonObject>& 
 }
 TSharedPtr<FJsonValue> FEditorHandlers::ListCrashes(const TSharedPtr<FJsonObject>& Params)
 {
-	FString CrashesDir = FPaths::ProjectSavedDir() / TEXT("Crashes");
+	FString CrashesDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Crashes"));
 
 	// T3: paged. A project that has been crashing accumulates hundreds of
 	// folders, each carrying its own file listing.
@@ -4421,7 +4421,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::GetCrashInfo(const TSharedPtr<FJsonObjec
 
 TSharedPtr<FJsonValue> FEditorHandlers::CheckForCrashes(const TSharedPtr<FJsonObject>& Params)
 {
-	FString CrashesDir = FPaths::ProjectSavedDir() / TEXT("Crashes");
+	FString CrashesDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("Crashes"));
 
 	TArray<TSharedPtr<FJsonValue>> RecentCrashes;
 	IFileManager& FileManager = IFileManager::Get();
