@@ -508,8 +508,9 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptStatus(const TSharedPtr<FJsonObjec
 			: LoadJsonFile(DefaultScriptObservationsRoot() / RunId / TEXT("results.json"));
 		if (Saved.IsValid())
 		{
-			for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : Saved->Values)
+			for (const auto& JsonEntry : Saved->Values)
 			{
+				const TPair<FString, TSharedPtr<FJsonValue>> Field(JsonEntry.Key, JsonEntry.Value);
 				if (Field.Key != TEXT("events")) Result->SetField(Field.Key, Field.Value);
 			}
 			TArray<TSharedPtr<FJsonValue>> Events;
