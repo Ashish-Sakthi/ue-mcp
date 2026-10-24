@@ -863,6 +863,170 @@ namespace MCPPIE
 		return Ctx;
 	}
 
+	namespace
+	{
+		const TCHAR* DraftCheckKindName(EScriptValueKind Kind)
+		{
+			switch (Kind)
+			{
+			case EScriptValueKind::Number: return TEXT("number");
+			case EScriptValueKind::Integer: return TEXT("integer");
+			case EScriptValueKind::Boolean: return TEXT("boolean");
+			case EScriptValueKind::Enum: return TEXT("enum");
+			}
+			return TEXT("number");
+		}
+
+		TSharedRef<FJsonObject> DraftCheckValueToJson(const FString& Path, const FScriptValueInfo& V)
+		{
+			TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
+			O->SetStringField(TEXT("path"), Path);
+			O->SetStringField(TEXT("kind"), DraftCheckKindName(V.Kind));
+			O->SetStringField(TEXT("type"), V.TypeName);
+			if (V.Kind == EScriptValueKind::Enum)
+			{
+				TArray<TSharedPtr<FJsonValue>> Values;
+				for (const TPair<FString, int64>& EV : V.EnumValues)
+				{
+					TSharedRef<FJsonObject> E = MakeShared<FJsonObject>();
+					E->SetStringField(TEXT("name"), EV.Key);
+					E->SetNumberField(TEXT("value"), static_cast<double>(EV.Value));
+					Values.Add(MakeShared<FJsonValueObject>(E));
+				}
+				O->SetArrayField(TEXT("values"), Values);
+			}
+			return O;
+		}
+
+		// Readable paths under Struct, the way the observer walks them: every leaf first, then one
+		// level into structs and objects (the instance standing in for the declared class when there is one),
+		// so a limit cuts nested fields before it cuts a value the class declares itself.
+		void DraftCheckEnumerate(const UStruct* Struct, const void* Container, const FString& Prefix, int32 Depth,
+			int32 Limit, TArray<TSharedPtr<FJsonValue>>& Out)
+		{
+			if (!Struct) return;
+			for (TFieldIterator<FProperty> It(Struct); It && Out.Num() < Limit; ++It)
+			{
+				FScriptValueInfo Info;
+				if (!It->HasAnyPropertyFlags(CPF_Deprecated) && DraftCheckLeaf(*It, Info))
+				{
+					Out.Add(MakeShared<FJsonValueObject>(DraftCheckValueToJson(DraftCheckJoin(Prefix, It->GetName()), Info)));
+				}
+			}
+			if (Depth <= 0) return;
+			for (TFieldIterator<FProperty> It(Struct); It && Out.Num() < Limit; ++It)
+			{
+				const FProperty* P = *It;
+				if (P->HasAnyPropertyFlags(CPF_Deprecated)) continue;
+				const FString Path = DraftCheckJoin(Prefix, P->GetName());
+				const void* ValuePtr = Container ? P->ContainerPtrToValuePtr<void>(Container) : nullptr;
+				if (const FStructProperty* SP = CastField<FStructProperty>(P))
+				{
+					DraftCheckEnumerate(SP->Struct, ValuePtr, Path, Depth - 1, Limit, Out);
+				}
+				else if (const FObjectProperty* OP = CastField<FObjectProperty>(P))
+				{
+					// Only objects the class default already holds, such as default subobject components.
+					const UObject* Sub = ValuePtr ? OP->GetObjectPropertyValue(ValuePtr) : nullptr;
+					if (Sub && Sub->IsA<UActorComponent>()) DraftCheckEnumerate(Sub->GetClass(), Sub, Path, Depth - 1, Limit, Out);
+				}
+			}
+		}
+	}
+
+	TSharedRef<FJsonObject> ScriptWatchableValuesToJson(const FString& TargetClass, const FString& ProfilePath, int32 Limit)
+	{
+		TSharedRef<FJsonObject> R = MakeShared<FJsonObject>();
+		Limit = FMath::Clamp(Limit, 1, 5000);
+		UWorld* World = GEditor ? GEditor->GetEditorWorldContext().World() : nullptr;
+		const FDraftPawn Pawn = DraftCheckFindPawn(World);
+
+		TSharedRef<FJsonObject> PawnObj = MakeShared<FJsonObject>();
+		TArray<TSharedPtr<FJsonValue>> Values;
+		if (UClass* PawnClass = Pawn.Class.Get())
+		{
+			PawnObj->SetStringField(TEXT("class"), PawnClass->GetPathName());
+			PawnObj->SetStringField(TEXT("source"), Pawn.Source);
+			DraftCheckEnumerate(PawnClass, Pawn.Sample.Get(), FString(), 1, Limit, Values);
+			TArray<FDraftComponent> Components;
+			DraftCheckComponents(PawnClass, Pawn.Sample.Get(), Components);
+			TArray<TSharedPtr<FJsonValue>> ComponentNames;
+			for (const FDraftComponent& C : Components)
+			{
+				ComponentNames.Add(MakeShared<FJsonValueString>(C.Name));
+				// A component the class holds only by name (a Blueprint component, or a native one
+				// with no property) is read through the observer's head-segment fallback.
+				if (!PawnClass->FindPropertyByName(FName(*C.Name)))
+				{
+					DraftCheckEnumerate(C.Class, C.Template, C.Name, 0, Limit, Values);
+				}
+			}
+			PawnObj->SetArrayField(TEXT("components"), ComponentNames);
+		}
+		R->SetObjectField(TEXT("pawn"), PawnObj);
+		R->SetArrayField(TEXT("values"), Values);
+		R->SetBoolField(TEXT("truncated"), Values.Num() >= Limit);
+
+		TArray<TSharedPtr<FJsonValue>> ProfileValues;
+		if (!ProfilePath.IsEmpty())
+		{
+			if (const UMCPPIEObservationProfile* Profile = LoadObject<UMCPPIEObservationProfile>(nullptr, *ProfilePath))
+			{
+				for (const FMCPPIETrackedValueEntry& E : Profile->TrackedValues)
+				{
+					if (!E.Path.IsEmpty()) ProfileValues.Add(MakeShared<FJsonValueString>(E.Path));
+				}
+			}
+		}
+		R->SetArrayField(TEXT("profile_values"), ProfileValues);
+
+		TArray<TSharedPtr<FJsonValue>> Actors;
+		UClass* Target = TargetClass.IsEmpty() ? nullptr : MCPResolveClassOfType(TargetClass, AActor::StaticClass(), /*bAllowLoad=*/true);
+		TArray<TSharedPtr<FJsonValue>> TargetActors;
+		if (World)
+		{
+			for (TActorIterator<AActor> It(World); It; ++It)
+			{
+				if (Actors.Num() < Limit) Actors.Add(MakeShared<FJsonValueString>(It->GetActorLabel()));
+				if (Target && It->IsA(Target)) TargetActors.Add(MakeShared<FJsonValueString>(It->GetActorLabel()));
+			}
+		}
+		R->SetArrayField(TEXT("actors"), Actors);
+		TArray<TSharedPtr<FJsonValue>> Spawned;
+		for (const TWeakObjectPtr<UClass>& Weak : Pawn.Spawned)
+		{
+			if (const UClass* C = Weak.Get()) Spawned.Add(MakeShared<FJsonValueString>(C->GetName()));
+		}
+		R->SetArrayField(TEXT("spawned_classes"), Spawned);
+
+		IAssetRegistry& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry")).Get();
+		TArray<FAssetData> Assets;
+		AR.GetAssetsByClass(UWidgetBlueprint::StaticClass()->GetClassPathName(), Assets, true);
+		TArray<TSharedPtr<FJsonValue>> Widgets;
+		for (const FAssetData& A : Assets)
+		{
+			if (Widgets.Num() >= Limit) break;
+			if (A.PackageName.ToString().StartsWith(TEXT("/Game"))) Widgets.Add(MakeShared<FJsonValueString>(A.AssetName.ToString()));
+		}
+		R->SetArrayField(TEXT("widgets"), Widgets);
+
+		if (!TargetClass.IsEmpty())
+		{
+			TSharedRef<FJsonObject> T = MakeShared<FJsonObject>();
+			T->SetStringField(TEXT("requested"), TargetClass);
+			T->SetBoolField(TEXT("found"), Target != nullptr);
+			if (Target)
+			{
+				T->SetStringField(TEXT("class"), Target->GetPathName());
+				const UClass* PawnClass = Pawn.Class.Get();
+				T->SetBoolField(TEXT("is_player_pawn"), PawnClass && PawnClass->IsChildOf(Target));
+				T->SetArrayField(TEXT("actors"), TargetActors);
+			}
+			R->SetObjectField(TEXT("target"), T);
+		}
+		return R;
+	}
+
 	TSharedRef<FJsonObject> ScriptIssueToJson(const FScriptStepIssue& Issue)
 	{
 		TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();

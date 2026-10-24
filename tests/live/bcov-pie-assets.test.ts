@@ -214,6 +214,55 @@ describe("test scripts", () => {
   }, 30_000);
 });
 
+describe("draft checks without saving", () => {
+  it("script_validate answers the checks script_create runs, and saves nothing", async () => {
+    const bad = await call("pie_script_validate", {
+      steps: [
+        { instruction: "Typo", expect: { value: "BaseEyeHieght", op: "gt", target: 0 } },
+        { instruction: "A bool compared as a number", expect: { value: "bCanBeDamaged", op: "lt", target: 1 } },
+      ],
+    });
+    expect(bad.valid).toBe(false);
+    const errors = bad.errors as Json[];
+    expect(errors.map((e) => [e.step, e.field])).toEqual([[0, "expect.value"], [1, "expect.op"]]);
+    expect(errors[0].candidates).toContain("BaseEyeHeight");
+    expect(String(bad.summary)).toContain("BaseEyeHieght");
+
+    const good = await call("pie_script_validate", {
+      steps: [{ instruction: "Look", expect: { value: "BaseEyeHeight", op: "gt", target: 0 } }],
+    });
+    expect(good).toMatchObject({ valid: true, errors: [] });
+    expect((good.steps as Json[])[0]).toMatchObject({ judge: "auto", expect: { value: "BaseEyeHeight", op: "gt", target: 0 } });
+
+    const manual = await call("pie_script_validate", { steps: [{ instruction: "Feels right?", judge: "manual" }] });
+    expect((manual.errors as Json[])[0]).toMatchObject({ step: null, field: "steps" });
+    expect((await call("pie_script_validate", { steps: [{ instruction: "Feels right?", judge: "manual" }], manual_only: true })).valid).toBe(true);
+    expect((await call("pie_script_list", { directory: DIR })).count).toBe(0);
+  }, 30_000);
+
+  it("script_values lists what a script can name, each of which script_validate accepts", async () => {
+    const values = await call("pie_script_values", { target: "/Script/Engine.DefaultPawn", limit: 400 });
+    const paths = (values.values as Json[]).map((v) => String(v.path));
+    expect(paths).toContain("BaseEyeHeight");
+    expect((values.values as Json[]).find((v) => v.path === "bCanBeDamaged")).toMatchObject({ kind: "boolean", type: "bool" });
+    expect(values.actors as string[]).toContain(CUBE);
+    expect((values.pawn as Json).class).toBeTruthy();
+    expect(values.target).toMatchObject({ requested: "/Script/Engine.DefaultPawn", found: true });
+
+    // A sample of the listed numbers reads back as valid steps.
+    const numbers = (values.values as Json[]).filter((v) => v.kind === "number").slice(0, 10);
+    expect(numbers.length).toBeGreaterThan(0);
+    const check = await call("pie_script_validate", {
+      steps: [
+        ...numbers.map((v) => ({ instruction: `Watch ${v.path}`, expect: { value: v.path, op: "increasing" } })),
+        { instruction: "The cube is there", expect: { value: CUBE, op: "exists" } },
+      ],
+    });
+    expect(check.errors).toEqual([]);
+    expect(await refused("pie_script_values", { profile: "/Game/MCPTest/NoSuchProfile" })).toMatch(/Profile not found/);
+  }, 30_000);
+});
+
 describe("scenarios", () => {
   it("scenario_validate accepts a well-formed scenario and names each problem in a broken one", async () => {
     const good = await call("pie_scenario_validate", {

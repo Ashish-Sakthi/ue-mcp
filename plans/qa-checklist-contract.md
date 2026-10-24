@@ -489,6 +489,14 @@ A refusal lists every problem it found, so a client can hand the list back to th
 | `message` | string | What is wrong, starting `steps[<i>].<field>:` for a step problem. |
 | `candidates` | string[]? | Closest valid replacements, best first: property paths, actor labels, widget names, ops, enum values as `"<value> (<name>)"`, profile paths, or `manual_only` for a script with no auto step. Absent when there are none. |
 
+`pie(script_validate) { steps, profile?, manual_only? }` runs these checks without saving and answers `{ success: true, valid, errors, summary?, steps }`, `errors` in the shape above. `pie(script_values) { target?, profile?, limit? }` lists what the checks accept for the open level: `pawn { class, source, components }`, `values [{ path, kind, type, values? }]` (`kind` is `number`, `integer`, `boolean` or `enum`; an enum's `values` are `{ name, value }`), `actors`, `spawned_classes`, `widgets`, `profile_values`, `truncated`, and with `target` a `target { requested, found, class?, is_player_pawn?, actors? }`.
+
+### 5.2 The playtest flow
+
+`flow(run, flowName: "playtest", params: { target, context?, profile?, name?, package_path? })`, or `POST /v1/flows/playtest/run` with `{ params }`, drafts a script with the flow model and saves it. It gathers the target Blueprint, the input mapping contexts and `pie(script_values)`, asks an agent step for `{ steps, manual_only?, description? }` in the step format above, checks the answer with `pie(script_validate)` and sends the refusal's `errors` back to the model up to 2 times, then saves with `pie(script_create)` (`onConflict: "replace"`, name default `TS_Playtest_<target>`). When the third draft is refused the run fails with `The drafted script was still refused after 3 attempts: <summary>`, its step data carrying `errors`, and nothing is saved.
+
+The model is a daemon extension's provider (section 6), else `ANTHROPIC_API_KEY`. With neither, the agent step fails with `No model is configured for flow agent steps.`
+
 `error` joins every `message` with ` | `. Parse problems (a missing `instruction`, an unknown `op`, a missing `target`) come in the same list, one per step, and the steps that parsed are still checked.
 
 ## 6. A daemon extension
@@ -515,10 +523,11 @@ export function activate(api) {
 - `api.callAction("pie", "verdict", { run_id, step, verdict, note? })` posts a verdict exactly as an MCP client's `pie(verdict)` does, recorded with `verdict_source: "action"`. An extension whose own agent judged the step passes `source: "agent"` and `evidence: { note, captures? }`, recorded with `verdict_source: "agent"`.
 - `api.callAction("pie", "script_run", {...}, { elicit })` puts the verdict form (section 2) to the extension's `elicit` instead of an MCP client, when the extension passes one (feature `callAction.elicit`). The follower keeps that `elicit` after the call returns, so the form can arrive later. Without it no form is raised, and the extension collects verdicts itself from `script.verdict_requested`.
 - The extension never calls the bridge's `pie_script_*` methods directly; the action layer keeps the follower and the stream in step.
+- `api.models.register(provider)` (extension API 2, feature `models.provider`) supplies the model flow agent steps run on, the playtest flow's among them, ahead of `ANTHROPIC_API_KEY`. The newest registration still live wins, and the returned function removes it. `provider.complete(request)` takes `{ system?, prompt?, messages?, model?, maxTokens?, temperature?, stop?, schema?, tools?, toolChoice?, signal? }` and answers `{ text, parsed?, toolCalls?, finishReason?, usage?, model? }`; the types are `ModelProvider`, `ModelRequest` and `ModelResponse` from `ue-mcp/daemon`.
 
 ## 7. Versioning
 
-- Additive. `DAEMON_API_VERSION` and `EXTENSION_API_VERSION` are unchanged.
+- Additive. `DAEMON_API_VERSION` is unchanged. `EXTENSION_API_VERSION` is 2 since `api.models`; the daemon serves extension API 1 to 2 (`EXTENSION_API_MIN_VERSION` 1), so an extension declaring `api: { min: 1, max: 1 }` keeps loading.
 - Feature flag `events.script` in the extension API's `api.features` marks a daemon that publishes these events. An MCP or HTTP client without the extension API detects it by the first `script.*` event, or by the ue-mcp version.
 - New event types, new payload fields and new `wait.state` or `elicitation` values may be added without a version change. A client ignores what it does not know.
 - Renaming or removing a field, an event type or a form property is a breaking change and bumps `EXTENSION_API_VERSION`.

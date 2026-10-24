@@ -7,8 +7,22 @@ import type { DialogPromptFn, ElicitParams, ElicitResult } from "../core/types.j
 import type { DisconnectCause } from "./disconnect.js";
 import type { DaemonEvent } from "./events.js";
 import type { UiManifest } from "./ui-bundles.js";
+import type { ModelProvider } from "../flow/model-provider.js";
 
-export const EXTENSION_API_VERSION = 1;
+export type { ModelProvider, ModelRequest, ModelResponse } from "../flow/model-provider.js";
+
+export const EXTENSION_API_VERSION = 2;
+
+/**
+ * The oldest extension API this daemon still serves. Versions up to EXTENSION_API_VERSION
+ * only added to the contract, so an extension built for any of them keeps loading.
+ */
+export const EXTENSION_API_MIN_VERSION = 1;
+
+/** Whether an extension declaring api { min, max } can load here. */
+export function extensionApiSupported(min: number, max: number): boolean {
+  return min <= EXTENSION_API_VERSION && max >= EXTENSION_API_MIN_VERSION;
+}
 
 export interface EditorStatus {
   name: string;
@@ -114,12 +128,24 @@ export interface DaemonExtensionApi {
    *   "modes"                    `modes` reads and sets this project's feedback and dialog modes
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
+   *   "models.provider"          `models.register` supplies the model flow agent steps run on
    *   "events.script"            script.run_started, script.step_started, script.step_passed,
    *                              script.step_failed, script.verdict_requested, script.verdict and
    *                              script.run_finished on the event stream (see ScriptEvent)
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
+
+  /**
+   * The model behind flow agent steps (`class_path: agent` and `agent_prompt`, and the
+   * built-in playtest flow), feature "models.provider", API 2. `register` makes `provider` the
+   * one those steps call, ahead of ANTHROPIC_API_KEY; the newest registration still live wins,
+   * and the function it returns removes it. Without either, an agent step fails with
+   * "No model is configured for flow agent steps."
+   */
+  models?: {
+    register(provider: ModelProvider): () => void;
+  };
 
   editors(): EditorStatus[];
   /** Start, stop, restart or rebuild the editor, with the cause announced first. */

@@ -51,13 +51,14 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "events.dialog", "events.script", "modes"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "events.dialog", "events.script", "models.provider", "modes"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
 import { applyUpdate, checkForUpdate, readPendingUpdate, repinClientConfigs, settlePendingUpdate } from "../editor/bridge-update.js";
 import { subscribeFlowEvents } from "../flow/events.js";
+import { registerModelProvider } from "../flow/model-provider.js";
 import { subscribeScriptEvents } from "../pie/script-events.js";
 import { stopAllScriptWatches } from "../pie/script-watch.js";
 import { pluginRoutes } from "./plugin-routes.js";
@@ -422,6 +423,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       return { isError: !!r.isError, content: r.content };
     },
     features: EXTENSION_FEATURES,
+    models: {
+      register: (provider) => registerModelProvider(provider),
+    },
     editors: () => editors(),
     editorOperation: (op) => editorOp(op),
     setBusy,

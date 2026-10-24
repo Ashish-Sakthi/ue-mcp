@@ -397,6 +397,21 @@
       "summary": "flow(run) runs a built-in flow against an editor"
     },
     {
+      "id": "flow.playtest",
+      "group": "flow",
+      "summary": "flow(run, playtest) drafts a test script with the flow model, checks it with pie(script_validate), returns refusals to the model and saves it with pie(script_create)"
+    },
+    {
+      "id": "flow.agent.env-model",
+      "group": "flow",
+      "summary": "a flow agent step with no registered provider runs on ANTHROPIC_API_KEY"
+    },
+    {
+      "id": "flow.agent.no-model",
+      "group": "flow",
+      "summary": "a flow agent step with no model configured fails with No model is configured for flow agent steps."
+    },
+    {
       "id": "flow.http",
       "group": "flow",
       "summary": "the opt-in flow HTTP server lists, plans and runs flows behind its token"
@@ -485,6 +500,11 @@
       "id": "daemon.extension-host",
       "group": "daemon",
       "summary": "a spawned daemon loads extensions from the extensions directory and serves their routes"
+    },
+    {
+      "id": "daemon.model-provider",
+      "group": "daemon",
+      "summary": "a daemon extension registers the model flow agent steps run on with api.models.register"
     },
     {
       "id": "daemon.ui-bundles",

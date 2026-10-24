@@ -197,6 +197,16 @@ void FPIEHandlers::RegisterScriptHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("default_within_ms"), EType::Integer, TEXT("Default auto-step window in game ms")).Min(1),
 		MCPParam::Optional(TEXT("manual_only"), EType::Boolean, ManualOnlyDoc),
 	});
+	Registry.RegisterHandler(TEXT("pie_script_validate"), &PieScriptValidate, {
+		MCPParam::Required(TEXT("steps"), EType::Array, *FString::Printf(TEXT("Steps to check, as script_create takes them: %s"), StepsShape)).Items(EType::Object),
+		MCPParam::Optional(TEXT("profile"), EType::String, TEXT("Observation profile asset path the script would use")),
+		MCPParam::Optional(TEXT("manual_only"), EType::Boolean, ManualOnlyDoc),
+	});
+	Registry.RegisterHandler(TEXT("pie_script_values"), &PieScriptValues, {
+		MCPParam::Optional(TEXT("target"), EType::String, TEXT("Actor class or Blueprint to report on: its actors in the level, and whether it is the player pawn")),
+		MCPParam::Optional(TEXT("profile"), EType::String, TEXT("Observation profile asset path whose tracked values to list")),
+		MCPParam::Optional(TEXT("limit"), EType::Integer, TEXT("Most entries per list (default 400)")).Min(1),
+	});
 	Registry.RegisterHandler(TEXT("pie_script_delete"), &PieScriptDelete, {
 		MCPParam::Required(TEXT("path"), EType::String, PathDoc),
 		MCPParam::Optional(TEXT("confirm"), EType::Boolean, TEXT("Must be true to delete")),
@@ -408,6 +418,50 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptUpdate(const TSharedPtr<FJsonObjec
 		MCPSetRollback(Result, TEXT("pie_script_update"), Inverse);
 	}
 	TestScriptFieldsToJson(Script, Path, Result);
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FPIEHandlers::PieScriptValidate(const TSharedPtr<FJsonObject>& Params)
+{
+	MCP_CHECK_GAME_THREAD();
+	const TArray<TSharedPtr<FJsonValue>>* StepsArr = nullptr;
+	TSharedPtr<FJsonValue> StepsErr = RequireArray(Params, TEXT("steps"), StepsArr);
+	const FString Profile = OptionalString(Params, TEXT("profile"));
+	const bool bManualOnly = OptionalBool(Params, TEXT("manual_only"), false);
+	if (StepsErr) return StepsErr;
+
+	TArray<FScriptStepDef> Steps;
+	TArray<FScriptStepIssue> Issues;
+	ParseScriptStepsJsonIssues(*StepsArr, Steps, Issues);
+	const TSharedPtr<FJsonValue> Refusal = CheckTestScript(Steps, Profile, bManualOnly, Issues);
+
+	// The same checks script_create runs, answered rather than refused, so a caller can draft in a loop.
+	auto Result = MCPSuccess();
+	Result->SetBoolField(TEXT("valid"), !Refusal.IsValid());
+	TArray<TSharedPtr<FJsonValue>> Errors;
+	for (const FScriptStepIssue& I : Issues) Errors.Add(MakeShared<FJsonValueObject>(ScriptIssueToJson(I)));
+	Result->SetArrayField(TEXT("errors"), Errors);
+	if (Refusal.IsValid()) Result->SetStringField(TEXT("summary"), Refusal->AsObject()->GetStringField(TEXT("error")));
+	Result->SetArrayField(TEXT("steps"), ScriptStepDefsToJson(Steps));
+	return MCPResult(Result);
+}
+
+TSharedPtr<FJsonValue> FPIEHandlers::PieScriptValues(const TSharedPtr<FJsonObject>& Params)
+{
+	MCP_CHECK_GAME_THREAD();
+	const FString Target = OptionalString(Params, TEXT("target"));
+	const FString Profile = OptionalString(Params, TEXT("profile"));
+	const int32 Limit = OptionalInt(Params, TEXT("limit"), 400);
+	if (Limit < 1) return MCPError(TEXT("limit must be at least 1"));
+	if (!TestScriptProfileExists(Profile)) return MCPError(FString::Printf(TEXT("Profile not found: %s"), *Profile));
+
+	TSharedRef<FJsonObject> Values = ScriptWatchableValuesToJson(Target, Profile, Limit);
+	auto Result = MCPSuccess();
+	for (const auto& JsonEntry : Values->Values)
+	{
+		const TPair<FString, TSharedPtr<FJsonValue>> Field(JsonEntry.Key, JsonEntry.Value);
+		Result->SetField(Field.Key, Field.Value);
+	}
 	return MCPResult(Result);
 }
 

@@ -54,6 +54,8 @@ Scripts are data assets, saved under `/Game/PIEStudio/Scripts` unless you give a
 | `script_create` | `name`, `steps`, `package_path?`, `description?`, `profile?`, `default_within_ms?` (default 5000), `manual_only?` (default `false`), `onConflict?` (`skip` (default), `update`, `replace` or `error`) |
 | `script_read` | `path`. Returns `path`, `name`, `description`, `profile`, `default_within_ms`, `manual_only`, `steps` and `step_count`. |
 | `script_update` | `path`, and any of `steps`, `description`, `profile` (empty clears it), `default_within_ms`, `manual_only` |
+| `script_validate` | `steps`, `profile?`, `manual_only?`. The checks `script_create` runs, without saving: `valid`, `errors` in the refusal's shape, `summary` and the parsed `steps`. |
+| `script_values` | `target?`, `profile?`, `limit?` (default 400). What a script can name in the open level: `pawn` (`class`, `source`, `components`), `values` (`path`, `kind` number, integer, boolean or enum, `type`, and an enum's `values`), `actors`, `spawned_classes`, `widgets`, `profile_values`, and with `target` a `target` object (`found`, `class`, `is_player_pawn`, `actors` of that class). |
 | `script_delete` | `path`, `confirm=true` |
 | `script_list` | `directory?` (default `/Game`). Returns `scripts` (`path`, `object_path`, `name`) and `count`. |
 
@@ -83,6 +85,8 @@ The refusal lists every problem, each with the step index, the field, a message 
 ```
 
 `step` is `null` for a problem with the whole script, such as no auto step (`field: "steps"`, candidates `["manual_only"]`) or a missing profile (`field: "profile"`). Inline steps given to `script_run` are not checked this way.
+
+`script_validate` runs the same checks and answers instead of refusing, so a client can draft in a loop, and `script_values` lists the values the checks accept. The built-in `playtest` flow drafts a script with a model this way; see [Flows](flows.md#playtest).
 
 ```text
 pie(action="script_create", name="DoorOpens", profile="/Game/PIEStudio/Profiles/Door",
