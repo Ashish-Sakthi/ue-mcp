@@ -307,8 +307,8 @@ describe("replay step payloads", () => {
       null,
     );
     expect(mapped?.type).toBe("step_failed");
-    const step = (mapped as { step: Record<string, unknown> }).step;
+    const step = (mapped as unknown as { step: Record<string, unknown> }).step;
     expect(step).toMatchObject({ index: 1, status: "failed", withinMs: 800, startedAtMs: 100, endedAtMs: 900, sourceStatus: "passed", regression: true });
-    expect((mapped as { replayOf?: string }).replayOf).toBe("script_x");
+    expect((mapped as unknown as { replayOf?: string }).replayOf).toBe("script_x");
   });
 });
