@@ -387,6 +387,11 @@
       "summary": "flow(plan) resolves a flow's steps without running them"
     },
     {
+      "id": "flow.plan.inputs",
+      "group": "flow",
+      "summary": "flow(plan) and GET /v1/flows/<name>/plan report the inputs a run may pass, derived from the step schemas and options_schema"
+    },
+    {
       "id": "flow.run.yaml",
       "group": "flow",
       "summary": "flow(run) runs a flow defined in ue-mcp.yml and reports each step"
