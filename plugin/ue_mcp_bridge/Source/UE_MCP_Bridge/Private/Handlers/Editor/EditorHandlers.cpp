@@ -1,4 +1,5 @@
 #include "EditorHandlers.h"
+#include "HandlerCheckpoint.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "HandlerFunctionCall.h"
@@ -2090,6 +2091,7 @@ TSharedPtr<FJsonValue> FEditorHandlers::SetConfig(const TSharedPtr<FJsonObject>&
 		return MCPResult(Noop);
 	}
 
+	MCPCheckpointRecordBeforeWrite(IniPath);
 	GConfig->SetString(*Section, *Key, *Value, IniPath);
 	GConfig->Flush(false, IniPath);
 
