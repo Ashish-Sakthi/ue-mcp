@@ -481,6 +481,8 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieObserveList(const TSharedPtr<FJsonObject
 TSharedPtr<FJsonValue> FPIEHandlers::PieObserveRead(const TSharedPtr<FJsonObject>& Params)
 {
 	MCP_CHECK_GAME_THREAD();
+	// Each file kind reads its own subset; all of them are taken as read here.
+	MCPReadParamsAhead(Params, { TEXT("limit"), TEXT("offset"), TEXT("channels"), TEXT("threshold"), TEXT("include_values"), TEXT("max_points") });
 	FString RunId;
 	if (auto Err = RequireString(Params, TEXT("run_id"), RunId)) return Err;
 

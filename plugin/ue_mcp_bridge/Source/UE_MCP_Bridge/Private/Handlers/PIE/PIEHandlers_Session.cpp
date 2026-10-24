@@ -42,6 +42,8 @@ namespace
 TSharedPtr<FJsonValue> FPIEHandlers::PieSessionErrors(const TSharedPtr<FJsonObject>& Params)
 {
 	MCP_CHECK_GAME_THREAD();
+	// session_dir overrides session, so session is read only without it.
+	MCPReadParamsAhead(Params, { TEXT("session") });
 	const ELogVerbosity::Type Floor = ParseVerbosityFloor(Params, ELogVerbosity::Warning);
 	const FString Dir = ResolveSessionDir(Params);
 
@@ -80,6 +82,8 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieSessionErrors(const TSharedPtr<FJsonObje
 TSharedPtr<FJsonValue> FPIEHandlers::PieSessionLog(const TSharedPtr<FJsonObject>& Params)
 {
 	MCP_CHECK_GAME_THREAD();
+	// session_dir overrides session, so session is read only without it.
+	MCPReadParamsAhead(Params, { TEXT("session") });
 	const ELogVerbosity::Type Floor = ParseVerbosityFloor(Params, ELogVerbosity::Log);
 	const FName Category = FName(*OptionalString(Params, TEXT("category")));
 	const FString Contains = OptionalString(Params, TEXT("contains"));

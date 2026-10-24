@@ -247,6 +247,8 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieRecordList(const TSharedPtr<FJsonObject>
 TSharedPtr<FJsonValue> FPIEHandlers::PieRecordRead(const TSharedPtr<FJsonObject>& Params)
 {
 	MCP_CHECK_GAME_THREAD();
+	// limit and offset apply to file=csv only.
+	MCPReadParamsAhead(Params, { TEXT("limit"), TEXT("offset") });
 	FString Id;
 	if (auto E = RequireString(Params, TEXT("id"), Id)) return E;
 	const FString File = OptionalString(Params, TEXT("file"), TEXT("manifest"));
