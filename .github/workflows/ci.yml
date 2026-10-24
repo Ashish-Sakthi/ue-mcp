@@ -1,5 +1,9 @@
 name: CI
 
+# Each commit is built and tested once, on its pull request. Main only takes a
+# pull request that is up to date with it, so the merged tree is the tree that
+# was tested, and a push to main or a release branch publishes without
+# building or testing it again.
 on:
   push:
     branches: [main, 'release/**']
@@ -20,11 +24,11 @@ permissions:
 # Prose rules run here over the tracked tree and again in .husky/pre-commit and
 # .husky/commit-msg, which reject a bad character before the commit exists.
 jobs:
-  build:
+  checks:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      statuses: write   # surface/counts, posted on pushes to main only
     steps:
       - uses: actions/checkout@v4
         with:
@@ -68,9 +72,6 @@ jobs:
         # and still pass. Kept out of the pre-commit hook because it is slow.
         run: npm run typecheck:tests
 
-      - name: Unit tests
-        run: npm run test:unit
-
       - name: Multi-editor tests
         # Two bridges on two loopback sockets, driven from one test process
         # (#817, plan item 7.1). This gates merges on the routing property that
@@ -96,6 +97,62 @@ jobs:
         # harness pointed at tests/ue_mcp only, and nothing here needs to move.
         run: npm run test:multi-editor
 
+      - name: Audit (high+ only, production deps)
+        run: npm audit --omit=dev --audit-level=high
+        continue-on-error: false
+
+
+  unit:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release gates compare this branch against what it will merge
+          # into. A bare checkout on a pull request fetches only the merge ref
+          # and creates no origin/main, so every gate reported "no base to
+          # compare against" and exited 0.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install
+        # Exact lockfile versions with integrity checks. Re-resolving here would
+        # pull whatever was published minutes ago, which is how npm worms spread.
+        run: npm ci --include=optional
+
+      - name: Unit tests
+        run: npm run test:unit
+
+  integration:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The release gates compare this branch against what it will merge
+          # into. A bare checkout on a pull request fetches only the merge ref
+          # and creates no origin/main, so every gate reported "no base to
+          # compare against" and exited 0.
+          fetch-depth: 0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+
+      - name: Install
+        # Exact lockfile versions with integrity checks. Re-resolving here would
+        # pull whatever was published minutes ago, which is how npm worms spread.
+        run: npm ci --include=optional
+
       - name: Integration tests
         # The real CLI, server and daemon, spawned in hermetic sandboxes with
         # local fakes for the bridge, the registry and the feedback service.
@@ -103,26 +160,16 @@ jobs:
         # which the unit suite gates. Live-editor cases are in tests/live.
         run: npm run test:integration
 
-      - name: Audit (high+ only, production deps)
-        run: npm audit --omit=dev --audit-level=high
-        continue-on-error: false
-
-      - name: Post surface/counts commit status
-        # Derived from the source of truth (TS schema + C++ RegisterHandler)
-        # so the status stays accurate without hand-edited counts.
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          REPO: ${{ github.repository }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          DESC=$(npx tsx scripts/surface-counts.mts)
-          gh api -X POST "repos/$REPO/statuses/$SHA"             -f state=success             -f context=surface/counts             -f description="$DESC"             -f target_url="https://github.com/$REPO/blob/$SHA/scripts/surface-counts.mts"
-          echo "Posted surface/counts: $DESC"
+  # The one required check: green only when every job above is.
+  build:
+    if: github.event_name == 'pull_request' && always()
+    needs: [checks, unit, integration]
+    runs-on: ubuntu-latest
+    steps:
+      - run: |
+          [ "${{ needs.checks.result }}" = success ] && [ "${{ needs.unit.result }}" = success ] && [ "${{ needs.integration.result }}" = success ]
 
   publish:
-    needs: build
     runs-on: ubuntu-latest
     # A release/X.Y.Z branch publishes a stable cut from a beta's commit while main moves on.
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/heads/release/'))
@@ -154,6 +201,25 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+      - name: Install
+        # Lockfile install: this job holds id-token: write, so no freshly
+        # resolved dependency may run install scripts here.
+        run: npm ci --include=optional
+
+      - name: Post surface/counts commit status
+        # Derived from the source of truth (TS schema + C++ RegisterHandler)
+        # so the status stays accurate without hand-edited counts.
+        if: github.ref == 'refs/heads/main'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          DESC=$(npx tsx scripts/surface-counts.mts)
+          gh api -X POST "repos/$REPO/statuses/$SHA"             -f state=success             -f context=surface/counts             -f description="$DESC"             -f target_url="https://github.com/$REPO/blob/$SHA/scripts/surface-counts.mts"
+          echo "Posted surface/counts: $DESC"
 
       - name: Check whether this version is already published
         id: version
@@ -277,13 +343,9 @@ jobs:
           gh release view "v$VERSION" --json assets --jq '.assets[].name' \
             | node scripts/release-binaries.mjs --version "$VERSION"
 
-      - name: Install & Build
+      - name: Build
         if: steps.version.outputs.should_publish == 'true'
-        # Lockfile install: this job holds id-token: write, so no freshly
-        # resolved dependency may run install scripts here.
-        run: |
-          npm ci --include=optional
-          npx tsc
+        run: npx tsc
 
       - name: Prose rules, against what will be published
         if: steps.version.outputs.should_publish == 'true'
