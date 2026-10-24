@@ -503,6 +503,49 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptStatus(const TSharedPtr<FJsonObjec
 	auto Result = MCPSuccess();
 	if (!Run || (!RunId.IsEmpty() && Run->RunId != RunId))
 	{
+		// A finished run the editor no longer holds answers from its results.json.
+		const TSharedPtr<FJsonObject> Saved = RunId.IsEmpty() ? nullptr
+			: LoadJsonFile(DefaultScriptObservationsRoot() / RunId / TEXT("results.json"));
+		if (Saved.IsValid())
+		{
+			for (const TPair<FString, TSharedPtr<FJsonValue>>& Field : Saved->Values)
+			{
+				if (Field.Key != TEXT("events")) Result->SetField(Field.Key, Field.Value);
+			}
+			TArray<TSharedPtr<FJsonValue>> Events;
+			const TArray<TSharedPtr<FJsonValue>>* AllEvents = nullptr;
+			if (Saved->TryGetArrayField(TEXT("events"), AllEvents))
+			{
+				for (const TSharedPtr<FJsonValue>& E : *AllEvents)
+				{
+					const TSharedPtr<FJsonObject>* EO = nullptr;
+					double Seq = 0;
+					if (E->TryGetObject(EO) && (*EO)->TryGetNumberField(TEXT("seq"), Seq) && Seq > SinceSeq) Events.Add(E);
+				}
+			}
+			TArray<TSharedPtr<FJsonValue>> Awaiting;
+			const TArray<TSharedPtr<FJsonValue>>* SavedSteps = nullptr;
+			if (Saved->TryGetArrayField(TEXT("steps"), SavedSteps))
+			{
+				for (const TSharedPtr<FJsonValue>& S : *SavedSteps)
+				{
+					const TSharedPtr<FJsonObject>* SO = nullptr;
+					FString Status;
+					if (S->TryGetObject(SO) && (*SO)->TryGetStringField(TEXT("status"), Status) && Status == TEXT("awaiting_verdict"))
+					{
+						TSharedRef<FJsonObject> A = MakeShared<FJsonObject>();
+						A->SetNumberField(TEXT("index"), (*SO)->GetNumberField(TEXT("index")));
+						A->SetStringField(TEXT("instruction"), (*SO)->GetStringField(TEXT("instruction")));
+						Awaiting.Add(MakeShared<FJsonValueObject>(A));
+					}
+				}
+			}
+			Result->SetArrayField(TEXT("events"), Events);
+			Result->SetArrayField(TEXT("awaiting"), Awaiting);
+			Result->SetBoolField(TEXT("active"), false);
+			Result->SetBoolField(TEXT("live"), false);
+			return MCPResult(Result);
+		}
 		Result->SetStringField(TEXT("state"), TEXT("idle"));
 		if (!RunId.IsEmpty()) Result->SetStringField(TEXT("run_id"), RunId);
 		Result->SetArrayField(TEXT("steps"), TArray<TSharedPtr<FJsonValue>>());

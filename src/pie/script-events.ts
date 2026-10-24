@@ -17,7 +17,7 @@ export type ScriptEventType =
 
 export type ScriptJudge = "auto" | "manual";
 export type ScriptStepStatus = "pending" | "running" | "passed" | "failed" | "awaiting_verdict" | "skipped";
-export type ScriptVerdictSource = "auto" | "action" | "elicitation";
+export type ScriptVerdictSource = "auto" | "action" | "elicitation" | "source_run";
 
 export interface ScriptExpect {
   value: string;
@@ -37,6 +37,14 @@ export interface ScriptStep {
   evidence?: Record<string, unknown>;
   note?: string;
   verdictSource?: ScriptVerdictSource;
+  /** The step's window in game milliseconds. */
+  withinMs?: number;
+  /** Game milliseconds since the run's first observed frame when the step started and settled. */
+  startedAtMs?: number;
+  endedAtMs?: number;
+  /** Replay runs: the step's status in the source run, and whether it passed there and fails here. */
+  sourceStatus?: ScriptStepStatus;
+  regression?: boolean;
 }
 
 export interface ScriptSummary {
@@ -45,6 +53,10 @@ export interface ScriptSummary {
   failed: number;
   skipped: number;
   pending: number;
+  /** Manual steps still waiting for a verdict. */
+  awaiting?: number;
+  /** Replay runs: steps that passed in the source run and fail in the replay. */
+  regressions?: number;
 }
 
 interface ScriptEventBase {

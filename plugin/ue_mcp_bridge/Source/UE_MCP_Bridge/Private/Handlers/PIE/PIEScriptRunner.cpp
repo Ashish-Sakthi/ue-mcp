@@ -1494,7 +1494,13 @@ namespace MCPPIE
 		IFileManager::Get().MakeDirectory(*Run.OutputDir, true);
 		FString Json;
 		TSharedRef<TJsonWriter<>> Writer = TJsonWriterFactory<>::Create(&Json);
-		FJsonSerializer::Serialize(ScriptRunToResultsJson(Run), Writer);
+		TSharedRef<FJsonObject> Results = ScriptRunToResultsJson(Run);
+		// The events go to disk too, so a run the editor no longer holds still answers script_status.
+		TArray<TSharedPtr<FJsonValue>> Events;
+		for (const FScriptEvent& E : Run.Events) Events.Add(MakeShared<FJsonValueObject>(ScriptEventToJson(E, Run.RunId)));
+		Results->SetArrayField(TEXT("events"), Events);
+		Results->SetNumberField(TEXT("last_seq"), Run.NextSeq - 1);
+		FJsonSerializer::Serialize(Results, Writer);
 		const bool bOk = FFileHelper::SaveStringToFile(Json, *Run.ResultsPath, FFileHelper::EEncodingOptions::ForceUTF8WithoutBOM);
 		if (!bOk)
 		{

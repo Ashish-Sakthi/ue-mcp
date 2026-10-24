@@ -157,6 +157,13 @@ describe("a script run with auto and manual steps", () => {
     expect(steps[3].status).toBe("failed");
     expect(steps[3].regression).toBe(true);
     expect(Number((results.summary as Json).regressions)).toBeGreaterThanOrEqual(1);
+
+    // The source run is no longer the one the editor holds, so its status comes from its results.json.
+    const source = await call("pie_script_status", { run_id: runId, since_seq: 1 });
+    expect(source.state).toBe("finished");
+    expect(source.live).toBe(false);
+    expect(rows(source.events).every((e) => Number(e.seq) > 1)).toBe(true);
+    expect(rows(source.events).map((e) => e.type)).toContain("run_finished");
   }, 180_000);
 });
 

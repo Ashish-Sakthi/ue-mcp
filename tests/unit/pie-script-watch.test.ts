@@ -3,6 +3,7 @@ import type { ElicitFn, ElicitParams, ElicitResult, ToolContext } from "../../sr
 import { subscribeScriptEvents, type ScriptEvent } from "../../src/pie/script-events.js";
 import {
   getScriptWatch,
+  mapBridgeEvent,
   scriptRunFollowUp,
   scriptStatusFollowUp,
   startScriptWatch,
@@ -293,5 +294,21 @@ describe("script_run and script_status follow-ups", () => {
     expect(out).toMatchObject({ state: "finished", wait: { state: "finished" } });
     expect(out.verdictHint).toBeUndefined();
     expect(b.calls.at(-1)?.params).toEqual({ run_id: "run-1", since_seq: 1 });
+  });
+});
+
+describe("replay step payloads", () => {
+  it("carries the step window, timing and regression through to the stream", () => {
+    const mapped = mapBridgeEvent(
+      { seq: 7, type: "step_failed", run_id: "script_replay_x", step: 1, at_ms: 900, wall_time: "2026-10-24T00:00:00Z",
+        data: { index: 1, instruction: "Slow down", judge: "auto", within_ms: 800, started_at_ms: 100, ended_at_ms: 900,
+          source_status: "passed", regression: true, verdict_source: "auto" } },
+      { runId: "script_replay_x", script: "inline", replayOf: "script_x" },
+      null,
+    );
+    expect(mapped?.type).toBe("step_failed");
+    const step = (mapped as { step: Record<string, unknown> }).step;
+    expect(step).toMatchObject({ index: 1, status: "failed", withinMs: 800, startedAtMs: 100, endedAtMs: 900, sourceStatus: "passed", regression: true });
+    expect((mapped as { replayOf?: string }).replayOf).toBe("script_x");
   });
 });

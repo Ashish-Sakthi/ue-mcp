@@ -344,7 +344,12 @@ function toStep(raw: Record<string, unknown> | undefined, index: number, fallbac
   if (r.evidence && typeof r.evidence === "object") step.evidence = r.evidence as Record<string, unknown>;
   if (typeof r.note === "string") step.note = r.note;
   const source = r.verdict_source ?? r.verdictSource;
-  if (source === "auto" || source === "action" || source === "elicitation") step.verdictSource = source;
+  if (source === "auto" || source === "action" || source === "elicitation" || source === "source_run") step.verdictSource = source;
+  if (typeof r.within_ms === "number") step.withinMs = r.within_ms;
+  if (typeof r.started_at_ms === "number") step.startedAtMs = r.started_at_ms;
+  if (typeof r.ended_at_ms === "number") step.endedAtMs = r.ended_at_ms;
+  if (typeof r.source_status === "string") step.sourceStatus = r.source_status as ScriptStepStatus;
+  if (typeof r.regression === "boolean") step.regression = r.regression;
   return step;
 }
 
@@ -416,6 +421,8 @@ export function mapBridgeEvent(e: BridgeScriptEvent, w: { runId: string; script:
         failed: Number(s?.failed ?? 0),
         skipped: Number(s?.skipped ?? 0),
         pending: Number(s?.pending ?? 0),
+        ...(s?.awaiting !== undefined ? { awaiting: Number(s.awaiting) } : {}),
+        ...(s?.regressions !== undefined ? { regressions: Number(s.regressions) } : {}),
       };
       const state = typeof data.state === "string" ? data.state : status?.state && TERMINAL.has(status.state) ? status.state : undefined;
       return { ...base, type: "run_finished", summary, ...(state ? { state } : {}), ...(resultsPath ? { resultsPath } : {}) };
