@@ -1,6 +1,7 @@
 #include "MCPPIEViewportCapture.h"
 #include "UE_MCP_BridgeRuntimeModule.h"
 #include "RenderGraphBuilder.h"
+#include "SceneView.h"
 #include "RenderGraphUtils.h"
 #include "RHIGPUReadback.h"
 #include "ImageUtils.h"
