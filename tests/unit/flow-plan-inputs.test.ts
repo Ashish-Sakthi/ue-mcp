@@ -182,6 +182,13 @@ describe("flow inputs", () => {
     )) as { inputs: FlowInput[] };
     expect(out.inputs.map((i) => i.name)).toEqual(["newName", "mode"]);
   });
+
+  it("carries options_scope on the plan's definition, so a form can nest a step-scoped run's params", async () => {
+    const cfg = config({ flows: { f: { options_scope: "step", steps: { "1": { task: "asset.rename", options: { path: "/Game/A" } } } } } });
+    const tool = createFlowTool(buildFlowRegistry(TOOLS), () => cfg);
+    const plan = (flowName: string) => tool.handler({ bridge, project: new ProjectContext(), getToolGraph: () => TOOLS }, { action: "plan", flowName }) as Promise<{ definition: { options_scope?: string } }>;
+    expect((await plan("f")).definition.options_scope).toBe("step");
+  });
 });
 
 describe("flow inputs of the shipped flows", () => {
