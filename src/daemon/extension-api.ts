@@ -129,9 +129,9 @@ export interface DaemonExtensionApi {
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
    *   "models.provider"          `models.register` supplies the model flow agent steps run on
-   *   "events.script"            script.run_started, script.step_started, script.step_passed,
-   *                              script.step_failed, script.verdict_requested, script.verdict and
-   *                              script.run_finished on the event stream (see ScriptEvent)
+   *   "events.script"            script.run_started, script.step_started, script.step_acted,
+   *                              script.step_passed, script.step_failed, script.verdict_requested,
+   *                              script.verdict and script.run_finished on the event stream (see ScriptEvent)
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
