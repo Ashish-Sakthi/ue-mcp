@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * Level actions that need a map of their own, run in scratch maps under /Game/MCPTest/BCov/Level: streaming
  * sub-levels and the current edit level, world settings, navmesh projection, exact-label deletes across maps

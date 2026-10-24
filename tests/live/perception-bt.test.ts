@@ -1,3 +1,4 @@
+// @live-editor headless
 /**
  * AI perception and BehaviorTree runtime, against a real editor (T10, T11).
  *

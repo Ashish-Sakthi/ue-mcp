@@ -1,3 +1,4 @@
+// @live-editor base
 /**
  * Project: module listings and load probes, set_config against a probe ini the
  * test owns, plugin references in the .uproject (restored byte for byte),

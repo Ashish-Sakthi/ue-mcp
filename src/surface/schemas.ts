@@ -54,6 +54,7 @@ export const UeMcpConfigSchema = z
       .object({
         path: z.string().optional(),
         buildToolPath: z.string().optional(),
+        launchArgs: z.array(z.string()).optional(),
       })
       .optional(),
     // Per-project equivalent of UE_MCP_ENV (#817): which `ue-mcp.<env>.yml`

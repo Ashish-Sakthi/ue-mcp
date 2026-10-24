@@ -13,6 +13,7 @@ import {
   isSameOrUnder,
   resolveTestEngine,
 } from './build-utils.js';
+import { TEST_EDITOR_ARGS } from './test-editor-args.mjs';
 
 /**
  * UE_EDITOR_PATH stays supported so an existing setup keeps working, but it
@@ -71,7 +72,7 @@ async function main() {
   // never returns when piped, and the editor's own logging would scribble
   // over the progress bar below. The editor writes Saved/Logs either way.
   const launchedAtMs = Date.now();
-  const proc = spawn(editorExe, [projectFile], {
+  const proc = spawn(editorExe, [projectFile, ...TEST_EDITOR_ARGS], {
     stdio: 'ignore',
     detached: true,
   });

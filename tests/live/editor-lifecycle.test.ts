@@ -1,3 +1,4 @@
+// @live-editor lifecycle
 /**
  * The server-side lifecycle actions, against the real editor (#1223, items 4 and 5).
  *
