@@ -18,6 +18,7 @@ Every action on this page is in the `pie` category.
 |---|---|---|
 | `instruction` | string | Required. What the person does, or what they check. Shown on the verdict form for a manual step. |
 | `judge` | `auto` or `manual` | Default `auto`. `auto`: the bridge decides from `expect`. `manual`: the step waits for a verdict. |
+| `agent_judgeable` | boolean | Manual steps only, default `true`. `false` means only a person can give the verdict: `verdict` refuses `source: "agent"` for the step. Refused on an auto step. |
 | `expect.value` | string | Required in `expect`. For `decreasing`, `increasing`, `eq`, `gt` and `lt`: a tracked value path, or its last segment. For `exists`: an actor id. For `visible`: a widget class or name. |
 | `expect.op` | string | Required in `expect`. One of the ops below. |
 | `expect.target` | number or boolean | Required for `eq`, `gt` and `lt`. Optional for `visible` and `exists`, default `true`; `false` asks for the opposite. Refused for `decreasing` and `increasing`. A boolean given to `eq`, `gt` or `lt` is read as 1 or 0. |
@@ -112,7 +113,7 @@ With `wait=true` the answer is merged with the run's final status, without `even
 {
   "run_id": "script_DoorOpens_20261023_100000",
   "state": "finished",
-  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0 },
+  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0, "human_verdicts": 1, "agent_verdicts": 0 },
   "wait": { "state": "finished", "durationMs": 41250, "elicitation": "accepted" }
 }
 ```
@@ -159,11 +160,24 @@ pie(action="verdict", step=2, verdict="fail", note="Pops on the second frame")
 | `verdict` | `pass`, `fail` or `skip`. |
 | `note` | Optional. Kept in `results.json`. |
 | `run_id` | Optional. Defaults to the run the editor holds. Any other run is refused. |
-| `source` | `action` (default) or `elicitation`. Recorded as the step's `verdict_source`. |
+| `source` | `human` (default) or `agent`. A human verdict is recorded with `verdict_source: "action"`, an agent verdict with `verdict_source: "agent"`. `elicitation` is the form's own channel, and `action` is accepted as another name for `human`. |
+| `evidence` | `{ note, captures? }`. Required with `source: "agent"`, optional otherwise. `note` says what was observed and must not be empty. `captures` lists capture files that show it, absolute or relative to the run's `output_dir`; each must exist, and is recorded as an absolute path. |
 
-A verdict on an auto step, a step that has not started, or a run other than the one the editor holds is refused with `success: false` and an `error`. A verdict can replace an earlier one, and repeating the same verdict and note answers `unchanged: true`. A verdict on a run that has already ended is accepted for its awaiting steps and rewrites its `results.json`.
+A verdict on an auto step, a step that has not started, or a run other than the one the editor holds is refused with `success: false` and an `error`. So is an agent verdict without an evidence note, an agent verdict on a step with `agent_judgeable: false`, and evidence naming a capture that does not exist. A verdict can replace an earlier one, and repeating the same verdict, note, source and evidence answers `unchanged: true`. A verdict on a run that has already ended is accepted for its awaiting steps and rewrites its `results.json`.
 
-The answer carries `run_id`, `step`, `status`, `verdict`, `verdict_source`, `note`, `state` and `awaiting` (the indices still waiting).
+The answer carries `run_id`, `step`, `status`, `verdict`, `verdict_source`, `note`, `evidence` (when the verdict has some), `state` and `awaiting` (the indices still waiting).
+
+### Agent verdicts
+
+An agent that judges a manual step itself, for example from a capture it took, says so with `source: "agent"` and cites what it saw:
+
+```text
+pie(action="verdict", step=2, verdict="pass", source="agent",
+    evidence={"note": "The door swings open over 12 frames with no jump in the capture",
+              "captures": ["door_open.png"]})
+```
+
+The step records `verdict_source: "agent"` and the evidence in `results.json`, on the `verdict` event, and in `script_status`, and the run's `summary` counts it under `agent_verdicts` rather than `human_verdicts`. A person can replace an agent verdict with their own, which clears the agent's evidence. A step whose judgement has to be a person's declares `agent_judgeable: false`. `awaiting` entries and manual steps carry `agent_judgeable`, so an agent can tell which steps it may judge before it tries.
 
 ## Results
 
@@ -188,7 +202,7 @@ The answer carries `run_id`, `step`, `status`, `verdict`, `verdict_source`, `not
   "results_path": "C:/MyGame/Saved/MCPObservations/script_DoorOpens_20261023_100000/results.json",
   "recording_id": "script_DoorOpens_20261023_100000",
   "recording_dir": "C:/MyGame/Saved/MCPRecordings/script_DoorOpens_20261023_100000",
-  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0 },
+  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0, "human_verdicts": 1, "agent_verdicts": 0 },
   "steps": [
     {
       "index": 0,
@@ -228,6 +242,7 @@ The answer carries `run_id`, `step`, `status`, `verdict`, `verdict_source`, `not
       "index": 2,
       "instruction": "The door opens without a visible pop",
       "judge": "manual",
+      "agent_judgeable": true,
       "status": "failed",
       "within_ms": 5000,
       "started_at_ms": 2210,
@@ -255,13 +270,14 @@ The answer carries `run_id`, `step`, `status`, `verdict`, `verdict_source`, `not
 | `block_on_manual`, `default_within_ms` | The run's settings. |
 | `observation_run_id`, `output_dir`, `results_path` | As in [Run ids and files](#run-ids-and-files). |
 | `recording_id`, `recording_dir` | Absent with `record=false`. |
-| `summary` | `total`, `passed`, `failed`, `skipped`, `pending` and `awaiting`. `pending` counts every step not settled, awaiting ones included. A replay adds `regressions`. |
+| `summary` | `total`, `passed`, `failed`, `skipped`, `pending`, `awaiting`, `human_verdicts` and `agent_verdicts`. `pending` counts every step not settled, awaiting ones included. `human_verdicts` counts manual steps settled by a person (`verdict_source` `action` or `elicitation`), `agent_verdicts` those settled by an agent. A replay adds `regressions`. |
 | `steps[].within_ms` | The step's effective window. |
 | `steps[].started_at_ms`, `ended_at_ms` | Game ms from the observer's first frame. Absent for a step that never started or ended. |
 | `steps[].started_at`, `ended_at` | ISO 8601 UTC wall time. |
-| `steps[].evidence` | Auto steps with `expect`: `value`, `at_start` and `at_end` (first and last observed value in the step, `null` when never read; 1 or 0 for `visible` and `exists`), `samples`, `observed`, `verdict_frame` (the observer frame of the verdict), `verdict_at_ms` (ms from the step's start to its verdict) and `reason` (why it failed). Other steps carry `evidence` only as `{ reason }`, when there is one. |
+| `steps[].evidence` | Auto steps with `expect`: `value`, `at_start` and `at_end` (first and last observed value in the step, `null` when never read; 1 or 0 for `visible` and `exists`), `samples`, `observed`, `verdict_frame` (the observer frame of the verdict), `verdict_at_ms` (ms from the step's start to its verdict) and `reason` (why it failed). Manual steps carry the verdict's `{ note, captures? }` when it had evidence, which an agent verdict always has. Other steps carry `evidence` only as `{ reason }`, when there is one. |
 | `steps[].note` | The verdict's note. |
-| `steps[].verdict_source` | `auto`, `action`, `elicitation`, or `source_run` on a replay. |
+| `steps[].verdict_source` | `auto`, `action` (a person, through `verdict`), `elicitation` (a person, through the form), `agent`, or `source_run` on a replay. |
+| `steps[].agent_judgeable` | Manual steps: whether an agent verdict is accepted. |
 
 ## Replay regression
 
@@ -275,7 +291,7 @@ The answer is the replay run's status, as for `script_run`, plus `pie_started`, 
 
 - Each auto step that started in the source run gets a window from `window_start_ms` (its source `started_at_ms` plus `replay_offset_ms`, the recording's settle time) to `window_end_ms` (`window_start_ms` plus `within_ms`). It starts on the first frame at or after `window_start_ms` and is judged as in a live run. Steps are judged in their own windows, not one after another.
 - An auto step that never started in the source run is `skipped` with reason `not reached in the source run`.
-- A manual step keeps the source run's verdict and note, with `verdict_source: "source_run"`. One without a verdict there is `skipped` with reason `no verdict in the source run`.
+- A manual step keeps the source run's verdict, note and evidence, with `verdict_source: "source_run"`. One without a verdict there is `skipped` with reason `no verdict in the source run`.
 - Every step carries `source_status` (its status in the source run) and `regression`, which is `true` when it passed in the source run and failed in the replay.
 
 The replay's `results.json` adds `replay_of` (the source run id), `time_scale`, `replay_offset_ms` and `summary.regressions`. Its `recording_id` and `recording_dir` are the source run's, and `block_on_manual` is `false`. A replayed step:
@@ -321,7 +337,7 @@ The daemon publishes every event of a run the server follows on its event stream
 
 Every payload carries `runId`, `script` (the asset path, or `inline`), `at` (the editor's ISO wall time of the event), `atMs` (the event's `at_ms`: game ms from the observer's first frame, 0 for `run_started`), `seq` (the editor's number for the event, increasing within a run) and, for a replay, `replayOf`.
 
-`step` is `{ index, instruction, judge, expect?, status, evidence?, note?, verdictSource?, withinMs?, startedAtMs?, endedAtMs?, sourceStatus?, regression? }`. `evidence` is the editor's evidence object, unchanged. `verdictSource` is `auto`, `action`, `elicitation` or, on a replay, `source_run`; `sourceStatus` and `regression` appear on a replay only. Fields the event does not carry are filled from the status the server read with it, so a `step_started` step can already hold `evidence` and `verdictSource`. `summary` on `run_finished` is `{ total, passed, failed, skipped, pending, awaiting? }`, plus `regressions` on a replay.
+`step` is `{ index, instruction, judge, agentJudgeable?, expect?, status, evidence?, note?, verdictSource?, withinMs?, startedAtMs?, endedAtMs?, sourceStatus?, regression? }`. `evidence` is the editor's evidence object, unchanged. `verdictSource` is `auto`, `action`, `elicitation`, `agent` or, on a replay, `source_run`; `sourceStatus` and `regression` appear on a replay only. Fields the event does not carry are filled from the status the server read with it, so a `step_started` step can already hold `evidence` and `verdictSource`. `summary` on `run_finished` is `{ total, passed, failed, skipped, pending, awaiting?, humanVerdicts?, agentVerdicts? }`, plus `regressions` on a replay.
 
 ```text
 id: 412
