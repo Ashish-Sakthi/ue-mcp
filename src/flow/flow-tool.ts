@@ -208,7 +208,7 @@ async function planFlow(
     registry,
     tools: (ctx as FlowContext).getToolGraph?.() ?? ctx.session?.toolGraph ?? [],
   });
-  return { ...planned, inputs, definition: { description: def.description, steps: def.steps } };
+  return { ...planned, inputs, definition: { description: def.description, steps: def.steps, ...(def.options_scope ? { options_scope: def.options_scope } : {}) } };
 }
 
 async function runFlow(
