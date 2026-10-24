@@ -102,6 +102,16 @@
       "summary": "ue-mcp doctor --fix removes client config entries that point at missing projects"
     },
     {
+      "id": "cli.doctor.age-gate",
+      "group": "cli",
+      "summary": "ue-mcp doctor reports an npx launch npm's release-age gate would refuse, and --fix lifts the gate in that entry"
+    },
+    {
+      "id": "client.launch.age-gate",
+      "group": "cli",
+      "summary": "a client config ue-mcp writes starts the server through npx under min-release-age on the day of a release"
+    },
+    {
       "id": "cli.status",
       "group": "cli",
       "summary": "ue-mcp status reports a project's install, client and editor state"
