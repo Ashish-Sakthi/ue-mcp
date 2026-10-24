@@ -11,6 +11,7 @@ import type { EditorBridge } from "../../src/bridge/bridge.js";
 const DIR = "/Game/MCPTest/BCov/Pie/Assets";
 const PROFILE = `${DIR}/OP_BCovAssets`;
 const SCRIPT = `${DIR}/TS_BCovAssets`;
+const CUBE = "BCov_Pie_AssetsCube";
 
 type Json = Record<string, unknown>;
 const body = (r: TestResult): Json => (r.result && typeof r.result === "object" ? (r.result as Json) : {});
@@ -33,11 +34,14 @@ async function refused(method: string, params: Json = {}): Promise<string> {
 beforeAll(async () => {
   bridge = await getBridge();
   await callBridge(bridge, "delete_folder", { path: DIR, force: true });
+  await callBridge(bridge, "delete_actor", { actorLabel: CUBE });
+  await call("place_actor", { actorClass: "StaticMeshActor", staticMesh: "/Engine/BasicShapes/Cube", label: CUBE, location: { x: 300, y: -15000, z: 300 } });
 }, 60_000);
 
 afterAll(async () => {
   if (!bridge) return;
   await callBridge(bridge, "delete_folder", { path: DIR, force: true });
+  await callBridge(bridge, "delete_actor", { actorLabel: CUBE });
   disconnectBridge();
 });
 
@@ -78,10 +82,22 @@ describe("observation profiles", () => {
 
 describe("test scripts", () => {
   const steps = [
-    { instruction: "Walk to the door", judge: "auto", expect: { value: "Health", op: "decreasing", within_ms: 3000 } },
+    { instruction: "Look down", judge: "auto", expect: { value: "BaseEyeHeight", op: "decreasing", within_ms: 3000 } },
     { instruction: "The door opens smoothly", judge: "manual" },
-    { instruction: "The HUD is up", expect: { value: "WBP_Hud", op: "visible" } },
+    { instruction: "The cube is in the level", expect: { value: CUBE, op: "exists" } },
   ];
+
+  /** The structured refusal: every problem as { step, field, message, candidates? }. */
+  async function refusedWith(method: string, params: Json): Promise<{ error: string; errors: Json[] }> {
+    const r = await callBridge(bridge, method, params);
+    expect(succeeded(r), `${method} should be refused: ${JSON.stringify(r.result)}`).toBe(false);
+    expect(body(r).errorCode).toBe("INVALID_SCRIPT_STEPS");
+    return { error: String(body(r).error ?? ""), errors: (body(r).errors as Json[]) ?? [] };
+  }
+
+  async function scriptListed(name: string): Promise<boolean> {
+    return JSON.stringify((await call("pie_script_list", { directory: DIR })).scripts).includes(name);
+  }
 
   it("script_create, script_read, script_update, script_list and script_delete round-trip one asset", async () => {
     const created = await call("pie_script_create", { name: "TS_BCovAssets", package_path: DIR, steps, description: "door check", default_within_ms: 4000 });
@@ -94,28 +110,107 @@ describe("test scripts", () => {
     expect((readSteps[0].expect as Json).within_ms).toBe(3000);
     expect(read.description).toBe("door check");
     expect(read.default_within_ms).toBe(4000);
+    expect(read.manual_only).toBe(false);
 
-    await call("pie_script_update", { path: SCRIPT, steps: [steps[1]], description: "manual only" });
+    // Cut down to a manual step, the script checks nothing until it says so.
+    const noAuto = await refusedWith("pie_script_update", { path: SCRIPT, steps: [steps[1]], description: "manual only" });
+    expect(noAuto.errors).toEqual([expect.objectContaining({ step: null, field: "steps", candidates: ["manual_only"] })]);
+    expect(((await call("pie_script_read", { path: SCRIPT })).steps as Json[]).length).toBe(3);
+
+    const updated = await call("pie_script_update", { path: SCRIPT, steps: [steps[1]], description: "manual only", manual_only: true });
+    expect(updated.updated).toBe(true);
     const after = await call("pie_script_read", { path: SCRIPT });
     expect((after.steps as Json[]).length).toBe(1);
     expect(after.description).toBe("manual only");
+    expect(after.manual_only).toBe(true);
 
-    const listed = await call("pie_script_list", { directory: DIR });
-    expect(JSON.stringify(listed.scripts)).toContain("TS_BCovAssets");
+    // Clearing manual_only checks the stored steps again.
+    expect((await refusedWith("pie_script_update", { path: SCRIPT, manual_only: false })).errors[0]).toMatchObject({ step: null, field: "steps" });
+    expect((await call("pie_script_read", { path: SCRIPT })).manual_only).toBe(true);
+
+    expect(await scriptListed("TS_BCovAssets")).toBe(true);
 
     const deleted = await call("pie_script_delete", { path: SCRIPT, confirm: true });
     expect(deleted.deleted ?? deleted.alreadyDeleted === false).toBe(true);
-    expect(JSON.stringify((await call("pie_script_list", { directory: DIR })).scripts)).not.toContain("TS_BCovAssets");
+    expect(await scriptListed("TS_BCovAssets")).toBe(false);
   }, 60_000);
 
   it("script_create refuses a step whose expectation cannot be evaluated", async () => {
     const error = await refused("pie_script_create", {
-      name: "TS_BCovBad", package_path: DIR, steps: [{ instruction: "x", expect: { value: "Health", op: "eq" } }],
+      name: "TS_BCovBad", package_path: DIR, steps: [{ instruction: "x", expect: { value: "BaseEyeHeight", op: "eq" } }],
     });
     expect(error).toMatch(/target/i);
-    expect(await refused("pie_script_create", {
-      name: "TS_BCovBad", package_path: DIR, steps: [{ instruction: "x", expect: { value: "Health", op: "sideways" } }],
-    })).toMatch(/op/i);
+    const badOp = await refusedWith("pie_script_create", {
+      name: "TS_BCovBad", package_path: DIR, steps: [{ instruction: "x", expect: { value: "BaseEyeHeight", op: "sideways" } }],
+    });
+    expect(badOp.errors[0]).toMatchObject({ step: 0, field: "expect.op" });
+    expect(await scriptListed("TS_BCovBad")).toBe(false);
+  }, 30_000);
+
+  it("script_create refuses a value the observer cannot read, naming the step, the value and the closest candidates", async () => {
+    const r = await refusedWith("pie_script_create", {
+      name: "TS_BCovUnknown", package_path: DIR,
+      steps: [
+        { instruction: "Look", expect: { value: "BaseEyeHeight", op: "gt", target: 0 } },
+        { instruction: "Typo", expect: { value: "BaseEyeHieght", op: "gt", target: 0 } },
+        { instruction: "Wrong actor", expect: { value: `${CUBE}x`, op: "exists" } },
+        { instruction: "No widget", expect: { value: "WBP_BCovNoSuchWidget", op: "visible" } },
+      ],
+    });
+    expect(r.errors.map((e) => [e.step, e.field])).toEqual([[1, "expect.value"], [2, "expect.value"], [3, "expect.value"]]);
+    expect(String(r.errors[0].message)).toContain("BaseEyeHieght");
+    expect(r.errors[0].candidates).toContain("BaseEyeHeight");
+    expect(r.errors[1].candidates).toContain(CUBE);
+    expect(String(r.errors[2].message)).toContain("resolve_in_pie");
+    expect(r.error).toContain("BaseEyeHieght");
+    expect(await scriptListed("TS_BCovUnknown")).toBe(false);
+  }, 60_000);
+
+  it("script_create refuses an op or target the value's type cannot meet", async () => {
+    const r = await refusedWith("pie_script_create", {
+      name: "TS_BCovTypes", package_path: DIR,
+      steps: [
+        { instruction: "A bool compared as a number", expect: { value: "bCanBeDamaged", op: "gt", target: 0 } },
+        { instruction: "A float against true", expect: { value: "BaseEyeHeight", op: "gt", target: true } },
+        { instruction: "exists against 2", expect: { value: CUBE, op: "exists", target: 2 } },
+        { instruction: "A bool against true", expect: { value: "bCanBeDamaged", op: "eq", target: true } },
+      ],
+    });
+    expect(r.errors.map((e) => [e.step, e.field])).toEqual([[0, "expect.op"], [1, "expect.target"], [2, "expect.target"]]);
+    expect(r.errors[0].candidates).toEqual(["eq"]);
+    expect(await scriptListed("TS_BCovTypes")).toBe(false);
+  }, 30_000);
+
+  it("resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step", async () => {
+    const later = `${DIR}/TS_BCovLater`;
+    const spawned = { instruction: "The spawned helper appears", expect: { value: "BP_BCovSpawnedLater", op: "exists" } };
+    expect((await refusedWith("pie_script_create", { name: "TS_BCovLater", package_path: DIR, steps: [spawned] })).errors[0])
+      .toMatchObject({ step: 0, field: "expect.value" });
+
+    const created = await call("pie_script_create", { name: "TS_BCovLater", package_path: DIR, steps: [{ ...spawned, resolve_in_pie: true }] });
+    expect(created.created).toBe(true);
+    const read = await call("pie_script_read", { path: later });
+    expect((read.steps as Json[])[0]).toMatchObject({ resolve_in_pie: true, expect: { value: "BP_BCovSpawnedLater", op: "exists" } });
+
+    // An update naming an unreadable value is refused and leaves the stored steps alone.
+    const bad = await refusedWith("pie_script_update", {
+      path: later, steps: [{ instruction: "Typo", expect: { value: "BaseEyeHieght", op: "lt", target: 500 } }],
+    });
+    expect(bad.errors[0]).toMatchObject({ step: 0, field: "expect.value" });
+    expect(((await call("pie_script_read", { path: later })).steps as Json[])[0].resolve_in_pie).toBe(true);
+    await call("pie_script_delete", { path: later, confirm: true });
+  }, 60_000);
+
+  it("script_create refuses a script with no auto step unless it is manual_only", async () => {
+    const manual = [{ instruction: "Does the menu feel right?", judge: "manual" }];
+    const r = await refusedWith("pie_script_create", { name: "TS_BCovManual", package_path: DIR, steps: manual });
+    expect(r.errors).toEqual([expect.objectContaining({ step: null, field: "steps" })]);
+    expect(await scriptListed("TS_BCovManual")).toBe(false);
+
+    const created = await call("pie_script_create", { name: "TS_BCovManual", package_path: DIR, steps: manual, manual_only: true });
+    expect(created.created).toBe(true);
+    expect((await call("pie_script_read", { path: `${DIR}/TS_BCovManual` })).manual_only).toBe(true);
+    await call("pie_script_delete", { path: `${DIR}/TS_BCovManual`, confirm: true });
   }, 30_000);
 });
 

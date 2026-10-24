@@ -12806,6 +12806,16 @@
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses a script with no auto step unless it is manual_only"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_create refuses a step whose expectation cannot be evaluated"
         },
         {
@@ -12824,6 +12834,16 @@
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses a script with no auto step unless it is manual_only"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_create, script_read, script_update, script_list and script_delete round-trip one asset"
         }
       ]
@@ -12837,6 +12857,26 @@
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses a script with no auto step unless it is manual_only"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses a step whose expectation cannot be evaluated"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses a value the observer cannot read, naming the step, the value and the closest candidates"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses an op or target the value's type cannot meet"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_create, script_read, script_update, script_list and script_delete round-trip one asset"
         }
       ]
@@ -12847,6 +12887,16 @@
       "registeredIn": "PIEHandlers_Script.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create refuses a script with no auto step unless it is manual_only"
+        },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
