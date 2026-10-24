@@ -457,7 +457,49 @@ Preview what a flow will do without running it:
 flow(action="plan", flowName="setup_scene")
 ```
 
-Returns each step with its task name, type, and skip status.
+Returns each step with its task name, type, and skip status, the flow as declared under `definition`, and the flow's `inputs`. `GET /flows/<name>/plan` on the flow HTTP server, and `GET /v1/flows/<name>/plan` on the daemon, return the same body.
+
+### Inputs
+
+`inputs` lists the parameters a run may pass in `params`. It is derived from the steps, so a flow author writes nothing for it. Each step task's parameters come from its action's schema, overlaid field by field by the task's `options_schema` where one is declared. A task that is not an action and declares no schema falls back to the `Params:` clause of its description.
+
+A parameter is an input when at least one step that reads it leaves it unset. A step sets a parameter through its own `options`, its task definition's `options`, a nesting flow step's override map, an alias of the parameter, or the other side of a choice (`actorLabel OR actorPath`). A parameter every step sets is not an input. Routing parameters (`editor`, `timeoutMs`, `select`, `omit`) never are. Nested flows contribute their own inputs, and hook steps (`on_start`, `on_success`, `on_failure`, `finally`) count too.
+
+| Field | Meaning |
+|-------|---------|
+| `name` | The key to pass in `params`. |
+| `type` | The parameter's type. When the steps disagree it is an array of every type, and `conflict: true` is set. |
+| `conflict` | Present, and `true`, when two steps type the parameter differently or allow no common `enum` value. |
+| `description` | From the first step that describes it. |
+| `enum` | The values every step reading it allows. |
+| `default` | The first default a step declares. |
+| `required` | A step reading it requires it and no step declares a default. |
+| `steps` | The steps that read it: `path` (`3`, `2/1` inside step 2's nested flow, `on_start/1` for a hook step), `task`, and the `flow` the step is declared in. |
+
+Required inputs come first, then the rest in the order the run meets them.
+
+```json
+{
+  "inputs": [
+    {
+      "name": "target",
+      "type": "string",
+      "description": "Asset path of the Blueprint to test, or a description of it to search for.",
+      "required": true,
+      "steps": [{ "path": "1", "task": "playtest.gather", "flow": "playtest" }]
+    },
+    {
+      "name": "package_path",
+      "type": "string",
+      "description": "Content folder the script is saved in.",
+      "required": false,
+      "steps": [{ "path": "8", "task": "playtest.save", "flow": "playtest" }]
+    }
+  ]
+}
+```
+
+Run params merge into every step's options, so a parameter the flow sets everywhere can still be overridden by passing it. `inputs` lists what the flow leaves open, not everything a run could override.
 
 ## Built-in Flows
 

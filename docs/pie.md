@@ -182,6 +182,8 @@ A predicate binds a channel or event to an operator under a temporal quantifier:
 
 A scenario's act steps are `replay`, `inject_tape`, `drive`, `goto`, `face`, `follow` and `call`. Arrange steps `spawn`, `set` and `call` arrange live actors; a `call` runs in the PIE instance that owns the actor.
 
+A test script step takes the same arrange entries, applied by the code that applies a scenario's, and an `act` of the step actions `uat_run` drives in a step's `do` (`place`, `press`, `inject`, `hold`, `tape`, `console`, `capture`, `wait_ms`), run by the same executor. The step runs `arrange`, then `act`, then opens its `expect` window, so a script runs end to end with no agent: `place` the player at the door, `press` Interact, expect `Door.OpenAngle gt 80`. See [Arrange and act](pie-scripts.md#arrange-and-act).
+
 ### Observation profiles
 
 | Action | Purpose |

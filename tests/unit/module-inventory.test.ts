@@ -213,6 +213,7 @@ const SESSION_INDEPENDENT: Record<string, string> = {
   "flow/model-provider.ts": "One process-wide model for flow agent steps, registered by a daemon extension or read from the environment. No editor is involved.",
   "flow/agent-step.ts": "Puts the resolved model on an agent step's context. No editor is involved.",
   "flow/rollback.ts": "Pure shaping of a rollback record.",
+  "flow/flow-inputs.ts": "Pure derivation of a flow's inputs from the tool graph and config it is handed.",
   "flow/handler-outcome.ts": "Pure reading of a handler's own verdict off the body it answered with.",
   "flow/write-methods.ts": "Pure classification of a bridge call against the recorded handler specs.",
 
