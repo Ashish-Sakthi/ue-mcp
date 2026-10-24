@@ -209,23 +209,23 @@ bool FPIEScriptSequencingTest::RunTest(const FString& /*Parameters*/)
 
 	bool bUnchanged = false;
 	FString Err;
-	TestFalse(TEXT("verdict on auto step refused"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("action"), bUnchanged, Err));
-	TestFalse(TEXT("verdict on pending step refused"), ApplyScriptVerdict(Run, 3, TEXT("pass"), FString(), TEXT("action"), bUnchanged, Err));
-	TestFalse(TEXT("unknown verdict refused"), ApplyScriptVerdict(Run, 1, TEXT("maybe"), FString(), TEXT("action"), bUnchanged, Err));
-	TestFalse(TEXT("unknown source refused"), ApplyScriptVerdict(Run, 1, TEXT("pass"), FString(), TEXT("chat"), bUnchanged, Err));
-	TestFalse(TEXT("out of range refused"), ApplyScriptVerdict(Run, 9, TEXT("pass"), FString(), TEXT("action"), bUnchanged, Err));
+	TestFalse(TEXT("verdict on auto step refused"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("action"), FScriptVerdictEvidence(), bUnchanged, Err));
+	TestFalse(TEXT("verdict on pending step refused"), ApplyScriptVerdict(Run, 3, TEXT("pass"), FString(), TEXT("action"), FScriptVerdictEvidence(), bUnchanged, Err));
+	TestFalse(TEXT("unknown verdict refused"), ApplyScriptVerdict(Run, 1, TEXT("maybe"), FString(), TEXT("action"), FScriptVerdictEvidence(), bUnchanged, Err));
+	TestFalse(TEXT("unknown source refused"), ApplyScriptVerdict(Run, 1, TEXT("pass"), FString(), TEXT("chat"), FScriptVerdictEvidence(), bUnchanged, Err));
+	TestFalse(TEXT("out of range refused"), ApplyScriptVerdict(Run, 9, TEXT("pass"), FString(), TEXT("action"), FScriptVerdictEvidence(), bUnchanged, Err));
 
-	TestTrue(TEXT("verdict 1"), ApplyScriptVerdict(Run, 1, TEXT("pass"), TEXT("flash ok"), TEXT("elicitation"), bUnchanged, Err));
+	TestTrue(TEXT("verdict 1"), ApplyScriptVerdict(Run, 1, TEXT("pass"), TEXT("flash ok"), TEXT("elicitation"), FScriptVerdictEvidence(), bUnchanged, Err));
 	TestFalse(TEXT("first verdict changes"), bUnchanged);
 	TestEqual(TEXT("verdict source stored"), Run.Steps[1].VerdictSource, FString(TEXT("elicitation")));
-	TestTrue(TEXT("repeat verdict"), ApplyScriptVerdict(Run, 1, TEXT("pass"), TEXT("flash ok"), TEXT("elicitation"), bUnchanged, Err));
+	TestTrue(TEXT("repeat verdict"), ApplyScriptVerdict(Run, 1, TEXT("pass"), TEXT("flash ok"), TEXT("elicitation"), FScriptVerdictEvidence(), bUnchanged, Err));
 	TestTrue(TEXT("repeat verdict unchanged"), bUnchanged);
 
 	AdvanceScriptRun(Run, 32.0, 2, Reader);
 	TestTrue(TEXT("still blocked on step 2"), Run.State == EScriptRunState::AwaitingVerdict);
 	TestTrue(TEXT("step 3 not started while blocked"), Run.Steps[3].Status == EScriptStepStatus::Pending);
 
-	TestTrue(TEXT("verdict 2"), ApplyScriptVerdict(Run, 2, TEXT("fail"), TEXT("silent"), TEXT("action"), bUnchanged, Err));
+	TestTrue(TEXT("verdict 2"), ApplyScriptVerdict(Run, 2, TEXT("fail"), TEXT("silent"), TEXT("action"), FScriptVerdictEvidence(), bUnchanged, Err));
 	AdvanceScriptRun(Run, 48.0, 3, Reader);
 	TestTrue(TEXT("step 2 failed by verdict"), Run.Steps[2].Status == EScriptStepStatus::Failed);
 	TestTrue(TEXT("step 3 running"), Run.Steps[3].Status == EScriptStepStatus::Running);
@@ -259,7 +259,7 @@ bool FPIEScriptSequencingTest::RunTest(const FString& /*Parameters*/)
 	TestTrue(TEXT("non-blocking: auto step passed"), Loose.Steps[1].Status == EScriptStepStatus::Passed);
 	TestTrue(TEXT("non-blocking: run awaits remaining verdict"), Loose.State == EScriptRunState::AwaitingVerdict);
 	TestFalse(TEXT("non-blocking: not settled"), IsScriptRunSettled(Loose));
-	TestTrue(TEXT("non-blocking: skip verdict"), ApplyScriptVerdict(Loose, 0, TEXT("skip"), FString(), FString(), bUnchanged, Err));
+	TestTrue(TEXT("non-blocking: skip verdict"), ApplyScriptVerdict(Loose, 0, TEXT("skip"), FString(), FString(), FScriptVerdictEvidence(), bUnchanged, Err));
 	TestTrue(TEXT("non-blocking: skipped"), Loose.Steps[0].Status == EScriptStepStatus::Skipped);
 	TestEqual(TEXT("default source is action"), Loose.Steps[0].VerdictSource, FString(TEXT("action")));
 	TestTrue(TEXT("non-blocking: settled"), IsScriptRunSettled(Loose));
@@ -300,7 +300,7 @@ bool FPIEScriptResultsRoundTripTest::RunTest(const FString& /*Parameters*/)
 	AdvanceScriptRun(Run, 500.0, 30, Reader);
 	bool bUnchanged = false;
 	FString Err;
-	ApplyScriptVerdict(Run, 1, TEXT("pass"), TEXT("yes"), TEXT("action"), bUnchanged, Err);
+	ApplyScriptVerdict(Run, 1, TEXT("pass"), TEXT("yes"), TEXT("action"), FScriptVerdictEvidence(), bUnchanged, Err);
 	AdvanceScriptRun(Run, 600.0, 36, Reader);
 	Run.State = EScriptRunState::Finished;
 
@@ -390,6 +390,117 @@ bool FPIEScriptReplayModelTest::RunTest(const FString& /*Parameters*/)
 	const TSharedRef<FJsonObject> Json = ScriptRunToResultsJson(Replay);
 	FString ReplayOf;
 	TestTrue(TEXT("results carry replay_of"), Json->TryGetStringField(TEXT("replay_of"), ReplayOf) && ReplayOf == Source.RunId);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FPIEScriptAgentVerdictTest,
+	"UE.MCP.PIE.Script.AgentVerdict",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FPIEScriptAgentVerdictTest::RunTest(const FString& /*Parameters*/)
+{
+	using namespace MCPPIEScriptTests;
+
+	// agent_judgeable parses on manual steps, defaults true, and is refused on auto steps.
+	FScriptStepDef Def;
+	FString Err;
+	TestTrue(TEXT("agent_judgeable false parses"), ParseScriptStepJson(
+		ParseJsonValue(TEXT("{\"instruction\":\"Feels right?\",\"judge\":\"manual\",\"agent_judgeable\":false}")), 0, Def, Err));
+	TestFalse(TEXT("agent_judgeable stored"), Def.bAgentJudgeable);
+	bool bWritten = true;
+	TestTrue(TEXT("agent_judgeable written back"), ScriptStepDefToJson(Def)->TryGetBoolField(TEXT("agent_judgeable"), bWritten));
+	TestFalse(TEXT("agent_judgeable written false"), bWritten);
+	TestTrue(TEXT("manual default parses"), ParseScriptStepJson(ParseJsonValue(TEXT("{\"instruction\":\"Ok?\",\"judge\":\"manual\"}")), 0, Def, Err));
+	TestTrue(TEXT("agent_judgeable defaults true"), Def.bAgentJudgeable);
+	TestFalse(TEXT("agent_judgeable false on auto refused"), ParseScriptStepJson(
+		ParseJsonValue(TEXT("{\"instruction\":\"x\",\"agent_judgeable\":false}")), 0, Def, Err));
+	TestFalse(TEXT("agent_judgeable non-boolean refused"), ParseScriptStepJson(
+		ParseJsonValue(TEXT("{\"instruction\":\"x\",\"judge\":\"manual\",\"agent_judgeable\":\"no\"}")), 0, Def, Err));
+
+	FScriptStepDef HumanOnly = ManualStep(TEXT("Feels right?"));
+	HumanOnly.bAgentJudgeable = false;
+	FScriptRun Run;
+	Run.RunId = TEXT("script_agent_20260101_000000");
+	Run.bBlockOnManual = false;
+	InitScriptRun(Run, { ManualStep(TEXT("Door is open?")), HumanOnly, ManualStep(TEXT("Lights on?")) });
+	Run.State = EScriptRunState::Running;
+	auto Reader = [](const FScriptExpect&, double& Out) { Out = 0.0; return true; };
+	AdvanceScriptRun(Run, 0.0, 0, Reader);
+	TestEqual(TEXT("all three awaiting"), ScriptAwaitingSteps(Run).Num(), 3);
+
+	FScriptVerdictEvidence Evidence;
+	bool bUnchanged = false;
+	TestFalse(TEXT("agent verdict without evidence refused"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("agent"), Evidence, bUnchanged, Err));
+	Evidence.Note = TEXT("   ");
+	TestFalse(TEXT("agent verdict with a blank note refused"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("agent"), Evidence, bUnchanged, Err));
+	Evidence.Note = TEXT("Door.OpenAngle read 85 in the capture");
+	Evidence.Captures = { TEXT("C:/Shots/door.png") };
+	TestFalse(TEXT("agent verdict on a human-only step refused"), ApplyScriptVerdict(Run, 1, TEXT("pass"), FString(), TEXT("agent"), Evidence, bUnchanged, Err));
+	TestTrue(TEXT("refusal names agent_judgeable"), Err.Contains(TEXT("agent_judgeable")));
+	TestTrue(TEXT("human-only step still awaiting"), Run.Steps[1].Status == EScriptStepStatus::AwaitingVerdict);
+
+	TestTrue(TEXT("agent verdict with evidence"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("agent"), Evidence, bUnchanged, Err));
+	TestEqual(TEXT("agent source recorded"), Run.Steps[0].VerdictSource, FString(TEXT("agent")));
+	TestEqual(TEXT("evidence note recorded"), Run.Steps[0].Evidence.Note, Evidence.Note);
+	TestEqual(TEXT("evidence captures recorded"), Run.Steps[0].Evidence.Captures.Num(), 1);
+	TestTrue(TEXT("repeat agent verdict unchanged"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("agent"), Evidence, bUnchanged, Err) && bUnchanged);
+
+	TestTrue(TEXT("human verdict on the human-only step"), ApplyScriptVerdict(Run, 1, TEXT("fail"), TEXT("jarring"), TEXT("human"), FScriptVerdictEvidence(), bUnchanged, Err));
+	TestEqual(TEXT("human source recorded as action"), Run.Steps[1].VerdictSource, FString(TEXT("action")));
+	TestTrue(TEXT("elicitation verdict"), ApplyScriptVerdict(Run, 2, TEXT("skip"), FString(), TEXT("elicitation"), FScriptVerdictEvidence(), bUnchanged, Err));
+
+	const FScriptSummary S = SummarizeScriptRun(Run);
+	TestEqual(TEXT("one agent verdict"), S.AgentVerdicts, 1);
+	TestEqual(TEXT("two human verdicts"), S.HumanVerdicts, 2);
+
+	// The verdict event carries the source and the evidence.
+	const FScriptEvent* AgentEvent = nullptr;
+	for (const FScriptEvent& E : Run.Events)
+	{
+		if (E.Type == TEXT("verdict") && E.Step == 0) AgentEvent = &E;
+	}
+	TestNotNull(TEXT("agent verdict event"), AgentEvent);
+	if (AgentEvent && AgentEvent->Data.IsValid())
+	{
+		FString Source;
+		TestTrue(TEXT("event verdict_source agent"), AgentEvent->Data->TryGetStringField(TEXT("verdict_source"), Source) && Source == TEXT("agent"));
+		const TSharedPtr<FJsonObject>* Ev = nullptr;
+		TestTrue(TEXT("event carries evidence"), AgentEvent->Data->TryGetObjectField(TEXT("evidence"), Ev) && Ev);
+	}
+
+	// A human verdict replacing the agent's clears the agent evidence.
+	TestTrue(TEXT("human replaces agent"), ApplyScriptVerdict(Run, 0, TEXT("fail"), TEXT("it is ajar"), TEXT("human"), FScriptVerdictEvidence(), bUnchanged, Err));
+	TestTrue(TEXT("evidence cleared"), Run.Steps[0].Evidence.Note.IsEmpty() && Run.Steps[0].Evidence.Captures.Num() == 0);
+	TestEqual(TEXT("counts follow the replacement"), SummarizeScriptRun(Run).AgentVerdicts, 0);
+	TestTrue(TEXT("agent again"), ApplyScriptVerdict(Run, 0, TEXT("pass"), FString(), TEXT("agent"), Evidence, bUnchanged, Err));
+
+	// results.json round trip keeps the source, the evidence, the flag and the counts.
+	Run.State = EScriptRunState::Finished;
+	const TSharedRef<FJsonObject> Json = ScriptRunToResultsJson(Run);
+	const TSharedPtr<FJsonObject>* Summary = nullptr;
+	double AgentCount = -1.0, HumanCount = -1.0;
+	TestTrue(TEXT("summary present"), Json->TryGetObjectField(TEXT("summary"), Summary) && Summary);
+	if (Summary)
+	{
+		TestTrue(TEXT("summary agent_verdicts"), (*Summary)->TryGetNumberField(TEXT("agent_verdicts"), AgentCount) && AgentCount == 1.0);
+		TestTrue(TEXT("summary human_verdicts"), (*Summary)->TryGetNumberField(TEXT("human_verdicts"), HumanCount) && HumanCount == 2.0);
+	}
+	FScriptRun Back;
+	TestTrue(TEXT("results parse back"), ScriptRunFromResultsJson(Json, Back, Err));
+	if (Back.Steps.Num() == 3)
+	{
+		TestEqual(TEXT("source round trips"), Back.Steps[0].VerdictSource, FString(TEXT("agent")));
+		TestEqual(TEXT("note round trips"), Back.Steps[0].Evidence.Note, Evidence.Note);
+		TestEqual(TEXT("captures round trip"), Back.Steps[0].Evidence.Captures, Evidence.Captures);
+		TestFalse(TEXT("agent_judgeable round trips"), Back.Steps[1].Def.bAgentJudgeable);
+		TestTrue(TEXT("agent_judgeable default round trips"), Back.Steps[2].Def.bAgentJudgeable);
+	}
+
+	// A replay keeps the agent's evidence on the carried verdict.
+	FScriptRun Replay;
+	PrepareScriptReplayRun(Back, 0.0, Replay);
+	TestEqual(TEXT("replay keeps evidence"), Replay.Steps[0].Evidence.Note, Evidence.Note);
 	return true;
 }
 
