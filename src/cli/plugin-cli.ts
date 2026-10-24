@@ -69,6 +69,7 @@ import { packageVersion } from "../core/package-root.js";
 import { deriveDefaultPrefix, deriveUePluginName, writeScaffold } from "../extensions/plugin-scaffold.js";
 import { ProjectContext } from "../config/project.js";
 import { registryBase } from "../extensions/registry-catalog.js";
+import { isSuperseded, supersededByName, supersededMessage } from "../extensions/superseded.js";
 import { chooseListing, derivedListingFields, listingDiff } from "../extensions/publish-listing.js";
 import { findUProject, projectDirOf } from "../config/uproject-path.js";
 
@@ -209,6 +210,7 @@ function resolveFromRegistry(name: string): string | null {
 function cmdInstall(args: string[], editor: string | undefined): void {
   const requested = args.shift();
   if (!requested) fail("usage: ue-mcp plugin install <name> [--version x.y.z]");
+  refuseSuperseded(requested);
 
   let version: string | undefined;
   for (let i = 0; i < args.length; i++) {
@@ -219,6 +221,7 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   // names install verbatim, so plain npm packages keep working.
   const resolved = resolveFromRegistry(requested);
   const name = resolved ?? requested;
+  refuseSuperseded(name);
   if (resolved && resolved !== requested) {
     note(`resolved '${requested}' -> '${name}' via the registry`);
   }
@@ -227,6 +230,12 @@ function cmdInstall(args: string[], editor: string | undefined): void {
   const installed = installPackage(proj, name, version, version);
   if (installed.nativeDeployed) note(REBUILD_NOTE);
   printInstallSummary(installed.name, installed.manifest);
+}
+
+/** Fail before npm runs when the package now ships in core. */
+function refuseSuperseded(name: string): void {
+  const hit = supersededByName(name);
+  if (hit) fail(supersededMessage(hit[0], hit[1], "installed"));
 }
 
 /** What one run of the install path did. */
@@ -484,6 +493,11 @@ function cmdList(editor: string | undefined): void {
     return;
   }
   for (const entry of list) {
+    const superseded = supersededByName(entry.name);
+    if (superseded) {
+      console.log(`  ${entry.name} - SKIPPED: ${supersededMessage(superseded[0], superseded[1])}`);
+      continue;
+    }
     const pkgDir = findInstalledPackage(entry.name, proj.projectDir);
     if (!pkgDir) {
       console.log(`  ${entry.name}${entry.version ? `@${entry.version}` : ""} - MISSING (not in node_modules)`);
@@ -588,9 +602,16 @@ function cmdUpdate(args: string[], editor: string | undefined): void {
     if (args[i] === "--version") version = args[++i];
     else if (!args[i].startsWith("-")) requested ??= args[i];
   }
+  if (requested) refuseSuperseded(requested);
   const proj = findProjectDir(projectStartDir(editor));
   const nativeState = readNativeModulesState(proj.projectDir);
-  const plan = planPluginUpdates(readPluginsList(proj.configPath), requested, version, {
+  const declared = readPluginsList(proj.configPath);
+  // A plugin that ships in core is never reinstalled; removing it is the only step left.
+  for (const e of declared) {
+    const hit = supersededByName(e.name);
+    if (hit) note(`WARNING: ${supersededMessage(hit[0], hit[1])}`);
+  }
+  const plan = planPluginUpdates(declared.filter((e) => !isSuperseded(e.name)), requested, version, {
     installed: (name) => {
       const dir = findInstalledPackage(name, proj.projectDir);
       return dir ? installedVersion(dir) : undefined;

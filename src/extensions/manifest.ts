@@ -101,11 +101,11 @@ const FlowEntrySchema = z.object({
  * MCPHandlerRegistration.h shipped under the bridge's Public/).
  *
  *   nativeModule:
- *     uePluginName: PIE_Studio
+ *     uePluginName: Sample_Recorder
  *     minBridgeApi: 1
- *     source: ue/Plugins/PIE_Studio
+ *     source: ue/Plugins/Sample_Recorder
  *     handlers:
- *       inject_input: { description: "..." }
+ *       record_start: { description: "..." }
  */
 const NativeModuleSchema = z.object({
   uePluginName: z.string().min(1),
