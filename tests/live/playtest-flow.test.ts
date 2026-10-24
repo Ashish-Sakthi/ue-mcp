@@ -76,7 +76,8 @@ describe("the playtest flow on tests/ue_mcp", () => {
       action: "run",
       flowName: "playtest",
       params: { target: "/Script/Engine.DefaultPawn", context: "the camera height of the default pawn", name: NAME, package_path: DIR },
-    }, 300_000);
+      timeoutMs: 300_000,
+    });
     const run = resultJson<{ success: boolean; steps: Json[] }>(result);
     expect(run.success, result.text).toBe(true);
 
