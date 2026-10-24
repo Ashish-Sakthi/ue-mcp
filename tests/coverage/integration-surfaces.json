@@ -297,6 +297,11 @@
       "summary": "the in-process server in the micro strategy advertises the tools gateway and flow, with the micro instructions"
     },
     {
+      "id": "server.checkpoints",
+      "group": "server",
+      "summary": "editor(checkpoint, list_checkpoints, list_changes, restore) record and restore files written through the server with no editor running"
+    },
+    {
       "id": "server.startup.lean.in-process",
       "group": "server",
       "summary": "the in-process server in the lean strategy advertises the catalog tool and trimmed category tools"
@@ -437,6 +442,11 @@
       "summary": "UE_MCP_ENV or env: selects ue-mcp.<env>.yml"
     },
     {
+      "id": "config.checkpoints",
+      "group": "config",
+      "summary": "checkpoints are off unless ue-mcp.yml sets checkpoints: on, and the daemon overrides that per session"
+    },
+    {
       "id": "version-check.notice",
       "group": "config",
       "summary": "a newer published version adds a one-time upgrade notice to the next tool result"
@@ -520,6 +530,11 @@
       "id": "daemon.update",
       "group": "daemon",
       "summary": "the daemon reports and applies bridge updates over /v1/update"
+    },
+    {
+      "id": "daemon.checkpoints",
+      "group": "daemon",
+      "summary": "the daemon's /v1/checkpoints routes create, list, diff, restore and clear checkpoints, arm the editor's save recording and publish checkpoint events, without touching the project's .git"
     },
     {
       "id": "package.dist-server",
