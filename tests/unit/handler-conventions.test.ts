@@ -114,6 +114,10 @@ const KNOWN_ORPHANS: Record<string, string> = {
     "editor(play_in_editor_ignore_blueprint_errors) calls it only after its approval gate, so no action "
     + "declares it and play_in_editor's pie_control never reads an authorization (#1057).",
   request_editor_shutdown: "editor(stop_editor) drives it through the lifecycle path.",
+  checkpoint_arm: "The checkpoint service calls it on every connect and checkpoint to point save recording at a fresh generation (#1482).",
+  checkpoint_prepare_restore: "editor(restore) calls it before writing files back (#1482).",
+  checkpoint_finish_restore: "editor(restore) calls it after writing files back (#1482).",
+  checkpoint_diff_blueprint: "editor(list_changes) calls it per modified Blueprint package (#1482).",
   search_assets: "asset(search) supersedes it.",
   add_instances: "level(add_hismc_instances) is the shipped spelling.",
   list_sockets: "asset(list_sockets) reaches it under a different bridge name.",
