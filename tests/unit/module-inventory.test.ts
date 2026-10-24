@@ -69,6 +69,7 @@ const PER_SESSION: Record<string, string> = {
   "server/runtime.ts": "Owns the session registry, each session's load, guards and bridge, and the targeting baked into the tool graph.",
   "server/mcp-server.ts": "Dispatches each MCP connection's calls through the runtime's sessions.",
   "daemon/daemon.ts": "One daemon per project root: it owns that project's runtime and follows each of its editors.",
+  "daemon/checkpoint-routes.ts": "Resolves the editor session each request names before acting on its checkpoints.",
   "checkpoints/service.ts": "One checkpoint state per editor session: its toggle, its bridge's save recording and its project's history.",
   "checkpoints/shadow-repo.ts": "One project's shadow history, constructed with that project's directory and never another's.",
   "daemon/discovery.ts": "Publishes and reads the discovery record of one project root's daemon.",
