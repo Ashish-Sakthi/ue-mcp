@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1205,
+  "handlerCount": 1206,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -41149,6 +41149,56 @@
           "description": "Enable world bounds checks"
         }
       ]
+    },
+    "show_notification": {
+      "category": "editor",
+      "params": [
+        {
+          "name": "text",
+          "type": "string",
+          "required": true,
+          "description": "Headline of the toast"
+        },
+        {
+          "name": "subText",
+          "type": "string",
+          "required": false,
+          "description": "Second line under the headline"
+        },
+        {
+          "name": "durationS",
+          "type": "number",
+          "required": false,
+          "description": "Seconds before the toast fades (default 8)",
+          "minimum": 1,
+          "maximum": 600
+        },
+        {
+          "name": "severity",
+          "type": "string",
+          "required": false,
+          "description": "Icon and colour of the toast (default info)",
+          "enum": [
+            "info",
+            "success",
+            "warning",
+            "error"
+          ]
+        },
+        {
+          "name": "hyperlinkText",
+          "type": "string",
+          "required": false,
+          "description": "Link label on the toast. Needs hyperlinkUrl"
+        },
+        {
+          "name": "hyperlinkUrl",
+          "type": "string",
+          "required": false,
+          "description": "http or https URL the link opens in the default browser"
+        }
+      ],
+      "contractExempt": "shows an editor toast"
     },
     "simulate_procedural_foliage": {
       "category": "foliage",
