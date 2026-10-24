@@ -12124,6 +12124,11 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/bcov-pie-scripts.test.ts",
+          "test": "verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/bcov-pie-session.test.ts",
           "test": "a recorded and observed session"
         },
@@ -12882,6 +12887,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_stop ends a run early and leaves the unsettled steps pending"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-scripts.test.ts",
+          "test": "verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts"
         }
       ]
     },
@@ -12900,6 +12910,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_stop ends a run early and leaves the unsettled steps pending"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-scripts.test.ts",
+          "test": "verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts"
         }
       ]
     },
@@ -12928,6 +12943,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_stop ends a run early and leaves the unsettled steps pending"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-scripts.test.ts",
+          "test": "verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts"
         }
       ]
     },
@@ -12967,6 +12987,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_run evaluates auto steps live, holds at the manual step, and takes its verdict"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-scripts.test.ts",
+          "test": "verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts"
         }
       ]
     },
