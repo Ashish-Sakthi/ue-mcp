@@ -130,7 +130,8 @@ const ciGreen = async () => {
 const editorLane = pluginChanged
   ? [["up", npm, ["run", "up"]], ["smoke", node, ["scripts/smoke-test.js", "--uncovered"]], ["automation", npm, ["run", "test:automation"]], ["down", node, ["scripts/stop-editor.mjs"]]]
   : [];
-const besideLive = lifecycleChanged ? [["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]] : [];
+// The lifecycle cases attach to a running editor and stop, crash and restart it.
+const besideLive = lifecycleChanged ? [["up-lifecycle", npm, ["run", "up"]], ["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]] : [];
 
 const lanes = [
   lane([
