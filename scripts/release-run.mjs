@@ -90,7 +90,7 @@ if (tryRun("gh", ["release", "view", `v${version}`, "--json", "isDraft", "--jq",
   sh("gh", ["release", "create", `v${version}`, "--draft", "--notes-file", notes, "--title", `v${version}`]);
 }
 git("push", "-u", "origin", branch, "--force");
-const pr = tryRun("gh", ["pr", "view", branch, "--json", "url", "--jq", "select(.state == \"OPEN\") | .url"])
+const pr = tryRun("gh", ["pr", "view", branch, "--json", "url,state", "--jq", "select(.state == \"OPEN\") | .url"])
   || sh("gh", ["pr", "create", "--base", "main", "--head", branch, "--title", `chore(release): ${version}`, "--body", `Release ${version}.`]);
 console.log(`${stamp()} pull request ${pr}`);
 
