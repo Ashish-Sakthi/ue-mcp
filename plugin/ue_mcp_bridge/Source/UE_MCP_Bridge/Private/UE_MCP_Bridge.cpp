@@ -4,6 +4,7 @@
 #include "EngineStatusHooks.h"
 #include "MCPEngineStatus.h"
 #include "Handlers/Dialog/DialogHandlers.h"
+#include "Handlers/PIE/PIEHandlers.h"
 #include "Editor.h"
 #include "Editor/EditorEngine.h"
 #include "HAL/PlatformMisc.h"
@@ -141,6 +142,9 @@ void FUE_MCP_BridgeModule::StartupModule()
 
 	FDialogHandlers::InstallDialogHook();
 
+	// Recorder, replayer, observer, script runner, the PIE Studio panel and its Record button.
+	FPIEHandlers::StartupSystems();
+
 	// NO POLICIES ARE ARMED HERE, AND NONE MAY BE.
 	//
 	// This module used to arm its own at load time - "Save Content", "Save
@@ -219,6 +223,7 @@ void FUE_MCP_BridgeModule::ShutdownModule()
 		G_EditorReadyTicker.Reset();
 	}
 	FDialogHandlers::RemoveDialogHook();
+	FPIEHandlers::ShutdownSystems();
 	// The snapshot itself outlives this module (its own module owns it and
 	// keeps publishing until PostConfigInit teardown); only the Slate and
 	// Engine sensors go away with us.
