@@ -124,13 +124,13 @@ const ciGreen = async () => {
   return run("ci", "gh", ["pr", "checks", pr, "--watch", "--fail-fast"]);
 };
 
-// The editor lanes use tests/ue_mcp itself and start once it is built; the live suite runs on
-// its own shard copies beside them.
-const editorLane = [];
-if (pluginChanged) {
-  editorLane.push(["up", npm, ["run", "up"]], ["smoke", node, ["scripts/smoke-test.js", "--uncovered"]], ["automation", npm, ["run", "test:automation"]]);
-}
-if (lifecycleChanged) editorLane.push(["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]);
+// tests/ue_mcp is built once, then the short editor lane (smoke over the actions no behavioural
+// test dispatches, and the UE.MCP.* suite) runs and closes its editor, so the live suite sizes its
+// shards to the whole machine. Lifecycle runs beside live on tests/ue_mcp itself.
+const editorLane = pluginChanged
+  ? [["up", npm, ["run", "up"]], ["smoke", node, ["scripts/smoke-test.js", "--uncovered"]], ["automation", npm, ["run", "test:automation"]], ["down", node, ["scripts/stop-editor.mjs"]]]
+  : [];
+const besideLive = lifecycleChanged ? [["lifecycle", npm, ["run", "test:live", "--", "--lifecycle"]]] : [];
 
 const lanes = [
   lane([
@@ -138,8 +138,8 @@ const lanes = [
     ["binaries-upload", npm, ["run", "binaries:upload"]],
   ]),
   (async () => {
-    if (!(await lane([["deploy", node, ["scripts/deploy.mjs"]], ["build", npm, ["run", "build"]]]))) return false;
-    const after = await Promise.all([lane([["live", npm, ["run", "test:live"]]]), editorLane.length ? lane(editorLane) : true]);
+    if (!(await lane([["deploy", node, ["scripts/deploy.mjs"]], ["build", npm, ["run", "build"]], ...editorLane]))) return false;
+    const after = await Promise.all([lane([["live", npm, ["run", "test:live"]]]), besideLive.length ? lane(besideLive) : true]);
     return after.every(Boolean);
   })(),
   ciGreen(),
