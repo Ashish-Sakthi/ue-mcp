@@ -1374,7 +1374,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "steps",
         "type": "array",
         "required": true,
-        "description": "Steps, run in order: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
+        "description": "Steps, run in order: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
         "items": "object"
       },
       {
@@ -1395,6 +1395,12 @@ export const handlerSpecs: HandlerSpecs = {
         "required": false,
         "description": "Default auto-step window in game ms (default 5000)",
         "minimum": 1
+      },
+      {
+        "name": "manual_only",
+        "type": "boolean",
+        "required": false,
+        "description": "Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"
       },
       {
         "name": "onConflict",
@@ -1538,7 +1544,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "steps",
         "type": "array",
         "required": false,
-        "description": "Inline steps instead of a script asset: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
+        "description": "Inline steps instead of a script asset: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
         "items": "object"
       },
       {
@@ -1682,7 +1688,7 @@ export const handlerSpecs: HandlerSpecs = {
         "name": "steps",
         "type": "array",
         "required": false,
-        "description": "Replacement steps: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
+        "description": "Replacement steps: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
         "items": "object"
       },
       {
@@ -1703,6 +1709,12 @@ export const handlerSpecs: HandlerSpecs = {
         "required": false,
         "description": "Default auto-step window in game ms",
         "minimum": 1
+      },
+      {
+        "name": "manual_only",
+        "type": "boolean",
+        "required": false,
+        "description": "Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"
       }
     ]
   },
@@ -2051,7 +2063,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   pie_replay_stop: "Params: none",
   pie_scenario_scaffold: "Params: recording_id?, recording_dir?, name?, max_errors?",
   pie_scenario_validate: "Params: scenario_path OR scenario",
-  pie_script_create: "Params: name, package_path?, steps, description?, profile?, default_within_ms?, onConflict?",
+  pie_script_create: "Params: name, package_path?, steps, description?, profile?, default_within_ms?, manual_only?, onConflict?",
   pie_script_delete: "Params: path, confirm?",
   pie_script_list: "Params: directory?",
   pie_script_read: "Params: path",
@@ -2060,7 +2072,7 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   pie_script_run: "Params: script OR steps, name?, profile?, record?, start_pie?, block_on_manual?, default_within_ms?, pie_instance?, client_id?, wait?, timeout_seconds?",
   pie_script_status: "Params: run_id?, since_seq?, wait?, timeout_seconds?",
   pie_script_stop: "Params: run_id?, reason?",
-  pie_script_update: "Params: path, steps?, description?, profile?, default_within_ms?",
+  pie_script_update: "Params: path, steps?, description?, profile?, default_within_ms?, manual_only?",
   pie_script_verdict: "Params: step, verdict, note?, run_id?, source?, evidence?",
   pie_session_errors: "Params: session?, session_dir?, min_verbosity?",
   pie_session_log: "Params: session?, session_dir?, min_verbosity?, category?, contains?, limit?, offset?",
@@ -2114,6 +2126,7 @@ export const schema: Record<string, z.ZodType> = {
   injection_id: z.string().optional().describe("Caller-chosen hold id (minted when absent) (pie_inject_input_start). Hold or tape id to stop (pie_inject_input_stop). Caller-chosen tape id (minted when absent) (pie_inject_input_tape). Hold id from inject_input_start (pie_inject_input_update). Alias for request_id (pie_remote_result)"),
   label: z.string().optional().describe("Marker label"),
   limit: z.number().int().min(1).optional().describe("Most rows (default 200) (pie_observe_list, pie_record_list, pie_session_log). csv/tracked: most rows (default 1000) (pie_observe_read). csv: most rows (default 1000) (pie_record_read)"),
+  manual_only: z.boolean().optional().describe("Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"),
   max_errors: z.number().int().min(0).optional().describe("no-errors predicate threshold (default 0) (pie_scenario_scaffold). Most errors logged during the run (default 0) (pie_test_scaffold)"),
   max_points: z.number().int().min(1).optional().describe("series: most values per channel (default 500)"),
   max_position_drift_cm: z.number().optional().describe("Most position drift allowed (default 10)"),
@@ -2158,7 +2171,7 @@ export const schema: Record<string, z.ZodType> = {
   source: z.enum(["human","agent","elicitation","action"]).optional().describe("Who judged the step: human (default) or agent. An agent verdict needs evidence and is refused on a step with agent_judgeable false. elicitation is the verdict form's human channel, action an alias of human"),
   start_pie: z.boolean().optional().describe("Start PIE when it is not running (default false)"),
   step: z.number().int().min(0).optional().describe("Manual step index, 0-based"),
-  steps: z.array(z.record(z.string(), z.unknown())).optional().describe("Inline step array, instead of a recording (pie_replay_arm, pie_replay_run). Steps, run in order: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_create). Inline steps instead of a script asset: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_run). Replacement steps: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_update)"),
+  steps: z.array(z.record(z.string(), z.unknown())).optional().describe("Inline step array, instead of a recording (pie_replay_arm, pie_replay_run). Steps, run in order: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_create). Inline steps instead of a script asset: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_run). Replacement steps: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_update)"),
   take_record: z.boolean().optional().describe("Also drive Take Recorder (default false)"),
   test_path: z.string().optional().describe("Scenario json whose predicates block is evaluated when assertions is omitted (pie_assert_eval). Explicit test.json path (pie_test_run)"),
   threshold: z.number().optional().describe("series: report the first frame where |value| exceeds this"),

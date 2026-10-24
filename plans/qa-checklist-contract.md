@@ -443,16 +443,53 @@ On a replay, manual steps carry the source verdict, note and evidence with `verd
 ## 5. Step format (script_create, script_update, inline steps)
 
 ```json
-{ "instruction": "string", "judge": "auto | manual", "agent_judgeable": true, "expect": { "value": "string", "op": "decreasing | increasing | eq | gt | lt | visible | exists", "target": 0, "within_ms": 3000 } }
+{ "instruction": "string", "judge": "auto | manual", "agent_judgeable": true, "resolve_in_pie": false, "expect": { "value": "string", "op": "decreasing | increasing | eq | gt | lt | visible | exists", "target": 0, "within_ms": 3000 } }
 ```
 
 - `instruction` is required. `judge` defaults to `auto`.
 - `agent_judgeable` applies to manual steps and defaults to `true`; `false` makes `pie(verdict)` refuse `source: "agent"` for the step. It is refused on an auto step. `script_read` and results write it on every manual step.
+- `resolve_in_pie` defaults to `false` and applies to a step with `expect`; it is refused on a step without one. `true` says `expect.value` only resolves once PIE is running (an actor spawned during play, a widget created at run time), so `script_create` and `script_update` do not resolve it (5.1). `script_read` and results write it only when `true`.
 - A manual step with `expect` is refused. An auto step without `expect` passes when it starts.
 - `target` is required for `eq`, `gt` and `lt`, refused for `decreasing` and `increasing`, and defaults to `true` for `visible` and `exists`. It is a number or a boolean; `script_read` and results write it back as a number for `eq`, `gt` and `lt`, and as a boolean for `visible` and `exists`.
 - `within_ms` 0 or absent uses the run's `default_within_ms`.
 
-Storage actions: `script_create { name, steps, package_path?, description?, profile?, default_within_ms?, onConflict? (skip | update | replace | error) }`, `script_read { path }`, `script_update { path, steps?, description?, profile?, default_within_ms? }`, `script_delete { path, confirm: true }`, `script_list { directory? }`.
+Storage actions: `script_create { name, steps, package_path?, description?, profile?, default_within_ms?, manual_only?, onConflict? (skip | update | replace | error) }`, `script_read { path }`, `script_update { path, steps?, description?, profile?, default_within_ms?, manual_only? }`, `script_delete { path, confirm: true }`, `script_list { directory? }`. `script_read` answers `path`, `name`, `description`, `profile`, `default_within_ms`, `manual_only`, `steps` and `step_count`.
+
+### 5.1 Draft-time checks
+
+`script_create` and `script_update` refuse a script the observer could not check, before it is saved. `script_update` checks the script as it would stand after the update whenever `steps`, `profile` or `manual_only` is given; a change to `description` or `default_within_ms` alone is not checked. Inline steps on `script_run` are not checked this way.
+
+- **`expect.value`** is resolved the way the observer reads it at run time, against the level open in the editor and the script's profile:
+  - For `decreasing`, `increasing`, `eq`, `gt` and `lt`: a profile tracked value, by its exact path or its last segment; otherwise a dotted reflection path on the player pawn (the pawn in the level that player 0 possesses, or the game mode's `DefaultPawnClass`), whose first segment may name a component; `sub:<Subsystem>.<path>` on a game instance, local player or world subsystem; or `bone:<bone or socket>.<channel>` and `bonecs:<bone or socket>.<channel>` on the pawn's skeletal mesh, channel one of `x`, `y`, `z`, `pitch`, `yaw`, `roll`, `scalex`, `scaley`, `scalez`. The path must end at a number, a bool or an enum.
+  - For `exists`: an actor in the level, by label, name or class, or a class the game mode spawns (pawn, controller, game state, player state, HUD).
+  - For `visible`: a widget class, a Widget Blueprint, or the name of a widget inside a Widget Blueprint under `/Game`.
+  - A step with `resolve_in_pie: true` is not resolved.
+- **`op` and `target`** are checked against the value's type. A bool takes only `eq`, with target `true` or `false` (or 1 or 0). An enum takes only `eq`, with a target that is one of its values. A number takes a number target, never `true` or `false`. An integer is refused a fractional `eq` target, an `eq` target outside its range, and a `gt` or `lt` target it can never pass. `visible` and `exists` take target `true` or `false` (or 1 or 0).
+- **Auto steps.** A script needs at least one auto step with an `expect`, unless it sets `manual_only: true`. The flag is stored on the script.
+- The profile must exist.
+
+A refusal lists every problem it found, so a client can hand the list back to the agent that drafted the script:
+
+```json
+{
+  "success": false,
+  "errorCode": "INVALID_SCRIPT_STEPS",
+  "error": "The script cannot be checked as written (2 problems): steps[0].expect.op: 'bCanBeDamaged' is a bool, and gt compares numbers; use eq with target true or false | steps[1].expect.value: 'BaseEyeHieght' cannot be read: DefaultPawn has no property or component named BaseEyeHieght (the observer reads it from the player pawn, DefaultPawn, the DefaultPawnClass of GameModeBase). If it only exists once PIE is running, set resolve_in_pie: true on the step.",
+  "errors": [
+    { "step": 0, "field": "expect.op", "message": "steps[0].expect.op: 'bCanBeDamaged' is a bool, and gt compares numbers; use eq with target true or false", "candidates": ["eq"] },
+    { "step": 1, "field": "expect.value", "message": "steps[1].expect.value: 'BaseEyeHieght' cannot be read: DefaultPawn has no property or component named BaseEyeHieght (the observer reads it from the player pawn, DefaultPawn, the DefaultPawnClass of GameModeBase). If it only exists once PIE is running, set resolve_in_pie: true on the step.", "candidates": ["BaseEyeHeight", "BaseTurnRate", "BaseLookUpRate", "bHidden", "bHiddenEd"] }
+  ]
+}
+```
+
+| Field | Type | |
+|---|---|---|
+| `step` | integer \| null | 0-based step index, or `null` for a problem with the script as a whole (`steps`, `profile`). |
+| `field` | string | The step field at fault: `instruction`, `judge`, `agent_judgeable`, `resolve_in_pie`, `expect`, `expect.value`, `expect.op`, `expect.target`, `expect.within_ms`; or `steps` or `profile` for the script. Empty when the step is not an object. |
+| `message` | string | What is wrong, starting `steps[<i>].<field>:` for a step problem. |
+| `candidates` | string[]? | Closest valid replacements, best first: property paths, actor labels, widget names, ops, enum values as `"<value> (<name>)"`, profile paths, or `manual_only` for a script with no auto step. Absent when there are none. |
+
+`error` joins every `message` with ` | `. Parse problems (a missing `instruction`, an unknown `op`, a missing `target`) come in the same list, one per step, and the steps that parsed are still checked.
 
 ## 6. A daemon extension
 

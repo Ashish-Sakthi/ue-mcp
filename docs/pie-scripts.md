@@ -19,6 +19,7 @@ Every action on this page is in the `pie` category.
 | `instruction` | string | Required. What the person does, or what they check. Shown on the verdict form for a manual step. |
 | `judge` | `auto` or `manual` | Default `auto`. `auto`: the bridge decides from `expect`. `manual`: the step waits for a verdict. |
 | `agent_judgeable` | boolean | Manual steps only, default `true`. `false` means only a person can give the verdict: `verdict` refuses `source: "agent"` for the step. Refused on an auto step. |
+| `resolve_in_pie` | boolean | Default `false`, and only on a step with `expect`. `true` means `expect.value` only exists once PIE is running, such as an actor spawned during play, so `script_create` and `script_update` do not check it against the level. |
 | `expect.value` | string | Required in `expect`. For `decreasing`, `increasing`, `eq`, `gt` and `lt`: a tracked value path, or its last segment. For `exists`: an actor id. For `visible`: a widget class or name. |
 | `expect.op` | string | Required in `expect`. One of the ops below. |
 | `expect.target` | number or boolean | Required for `eq`, `gt` and `lt`. Optional for `visible` and `exists`, default `true`; `false` asks for the opposite. Refused for `decreasing` and `increasing`. A boolean given to `eq`, `gt` or `lt` is read as 1 or 0. |
@@ -50,13 +51,38 @@ Scripts are data assets, saved under `/Game/PIEStudio/Scripts` unless you give a
 
 | Action | Params |
 |---|---|
-| `script_create` | `name`, `steps`, `package_path?`, `description?`, `profile?`, `default_within_ms?` (default 5000), `onConflict?` (`skip` (default), `update`, `replace` or `error`) |
-| `script_read` | `path`. Returns `path`, `name`, `description`, `profile`, `default_within_ms`, `steps` and `step_count`. |
-| `script_update` | `path`, and any of `steps`, `description`, `profile` (empty clears it), `default_within_ms` |
+| `script_create` | `name`, `steps`, `package_path?`, `description?`, `profile?`, `default_within_ms?` (default 5000), `manual_only?` (default `false`), `onConflict?` (`skip` (default), `update`, `replace` or `error`) |
+| `script_read` | `path`. Returns `path`, `name`, `description`, `profile`, `default_within_ms`, `manual_only`, `steps` and `step_count`. |
+| `script_update` | `path`, and any of `steps`, `description`, `profile` (empty clears it), `default_within_ms`, `manual_only` |
 | `script_delete` | `path`, `confirm=true` |
 | `script_list` | `directory?` (default `/Game`). Returns `scripts` (`path`, `object_path`, `name`) and `count`. |
 
 A profile that does not exist is refused. `steps` must hold at least one step.
+
+### Checks when a script is saved
+
+`script_create` and `script_update` refuse a step that a run could never check, so a typo in a value name is caught when the script is written rather than as a failed step later. `script_update` checks the script as it would stand after the update whenever `steps`, `profile` or `manual_only` changes.
+
+- **The value has to resolve**, the way the observer reads it, against the level open in the editor and the script's profile. A numeric op reads a profile tracked value (its path or last segment), a property path on the player pawn (the pawn player 0 possesses in the level, or the game mode's `DefaultPawnClass`), a component's property (`CollisionCylinder.CapsuleHalfHeight`), `sub:<Subsystem>.<path>`, or `bone:<bone>.<channel>`. `exists` needs an actor in the level, or a class the game mode spawns. `visible` needs a widget class, a Widget Blueprint, or a widget inside one.
+- **The op and target have to suit the value's type.** A bool takes only `eq` with `true` or `false`, an enum only `eq` with one of its values, and a number a number target. An integer is refused an `eq` target it cannot hold, and a `gt` or `lt` target it can never pass.
+- **A script needs an auto step with an `expect`.** A script judged entirely by verdicts says so with `manual_only: true`.
+
+A value that only exists once PIE is running, such as an actor spawned during play, is let through by `resolve_in_pie: true` on its step. The step's op and target are still checked as far as they can be without a type.
+
+The refusal lists every problem, each with the step index, the field, a message and the closest valid candidates:
+
+```json
+{
+  "success": false,
+  "errorCode": "INVALID_SCRIPT_STEPS",
+  "error": "The script cannot be checked as written (1 problem): steps[1].expect.value: 'BaseEyeHieght' cannot be read: DefaultPawn has no property or component named BaseEyeHieght (the observer reads it from the player pawn, DefaultPawn, the DefaultPawnClass of GameModeBase). If it only exists once PIE is running, set resolve_in_pie: true on the step.",
+  "errors": [
+    { "step": 1, "field": "expect.value", "message": "steps[1].expect.value: 'BaseEyeHieght' cannot be read: DefaultPawn has no property or component named BaseEyeHieght (the observer reads it from the player pawn, DefaultPawn, the DefaultPawnClass of GameModeBase). If it only exists once PIE is running, set resolve_in_pie: true on the step.", "candidates": ["BaseEyeHeight", "BaseTurnRate", "BaseLookUpRate", "bHidden", "bHiddenEd"] }
+  ]
+}
+```
+
+`step` is `null` for a problem with the whole script, such as no auto step (`field: "steps"`, candidates `["manual_only"]`) or a missing profile (`field: "profile"`). Inline steps given to `script_run` are not checked this way.
 
 ```text
 pie(action="script_create", name="DoorOpens", profile="/Game/PIEStudio/Profiles/Door",

@@ -1,0 +1,96 @@
+#pragma once
+
+#include "CoreMinimal.h"
+#include "Dom/JsonObject.h"
+#include "Dom/JsonValue.h"
+#include "Templates/Function.h"
+#include "Handlers/PIE/PIEScriptRunner.h"
+
+class UClass;
+class UObject;
+
+/**
+ * Draft-time checks for test scripts: pie_script_create and pie_script_update
+ * refuse a step the observer could never read, or whose op and target cannot
+ * hold for the value's type, before the script is saved rather than when it runs.
+ *
+ * Values resolve the way the observer resolves them at run time: a profile
+ * tracked value (exact path or last segment), else a dotted reflection path on
+ * the player pawn (head may name a component), sub:<Subsystem>.<path>, or
+ * bone:/bonecs:<bone>.<channel>. exists names an actor in the level, or a class
+ * the game mode spawns; visible names a widget class or a widget in a Widget
+ * Blueprint. A step with resolve_in_pie is not resolved.
+ *
+ * The checks are plain functions over a context of resolvers, so the
+ * automation tests drive them without a level.
+ */
+namespace MCPPIE
+{
+	// One reason a script cannot be checked. Step is INDEX_NONE for the script as a whole.
+	struct FScriptStepIssue
+	{
+		int32 Step = INDEX_NONE;
+		// The step field at fault, such as expect.value, or a script param. Empty for the whole step.
+		FString Field;
+		FString Message;
+		TArray<FString> Candidates;
+	};
+
+	enum class EScriptValueKind : uint8 { Number, Integer, Boolean, Enum };
+
+	// What the observer would read: the value's type as the checks see it.
+	struct FScriptValueInfo
+	{
+		EScriptValueKind Kind = EScriptValueKind::Number;
+		// The C++ type, for messages: float, int32, bool, EMovementMode.
+		FString TypeName;
+		// Integer only: the representable range.
+		double Min = 0.0;
+		double Max = 0.0;
+		// Enum only: name and value of each entry.
+		TArray<TPair<FString, int64>> EnumValues;
+	};
+
+	struct FScriptLookup
+	{
+		bool bFound = false;
+		FScriptValueInfo Info;
+		// Why it was not found, when it was not.
+		FString Message;
+		TArray<FString> Candidates;
+	};
+
+	struct FScriptValidationContext
+	{
+		// The script's profile tracked value paths; an expectation naming one (or its last segment) reads it.
+		TArray<FString> ProfileValuePaths;
+		TFunction<FScriptLookup(const FString& Path)> ResolveValue;
+		TFunction<FScriptLookup(const FString& ActorId)> ResolveActor;
+		TFunction<FScriptLookup(const FString& Widget)> ResolveWidget;
+	};
+
+	// The Pool entries closest to Needle, best first, ignoring case.
+	TArray<FString> RankScriptCandidates(const FString& Needle, const TArray<FString>& Pool, int32 MaxResults = 5);
+
+	// Parses every step, collecting one issue per step that does not parse. Out holds a
+	// default step at each failed index, so indices line up with the input.
+	bool ParseScriptStepsJsonIssues(const TArray<TSharedPtr<FJsonValue>>& Values, TArray<FScriptStepDef>& Out,
+		TArray<FScriptStepIssue>& OutIssues);
+
+	// Resolves each expectation and checks its op and target against the value's type.
+	// Without bManualOnly, a script needs at least one auto step with an expect.
+	// SkipSteps are steps that failed to parse: they are not checked, and the auto-step rule is not applied.
+	void ValidateScriptSteps(const TArray<FScriptStepDef>& Steps, bool bManualOnly, const FScriptValidationContext& Ctx,
+		TArray<FScriptStepIssue>& OutIssues, const TSet<int32>& SkipSteps = TSet<int32>());
+
+	// Static resolution of a dotted reflection path on RootClass, mirroring the observer's walk.
+	// Sample is an instance or the CDO; it supplies the concrete class behind object properties.
+	FScriptLookup ResolveScriptPathOnClass(UClass* RootClass, const UObject* Sample, const FString& Path);
+
+	// Resolvers for the editor's current level and the given profile (empty for none).
+	FScriptValidationContext MakeEditorScriptValidationContext(const FString& ProfilePath);
+
+	TSharedRef<FJsonObject> ScriptIssueToJson(const FScriptStepIssue& Issue);
+	// { success: false, errorCode: INVALID_SCRIPT_STEPS, error, errors: [{ step, field, message, candidates? }] }.
+	TSharedPtr<FJsonObject> ScriptIssuesErrorObject(const TArray<FScriptStepIssue>& Issues);
+}
