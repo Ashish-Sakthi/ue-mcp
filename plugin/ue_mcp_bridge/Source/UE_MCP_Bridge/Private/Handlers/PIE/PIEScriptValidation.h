@@ -90,6 +90,12 @@ namespace MCPPIE
 	// Resolvers for the editor's current level and the given profile (empty for none).
 	FScriptValidationContext MakeEditorScriptValidationContext(const FString& ProfilePath);
 
+	// What a script can name for the editor's current level: the player pawn's readable value paths
+	// (with their kind and type), level actor labels, classes the game mode spawns, Widget Blueprints
+	// under /Game and the profile's tracked values. TargetClass, when given, adds which level actors
+	// are of that class and whether it is the player pawn.
+	TSharedRef<FJsonObject> ScriptWatchableValuesToJson(const FString& TargetClass, const FString& ProfilePath, int32 Limit);
+
 	TSharedRef<FJsonObject> ScriptIssueToJson(const FScriptStepIssue& Issue);
 	// { success: false, errorCode: INVALID_SCRIPT_STEPS, error, errors: [{ step, field, message, candidates? }] }.
 	TSharedPtr<FJsonObject> ScriptIssuesErrorObject(const TArray<FScriptStepIssue>& Issues);

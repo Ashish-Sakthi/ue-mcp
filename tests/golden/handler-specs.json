@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1203,
+  "handlerCount": 1205,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -25831,6 +25831,54 @@
           "type": "boolean",
           "required": false,
           "description": "Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"
+        }
+      ]
+    },
+    "pie_script_validate": {
+      "category": "pie",
+      "params": [
+        {
+          "name": "steps",
+          "type": "array",
+          "required": true,
+          "description": "Steps to check, as script_create takes them: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
+          "items": "object"
+        },
+        {
+          "name": "profile",
+          "type": "string",
+          "required": false,
+          "description": "Observation profile asset path the script would use"
+        },
+        {
+          "name": "manual_only",
+          "type": "boolean",
+          "required": false,
+          "description": "Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"
+        }
+      ]
+    },
+    "pie_script_values": {
+      "category": "pie",
+      "params": [
+        {
+          "name": "target",
+          "type": "string",
+          "required": false,
+          "description": "Actor class or Blueprint to report on: its actors in the level, and whether it is the player pawn"
+        },
+        {
+          "name": "profile",
+          "type": "string",
+          "required": false,
+          "description": "Observation profile asset path whose tracked values to list"
+        },
+        {
+          "name": "limit",
+          "type": "integer",
+          "required": false,
+          "description": "Most entries per list (default 400)",
+          "minimum": 1
         }
       ]
     },

@@ -1718,6 +1718,54 @@ export const handlerSpecs: HandlerSpecs = {
       }
     ]
   },
+  "pie_script_validate": {
+    "category": "pie",
+    "params": [
+      {
+        "name": "steps",
+        "type": "array",
+        "required": true,
+        "description": "Steps to check, as script_create takes them: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}",
+        "items": "object"
+      },
+      {
+        "name": "profile",
+        "type": "string",
+        "required": false,
+        "description": "Observation profile asset path the script would use"
+      },
+      {
+        "name": "manual_only",
+        "type": "boolean",
+        "required": false,
+        "description": "Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"
+      }
+    ]
+  },
+  "pie_script_values": {
+    "category": "pie",
+    "params": [
+      {
+        "name": "target",
+        "type": "string",
+        "required": false,
+        "description": "Actor class or Blueprint to report on: its actors in the level, and whether it is the player pawn"
+      },
+      {
+        "name": "profile",
+        "type": "string",
+        "required": false,
+        "description": "Observation profile asset path whose tracked values to list"
+      },
+      {
+        "name": "limit",
+        "type": "integer",
+        "required": false,
+        "description": "Most entries per list (default 400)",
+        "minimum": 1
+      }
+    ]
+  },
   "pie_script_verdict": {
     "category": "pie",
     "params": [
@@ -2073,6 +2121,8 @@ export const paramsClauses: Readonly<Record<string, string>> = {
   pie_script_status: "Params: run_id?, since_seq?, wait?, timeout_seconds?",
   pie_script_stop: "Params: run_id?, reason?",
   pie_script_update: "Params: path, steps?, description?, profile?, default_within_ms?, manual_only?",
+  pie_script_validate: "Params: steps, profile?, manual_only?",
+  pie_script_values: "Params: target?, profile?, limit?",
   pie_script_verdict: "Params: step, verdict, note?, run_id?, source?, evidence?",
   pie_session_errors: "Params: session?, session_dir?, min_verbosity?",
   pie_session_log: "Params: session?, session_dir?, min_verbosity?, category?, contains?, limit?, offset?",
@@ -2125,7 +2175,7 @@ export const schema: Record<string, z.ZodType> = {
   include_values: z.boolean().optional().describe("series: include the downsampled values (default false)"),
   injection_id: z.string().optional().describe("Caller-chosen hold id (minted when absent) (pie_inject_input_start). Hold or tape id to stop (pie_inject_input_stop). Caller-chosen tape id (minted when absent) (pie_inject_input_tape). Hold id from inject_input_start (pie_inject_input_update). Alias for request_id (pie_remote_result)"),
   label: z.string().optional().describe("Marker label"),
-  limit: z.number().int().min(1).optional().describe("Most rows (default 200) (pie_observe_list, pie_record_list, pie_session_log). csv/tracked: most rows (default 1000) (pie_observe_read). csv: most rows (default 1000) (pie_record_read)"),
+  limit: z.number().int().min(1).optional().describe("Most rows (default 200) (pie_observe_list, pie_record_list, pie_session_log). csv/tracked: most rows (default 1000) (pie_observe_read). csv: most rows (default 1000) (pie_record_read). Most entries per list (default 400) (pie_script_values)"),
   manual_only: z.boolean().optional().describe("Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)"),
   max_errors: z.number().int().min(0).optional().describe("no-errors predicate threshold (default 0) (pie_scenario_scaffold). Most errors logged during the run (default 0) (pie_test_scaffold)"),
   max_points: z.number().int().min(1).optional().describe("series: most values per channel (default 500)"),
@@ -2145,7 +2195,7 @@ export const schema: Record<string, z.ZodType> = {
   pin_fps: z.number().int().optional().describe("Pin PIE fps while observing (pie_observe_arm). Pin PIE fps for reproducibility (default sample_hz) (pie_record_arm). Pin PIE fps during replay (pie_replay_arm, pie_replay_run)"),
   position_cm: z.number().optional().describe("Position drift threshold (default 5)"),
   position_threshold_cm: z.number().optional().describe("Position drift threshold"),
-  profile: z.string().optional().describe("Observation profile asset path (pie_observe_arm, pie_script_create). Observation profile asset path; overrides the script's (pie_script_run). Observation profile asset path; empty clears it (pie_script_update)"),
+  profile: z.string().optional().describe("Observation profile asset path (pie_observe_arm, pie_script_create). Observation profile asset path; overrides the script's (pie_script_run). Observation profile asset path; empty clears it (pie_script_update). Observation profile asset path the script would use (pie_script_validate). Observation profile asset path whose tracked values to list (pie_script_values)"),
   propertyNames: z.array(z.string()).optional().describe("Property names to read (default: all)"),
   reason: z.string().optional().describe("Recorded as the run's stop reason (pie_script_stop). Why the run is ended, recorded in the report (pie_uat_abort)"),
   record: z.boolean().optional().describe("Record input so pie_script_replay can rerun it (default true)"),
@@ -2171,8 +2221,9 @@ export const schema: Record<string, z.ZodType> = {
   source: z.enum(["human","agent","elicitation","action"]).optional().describe("Who judged the step: human (default) or agent. An agent verdict needs evidence and is refused on a step with agent_judgeable false. elicitation is the verdict form's human channel, action an alias of human"),
   start_pie: z.boolean().optional().describe("Start PIE when it is not running (default false)"),
   step: z.number().int().min(0).optional().describe("Manual step index, 0-based"),
-  steps: z.array(z.record(z.string(), z.unknown())).optional().describe("Inline step array, instead of a recording (pie_replay_arm, pie_replay_run). Steps, run in order: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_create). Inline steps instead of a script asset: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_run). Replacement steps: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_update)"),
+  steps: z.array(z.record(z.string(), z.unknown())).optional().describe("Inline step array, instead of a recording (pie_replay_arm, pie_replay_run). Steps, run in order: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_create). Inline steps instead of a script asset: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_run). Replacement steps: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_update). Steps to check, as script_create takes them: {instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}} (pie_script_validate)"),
   take_record: z.boolean().optional().describe("Also drive Take Recorder (default false)"),
+  target: z.string().optional().describe("Actor class or Blueprint to report on: its actors in the level, and whether it is the player pawn"),
   test_path: z.string().optional().describe("Scenario json whose predicates block is evaluated when assertions is omitted (pie_assert_eval). Explicit test.json path (pie_test_run)"),
   threshold: z.number().optional().describe("series: report the first frame where |value| exceeds this"),
   time_scale: z.number().optional().describe("Playback speed multiplier (default 1) (pie_replay_arm, pie_replay_run). Global time dilation during the replay (default 1) (pie_script_replay)"),

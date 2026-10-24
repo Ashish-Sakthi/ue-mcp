@@ -59,6 +59,8 @@ export const pieTool: ToolDef = categoryTool(
     script_create:        specBp("mutate", "Create a test script asset: steps of {instruction, judge auto|manual, expect {value, op decreasing|increasing|eq|gt|lt|visible|exists, target, within_ms}}. Refuses a step it cannot check, with errors [{step, field, message, candidates}]: an expect.value the level, player pawn and profile do not resolve, or an op or target the value's type cannot meet. resolve_in_pie=true on a step defers a value that only exists in PIE; a script with no auto step needs manual_only=true.", "pie_script_create"),
     script_read:          specBp("read", "Read a test script.", "pie_script_read"),
     script_update:        specBp("mutate", "Update a test script; steps given replace the stored ones. Checks the result like script_create when steps, profile or manual_only change.", "pie_script_update"),
+    script_validate:      specBp("read", "Check steps the way script_create does without saving anything: valid, and errors [{step, field, message, candidates}] for every step the observer could not check.", "pie_script_validate"),
+    script_values:        specBp("read", "What a script can name in the open level: the player pawn's readable value paths with kind and type, level actors, classes the game mode spawns, Widget Blueprints and the profile's tracked values. target adds which actors are of that class and whether it is the player pawn.", "pie_script_values"),
     script_delete:        specBp("mutate", "Delete a test script (confirm=true).", "pie_script_delete"),
     script_list:          specBp("read", "List test scripts.", "pie_script_list"),
     script_run: {

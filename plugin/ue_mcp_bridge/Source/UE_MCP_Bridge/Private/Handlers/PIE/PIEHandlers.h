@@ -103,6 +103,8 @@ public:
 	static TSharedPtr<FJsonValue> PieScriptRead(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> PieScriptUpdate(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> PieScriptDelete(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PieScriptValidate(const TSharedPtr<FJsonObject>& Params);
+	static TSharedPtr<FJsonValue> PieScriptValues(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> PieScriptList(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> PieScriptRun(const TSharedPtr<FJsonObject>& Params);
 	static TSharedPtr<FJsonValue> PieScriptStatus(const TSharedPtr<FJsonObject>& Params);
