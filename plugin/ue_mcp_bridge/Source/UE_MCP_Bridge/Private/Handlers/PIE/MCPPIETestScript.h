@@ -69,6 +69,10 @@ struct FMCPPIETestStep
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Step",
 		meta=(EditCondition="bHasExpect", ToolTip="The condition an auto step waits for."))
 	FMCPPIEStepExpect Expect;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Step",
+		meta=(EditCondition="Judge == EMCPPIEStepJudge::Manual", ToolTip="Whether the calling agent may give this manual step's verdict. Off means only a person can."))
+	bool bAgentJudgeable = true;
 };
 
 UCLASS(BlueprintType)

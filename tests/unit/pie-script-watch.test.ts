@@ -263,7 +263,7 @@ describe("script_run and script_status follow-ups", () => {
     const b = bridge([awaitingStatus([ev(1, "awaiting_verdict", undefined, { awaiting: [1, 2] })])]);
     const out = (await scriptRunFollowUp(ctxWith(b), { script: "/Game/S/Door", wait: true, timeout_seconds: 30 }, runAnswer, fakeClock())) as Record<string, unknown>;
     expect(out).toMatchObject({ run_id: "run-1", state: "awaiting_verdict", observation_run_id: "obs-1", wait: { state: "awaiting_verdict", awaiting: [1, 2] } });
-    expect(out.verdictHint).toBe("call pie(verdict, step, verdict, note?)");
+    expect(out.verdictHint).toBe('call pie(verdict, step, verdict, note?); an agent passes source="agent" with evidence {note, captures?}');
     expect(out.events).toBeUndefined();
   });
 
@@ -310,5 +310,29 @@ describe("replay step payloads", () => {
     const step = (mapped as unknown as { step: Record<string, unknown> }).step;
     expect(step).toMatchObject({ index: 1, status: "failed", withinMs: 800, startedAtMs: 100, endedAtMs: 900, sourceStatus: "passed", regression: true });
     expect((mapped as unknown as { replayOf?: string }).replayOf).toBe("script_x");
+  });
+});
+
+describe("agent verdict payloads", () => {
+  it("keeps an agent verdict's source, evidence and agent_judgeable on the stream", () => {
+    const mapped = mapBridgeEvent(
+      { seq: 4, type: "verdict", run_id: "script_x", step: 0, at_ms: 300, wall_time: "2026-10-24T00:00:00Z",
+        data: { status: "passed", verdict: "pass", verdict_source: "agent", evidence: { note: "door open in capture", captures: ["C:/x/shot.png"] } } },
+      { runId: "script_x", script: "inline" },
+      { steps: [{ index: 0, instruction: "Door open?", judge: "manual", agent_judgeable: true, status: "passed" }] },
+    );
+    const step = (mapped as unknown as { step: Record<string, unknown> }).step;
+    expect(step).toMatchObject({ index: 0, status: "passed", verdictSource: "agent", agentJudgeable: true,
+      evidence: { note: "door open in capture", captures: ["C:/x/shot.png"] } });
+  });
+
+  it("counts human and agent verdicts apart in the run_finished summary", () => {
+    const mapped = mapBridgeEvent(
+      { seq: 9, type: "run_finished", run_id: "script_x", step: -1, at_ms: 900, wall_time: "2026-10-24T00:00:00Z",
+        data: { state: "finished", summary: { total: 3, passed: 2, failed: 1, skipped: 0, pending: 0, awaiting: 0, human_verdicts: 1, agent_verdicts: 2 } } },
+      { runId: "script_x", script: "inline" },
+      null,
+    );
+    expect((mapped as unknown as { summary: Record<string, unknown> }).summary).toMatchObject({ humanVerdicts: 1, agentVerdicts: 2 });
   });
 });

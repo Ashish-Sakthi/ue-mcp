@@ -60,7 +60,7 @@ Answer (abridged: it also carries `created`, `existed`, `rollback` and `message`
   "steps": [
     { "index": 0, "instruction": "Walk up to the door", "judge": "auto", "expect": { "value": "Door.Distance", "op": "decreasing", "within_ms": 3000 }, "status": "pending", "within_ms": 3000 },
     { "index": 1, "instruction": "Open the door", "judge": "auto", "expect": { "value": "Door.OpenAngle", "op": "gt", "target": 80 }, "status": "pending", "within_ms": 5000 },
-    { "index": 2, "instruction": "The door opens without a visible pop", "judge": "manual", "status": "pending", "within_ms": 5000 }
+    { "index": 2, "instruction": "The door opens without a visible pop", "judge": "manual", "agent_judgeable": true, "status": "pending", "within_ms": 5000 }
   ],
   "awaiting": [],
   "events": [
@@ -68,7 +68,7 @@ Answer (abridged: it also carries `created`, `existed`, `rollback` and `message`
       "data": { "script": "/Game/PIEStudio/Scripts/DoorOpens", "script_name": "DoorOpens", "steps": 3, "observation_run_id": "script_DoorOpens_20261023_100000", "recording_id": "script_DoorOpens_20261023_100000" } }
   ],
   "last_seq": 1,
-  "summary": { "total": 3, "passed": 0, "failed": 0, "skipped": 0, "pending": 3, "awaiting": 0 },
+  "summary": { "total": 3, "passed": 0, "failed": 0, "skipped": 0, "pending": 3, "awaiting": 0, "human_verdicts": 0, "agent_verdicts": 0 },
   "pie_started": true,
   "pie_running": false
 }
@@ -102,27 +102,27 @@ Answer: the same fields as the `script_run` answer, plus `active`, with `events`
     { "index": 1, "instruction": "Open the door", "judge": "auto", "expect": { "value": "Door.OpenAngle", "op": "gt", "target": 80 }, "status": "passed", "within_ms": 5000,
       "started_at_ms": 50, "ended_at_ms": 2210, "started_at": "2026-10-23T15:00:00.429Z", "ended_at": "2026-10-23T15:00:02.590Z",
       "evidence": { "value": "Door.OpenAngle", "at_start": 0, "at_end": 81.4, "samples": 130, "observed": true, "verdict_frame": 133, "verdict_at_ms": 2160 }, "verdict_source": "auto" },
-    { "index": 2, "instruction": "The door opens without a visible pop", "judge": "manual", "status": "awaiting_verdict", "within_ms": 5000,
+    { "index": 2, "instruction": "The door opens without a visible pop", "judge": "manual", "agent_judgeable": true, "status": "awaiting_verdict", "within_ms": 5000,
       "started_at_ms": 2210, "started_at": "2026-10-23T15:00:02.590Z" }
   ],
-  "awaiting": [{ "index": 2, "instruction": "The door opens without a visible pop" }],
+  "awaiting": [{ "index": 2, "instruction": "The door opens without a visible pop", "agent_judgeable": true }],
   "events": [
     { "seq": 6, "type": "step_started", "run_id": "script_DoorOpens_20261023_100000", "step": 2, "at_ms": 2210, "wall_time": "2026-10-23T15:00:02.590Z",
-      "data": { "status": "awaiting_verdict", "instruction": "The door opens without a visible pop", "judge": "manual" } },
+      "data": { "status": "awaiting_verdict", "instruction": "The door opens without a visible pop", "judge": "manual", "agent_judgeable": true } },
     { "seq": 7, "type": "awaiting_verdict", "run_id": "script_DoorOpens_20261023_100000", "step": 2, "at_ms": 2210, "wall_time": "2026-10-23T15:00:02.590Z",
-      "data": { "awaiting": [2], "blocking": true, "steps": [{ "index": 2, "instruction": "The door opens without a visible pop" }] } }
+      "data": { "awaiting": [2], "blocking": true, "steps": [{ "index": 2, "instruction": "The door opens without a visible pop", "agent_judgeable": true }] } }
   ],
   "last_seq": 7,
-  "summary": { "total": 3, "passed": 2, "failed": 0, "skipped": 0, "pending": 1, "awaiting": 1 },
+  "summary": { "total": 3, "passed": 2, "failed": 0, "skipped": 0, "pending": 1, "awaiting": 1, "human_verdicts": 0, "agent_verdicts": 0 },
   "active": true
 }
 ```
 
 - `state`: `armed` | `running` | `awaiting_verdict` | `finished` | `stopped` | `idle`. A run the editor no longer holds in memory answers from its `results.json` (events included) with `live: false`. `idle` means no such run exists on disk either (or there has been no run yet): the answer then has only `state`, `run_id` (when given), empty `steps`, `awaiting` and `events`, and `last_seq` equal to `since_seq`.
 - step `status`: `pending` | `running` | `passed` | `failed` | `awaiting_verdict` | `skipped`. A manual step ends as `passed`, `failed` or `skipped` from its verdict.
-- step fields: `index`, `instruction`, `judge`, `expect?`, `status`, `within_ms`, then once set `started_at_ms`, `ended_at_ms`, `started_at`, `ended_at`, `evidence`, `note`, `verdict_source`. Replay steps add `source_status`, `regression`, and for auto steps `window_start_ms` and `window_end_ms` (section 4).
-- `awaiting`: the steps waiting for a verdict, as `{ index, instruction }`.
-- `summary`: `total`, `passed`, `failed`, `skipped`, `pending`, `awaiting`, and `regressions` on a replay. `pending` counts every step not settled, awaiting ones included.
+- step fields: `index`, `instruction`, `judge`, `agent_judgeable` (manual steps), `expect?`, `status`, `within_ms`, then once set `started_at_ms`, `ended_at_ms`, `started_at`, `ended_at`, `evidence`, `note`, `verdict_source`. Replay steps add `source_status`, `regression`, and for auto steps `window_start_ms` and `window_end_ms` (section 4).
+- `awaiting`: the steps waiting for a verdict, as `{ index, instruction, agent_judgeable }`.
+- `summary`: `total`, `passed`, `failed`, `skipped`, `pending`, `awaiting`, `human_verdicts`, `agent_verdicts`, and `regressions` on a replay. `pending` counts every step not settled, awaiting ones included. `human_verdicts` counts manual steps a person settled (`verdict_source` `action` or `elicitation`), `agent_verdicts` those an agent settled (`agent`).
 - `events`: the events with `seq > since_seq` (all of them without `since_seq`), oldest first. Each is `{ seq, type, run_id, step, at_ms, wall_time, data }`; `step` is the step index, or `-1` for a run event and for an `awaiting_verdict` that covers several steps.
 - `last_seq`: the highest seq the run has. Pass it as the next `since_seq`.
 
@@ -131,19 +131,23 @@ Editor event types and their `data`:
 | Type | `data` |
 |---|---|
 | `run_started` | `script`, `script_name`, `steps` (the step count), `observation_run_id`, `recording_id?`, and `replay_of` on a replay |
-| `step_started` | `status`, `instruction`, `judge`, and for a step with `expect`: `expect`, `within_ms`; on a replay `window_start_ms`, `window_end_ms` |
+| `step_started` | `status`, `instruction`, `judge`, `agent_judgeable` on a manual step, and for a step with `expect`: `expect`, `within_ms`; on a replay `window_start_ms`, `window_end_ms` |
 | `step_passed`, `step_failed` | `status`, `evidence` (or `reason` for a step without `expect`), `regression: true` on a replay regression |
-| `awaiting_verdict` | `awaiting` (indices), `blocking` (false with `block_on_manual=false`), `steps` (`[{ index, instruction }]`) |
-| `verdict` | `status`, `verdict`, `note?`, `verdict_source` |
+| `awaiting_verdict` | `awaiting` (indices), `blocking` (false with `block_on_manual=false`), `steps` (`[{ index, instruction, agent_judgeable }]`) |
+| `verdict` | `status`, `verdict`, `note?`, `verdict_source`, `evidence?` (`{ note, captures? }`, always present on an agent verdict) |
 | `run_finished` | `state`, `reason`, `summary`, `results_path`, `awaiting?` (indices still waiting) |
 
 A polling client calls `script_status(since_seq=last_seq)` and applies `events` in order. Calling it on a run that has not ended also restarts the server's follower, so a client can call it once after a server restart to get the daemon stream going again.
 
 ### pie(verdict)
 
-Params: `step` (integer, 0-based, required), `verdict` (`pass` | `fail` | `skip`, required), `note?` (string), `run_id?` (default: the run the editor holds), `source?` (`action` | `elicitation`, default `action`).
+Params: `step` (integer, 0-based, required), `verdict` (`pass` | `fail` | `skip`, required), `note?` (string), `run_id?` (default: the run the editor holds), `source?` (`human` | `agent`, default `human`; `elicitation` is the form's channel and `action` another name for `human`), `evidence?` (`{ note: string, captures?: string[] }`, required with `source: "agent"`).
 
-Answer: `run_id`, `step`, `status`, `verdict`, `verdict_source`, `note?`, `state` and `awaiting` (the indices still waiting). A repeat of the same verdict and note answers `unchanged: true`. The verdict is refused with `success: false` and an `error` for an auto step, a step that has not started, a step index out of range, or a `run_id` the editor does not hold:
+- `source: "human"` is recorded as `verdict_source: "action"`, `source: "agent"` as `verdict_source: "agent"`.
+- `evidence.note` must not be empty for an agent verdict. `evidence.captures` are file paths, absolute or relative to the run's `output_dir`; each must exist and is recorded absolute.
+- An agent verdict on a step with `agent_judgeable: false` is refused. A human verdict is accepted on any manual step, and a human verdict replacing an agent's clears the agent's evidence.
+
+Answer: `run_id`, `step`, `status`, `verdict`, `verdict_source`, `note?`, `evidence?`, `state` and `awaiting` (the indices still waiting). A repeat of the same verdict, note, source and evidence answers `unchanged: true`. The verdict is refused with `success: false` and an `error` for an auto step, a step that has not started, a step index out of range, a `run_id` the editor does not hold, an agent verdict without an evidence note, an agent verdict on a step with `agent_judgeable: false`, or a capture that does not exist:
 
 ```json
 { "success": false, "error": "Run script_DoorOpens_20261023_100000 is not the current run (script_DoorOpens_20261023_100200)" }
@@ -177,7 +181,7 @@ With `wait: true`, `script_run`, `script_replay` and `script_status` hold the an
     "awaiting": [2],
     "elicitation": "unavailable"
   },
-  "verdictHint": "call pie(verdict, step, verdict, note?)"
+  "verdictHint": "call pie(verdict, step, verdict, note?); an agent passes source=\"agent\" with evidence {note, captures?}"
 }
 ```
 
@@ -273,9 +277,10 @@ Carried as `step` by `step_started`, `step_passed`, `step_failed` and `verdict`:
 | `judge` | `"auto"` \| `"manual"` | |
 | `expect` | object? | `{ value: string, op: "decreasing"\|"increasing"\|"eq"\|"gt"\|"lt"\|"visible"\|"exists", target?: number\|boolean, within_ms?: integer }` |
 | `status` | string | The step's status after this event: `running` (or `awaiting_verdict` for a manual step) on `step_started`, `passed` on `step_passed`, `failed` on `step_failed`, and `passed`, `failed` or `skipped` on `verdict`. |
-| `evidence` | object? | The editor's evidence object for an auto step with `expect`: `{ value, at_start, at_end, samples, observed, verdict_frame?, verdict_at_ms?, reason? }`. |
+| `agentJudgeable` | boolean? | Manual steps: whether an agent verdict is accepted. |
+| `evidence` | object? | The editor's evidence object for an auto step with `expect`: `{ value, at_start, at_end, samples, observed, verdict_frame?, verdict_at_ms?, reason? }`. On a manual step, the verdict's `{ note, captures? }`. |
 | `note` | string? | |
-| `verdictSource` | `"auto"` \| `"action"` \| `"elicitation"` \| `"source_run"`, optional | Who decided the step. |
+| `verdictSource` | `"auto"` \| `"action"` \| `"elicitation"` \| `"agent"` \| `"source_run"`, optional | Who decided the step: the editor, a person through `pie(verdict)`, a person through the form, an agent, or the source run of a replay. |
 
 Fields the event itself does not carry are filled from the status the server read with it, so a `step_started` step can already hold `evidence` and `verdictSource`. The step object also carries `withinMs`, `startedAtMs` and `endedAtMs` once set, and on a replay `sourceStatus` and `regression`. The `run_finished` summary carries `awaiting`, and `regressions` on a replay.
 
@@ -289,7 +294,7 @@ Fields the event itself does not carry are filled from the status the server rea
 | `script.step_failed` | `step` |
 | `script.verdict_requested` | `awaiting: Array<{ index: integer, instruction: string }>` |
 | `script.verdict` | `step` |
-| `script.run_finished` | `summary: { total, passed, failed, skipped, pending, awaiting?, regressions? }` (integers), `state?: "finished" \| "stopped"`, `resultsPath?: string` |
+| `script.run_finished` | `summary: { total, passed, failed, skipped, pending, awaiting?, humanVerdicts?, agentVerdicts?, regressions? }` (integers), `state?: "finished" \| "stopped"`, `resultsPath?: string` |
 
 ### Examples
 
@@ -353,7 +358,7 @@ Written to `<Project>/Saved/MCPObservations/<run_id>/results.json`, beside the o
   "results_path": "C:/MyGame/Saved/MCPObservations/script_DoorOpens_20261023_100000/results.json",
   "recording_id": "script_DoorOpens_20261023_100000",
   "recording_dir": "C:/MyGame/Saved/MCPRecordings/script_DoorOpens_20261023_100000",
-  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0 },
+  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0, "human_verdicts": 1, "agent_verdicts": 0 },
   "steps": [
     {
       "index": 0,
@@ -387,6 +392,7 @@ Written to `<Project>/Saved/MCPObservations/<run_id>/results.json`, beside the o
       "index": 2,
       "instruction": "The door opens without a visible pop",
       "judge": "manual",
+      "agent_judgeable": true,
       "status": "failed",
       "within_ms": 5000,
       "started_at_ms": 2210,
@@ -414,14 +420,15 @@ Written to `<Project>/Saved/MCPObservations/<run_id>/results.json`, beside the o
 | `observation_run_id`, `output_dir`, `results_path` | string | Absolute paths. |
 | `recording_id`, `recording_dir` | string? | Absent with `record=false`. The source run's on a replay. |
 | `replay_of`, `time_scale`, `replay_offset_ms` | string?, number?, number? | Replay runs only. `replay_offset_ms` is the recording's settle time. |
-| `summary` | `{ total, passed, failed, skipped, pending, awaiting, regressions? }` | Integers. `pending` includes awaiting steps. `regressions` on a replay only. |
+| `summary` | `{ total, passed, failed, skipped, pending, awaiting, human_verdicts, agent_verdicts, regressions? }` | Integers. `pending` includes awaiting steps. `human_verdicts` and `agent_verdicts` count settled manual steps by who judged them. `regressions` on a replay only. |
 | `steps[].status` | step status | `pending` or `awaiting_verdict` only on a run that ended before they settled. |
 | `steps[].within_ms` | integer | The effective window. |
 | `steps[].started_at_ms`, `ended_at_ms` | number? | Game ms from the observer's first frame. Absent until set. |
 | `steps[].started_at`, `ended_at` | ISO 8601 string? | Absent until set. |
-| `steps[].evidence` | object? | Auto steps with `expect`: `{ value, at_start, at_end, samples, observed, verdict_frame?, verdict_at_ms?, reason? }`, `at_start` and `at_end` `null` when never read. Other steps: `{ reason }` when there is one (`no expectation`, or a replay skip reason). Absent on manual steps otherwise. |
+| `steps[].evidence` | object? | Auto steps with `expect`: `{ value, at_start, at_end, samples, observed, verdict_frame?, verdict_at_ms?, reason? }`, `at_start` and `at_end` `null` when never read. Manual steps: the verdict's `{ note, captures? }` when it had evidence (always on an agent verdict), with `reason` on a replay skip. Other steps: `{ reason }` when there is one (`no expectation`, or a replay skip reason). |
 | `steps[].note` | string? | |
-| `steps[].verdict_source` | `auto` \| `action` \| `elicitation` \| `source_run` | Absent until the step settles. |
+| `steps[].verdict_source` | `auto` \| `action` \| `elicitation` \| `agent` \| `source_run` | Absent until the step settles. `action` and `elicitation` are a person's verdicts, `agent` an agent's. |
+| `steps[].agent_judgeable` | boolean? | Manual steps only. |
 
 Replay runs add to each step:
 
@@ -431,15 +438,16 @@ Replay runs add to each step:
 | `regression` | boolean | `true` when it passed in the source run and failed in the replay. |
 | `window_start_ms`, `window_end_ms` | number? | Auto steps the source run reached: the source `started_at_ms` plus `replay_offset_ms`, and that plus `within_ms`. |
 
-On a replay, manual steps carry the source verdict and note with `verdict_source: "source_run"`, or are `skipped` with reason `no verdict in the source run`. An auto step the source run never reached is `skipped` with reason `not reached in the source run`.
+On a replay, manual steps carry the source verdict, note and evidence with `verdict_source: "source_run"`, or are `skipped` with reason `no verdict in the source run`. An auto step the source run never reached is `skipped` with reason `not reached in the source run`.
 
 ## 5. Step format (script_create, script_update, inline steps)
 
 ```json
-{ "instruction": "string", "judge": "auto | manual", "expect": { "value": "string", "op": "decreasing | increasing | eq | gt | lt | visible | exists", "target": 0, "within_ms": 3000 } }
+{ "instruction": "string", "judge": "auto | manual", "agent_judgeable": true, "expect": { "value": "string", "op": "decreasing | increasing | eq | gt | lt | visible | exists", "target": 0, "within_ms": 3000 } }
 ```
 
 - `instruction` is required. `judge` defaults to `auto`.
+- `agent_judgeable` applies to manual steps and defaults to `true`; `false` makes `pie(verdict)` refuse `source: "agent"` for the step. It is refused on an auto step. `script_read` and results write it on every manual step.
 - A manual step with `expect` is refused. An auto step without `expect` passes when it starts.
 - `target` is required for `eq`, `gt` and `lt`, refused for `decreasing` and `increasing`, and defaults to `true` for `visible` and `exists`. It is a number or a boolean; `script_read` and results write it back as a number for `eq`, `gt` and `lt`, and as a boolean for `visible` and `exists`.
 - `within_ms` 0 or absent uses the run's `default_within_ms`.
@@ -467,7 +475,7 @@ export function activate(api) {
 }
 ```
 
-- `api.callAction("pie", "verdict", { run_id, step, verdict, note? })` posts a verdict exactly as an MCP client's `pie(verdict)` does, recorded with `verdict_source: "action"`.
+- `api.callAction("pie", "verdict", { run_id, step, verdict, note? })` posts a verdict exactly as an MCP client's `pie(verdict)` does, recorded with `verdict_source: "action"`. An extension whose own agent judged the step passes `source: "agent"` and `evidence: { note, captures? }`, recorded with `verdict_source: "agent"`.
 - `api.callAction("pie", "script_run", {...}, { elicit })` puts the verdict form (section 2) to the extension's `elicit` instead of an MCP client, when the extension passes one (feature `callAction.elicit`). The follower keeps that `elicit` after the call returns, so the form can arrive later. Without it no form is raised, and the extension collects verdicts itself from `script.verdict_requested`.
 - The extension never calls the bridge's `pie_script_*` methods directly; the action layer keeps the follower and the stream in step.
 

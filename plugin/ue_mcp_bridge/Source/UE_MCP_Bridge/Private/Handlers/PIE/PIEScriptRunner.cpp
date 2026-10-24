@@ -39,6 +39,25 @@ namespace MCPPIE
 			TEXT("idle"), TEXT("armed"), TEXT("running"), TEXT("awaiting_verdict"), TEXT("finished"), TEXT("stopped")
 		};
 
+		TArray<TSharedPtr<FJsonValue>> ScriptStringsToJson(const TArray<FString>& Values)
+		{
+			TArray<TSharedPtr<FJsonValue>> Out;
+			for (const FString& V : Values) Out.Add(MakeShared<FJsonValueString>(V));
+			return Out;
+		}
+
+		// The verdict's note and captures, onto an evidence object.
+		void ScriptVerdictEvidenceToJson(const FScriptEvidence& E, const TSharedRef<FJsonObject>& O)
+		{
+			if (!E.Note.IsEmpty()) O->SetStringField(TEXT("note"), E.Note);
+			if (E.Captures.Num() > 0) O->SetArrayField(TEXT("captures"), ScriptStringsToJson(E.Captures));
+		}
+
+		bool ScriptHasVerdictEvidence(const FScriptEvidence& E)
+		{
+			return !E.Note.IsEmpty() || E.Captures.Num() > 0;
+		}
+
 		TSharedRef<FJsonObject> ScriptEvidenceToJson(const FScriptEvidence& E)
 		{
 			TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
@@ -52,6 +71,7 @@ namespace MCPPIE
 			if (E.VerdictFrame >= 0) O->SetNumberField(TEXT("verdict_frame"), static_cast<double>(E.VerdictFrame));
 			if (E.VerdictAtMs >= 0.0) O->SetNumberField(TEXT("verdict_at_ms"), E.VerdictAtMs);
 			if (!E.Reason.IsEmpty()) O->SetStringField(TEXT("reason"), E.Reason);
+			ScriptVerdictEvidenceToJson(E, O);
 			return O;
 		}
 
@@ -67,6 +87,16 @@ namespace MCPPIE
 			if (O->TryGetNumberField(TEXT("verdict_frame"), Frame)) E.VerdictFrame = static_cast<int64>(Frame);
 			O->TryGetNumberField(TEXT("verdict_at_ms"), E.VerdictAtMs);
 			O->TryGetStringField(TEXT("reason"), E.Reason);
+			O->TryGetStringField(TEXT("note"), E.Note);
+			const TArray<TSharedPtr<FJsonValue>>* Captures = nullptr;
+			if (O->TryGetArrayField(TEXT("captures"), Captures) && Captures)
+			{
+				for (const TSharedPtr<FJsonValue>& C : *Captures)
+				{
+					FString Path;
+					if (C.IsValid() && C->TryGetString(Path) && !Path.IsEmpty()) E.Captures.Add(Path);
+				}
+			}
 		}
 
 		int32 ScriptEffectiveWithinMs(const FScriptStepDef& Def, int32 DefaultWithinMs)
@@ -123,6 +153,7 @@ namespace MCPPIE
 			D->SetStringField(TEXT("status"), ScriptStepStatusToString(St.Status));
 			D->SetStringField(TEXT("instruction"), St.Def.Instruction);
 			D->SetStringField(TEXT("judge"), ScriptJudgeToString(St.Def.Judge));
+			if (St.Def.Judge == EScriptJudge::Manual) D->SetBoolField(TEXT("agent_judgeable"), St.Def.bAgentJudgeable);
 			if (St.Def.bHasExpect)
 			{
 				D->SetObjectField(TEXT("expect"), ScriptExpectToJson(St.Def.Expect));
@@ -193,6 +224,7 @@ namespace MCPPIE
 				TSharedRef<FJsonObject> S = MakeShared<FJsonObject>();
 				S->SetNumberField(TEXT("index"), I);
 				S->SetStringField(TEXT("instruction"), Run.Steps[I].Def.Instruction);
+				S->SetBoolField(TEXT("agent_judgeable"), Run.Steps[I].Def.bAgentJudgeable);
 				Steps.Add(MakeShared<FJsonValueObject>(S));
 			}
 			D->SetArrayField(TEXT("steps"), Steps);
@@ -327,6 +359,22 @@ namespace MCPPIE
 			return false;
 		}
 
+		const TSharedPtr<FJsonValue> AgentValue = Obj->TryGetField(TEXT("agent_judgeable"));
+		if (AgentValue.IsValid() && !AgentValue->IsNull())
+		{
+			if (AgentValue->Type != EJson::Boolean)
+			{
+				OutError = FString::Printf(TEXT("%s.agent_judgeable must be a boolean"), *Where);
+				return false;
+			}
+			Out.bAgentJudgeable = AgentValue->AsBool();
+			if (!Out.bAgentJudgeable && Out.Judge != EScriptJudge::Manual)
+			{
+				OutError = FString::Printf(TEXT("%s: agent_judgeable applies to manual steps; an auto step is judged from the observed values"), *Where);
+				return false;
+			}
+		}
+
 		const TSharedPtr<FJsonValue> ExpectValue = Obj->TryGetField(TEXT("expect"));
 		if (!ExpectValue.IsValid() || ExpectValue->IsNull())
 		{
@@ -445,6 +493,7 @@ namespace MCPPIE
 		TSharedRef<FJsonObject> O = MakeShared<FJsonObject>();
 		O->SetStringField(TEXT("instruction"), Step.Instruction);
 		O->SetStringField(TEXT("judge"), ScriptJudgeToString(Step.Judge));
+		if (Step.Judge == EScriptJudge::Manual) O->SetBoolField(TEXT("agent_judgeable"), Step.bAgentJudgeable);
 		if (Step.bHasExpect) O->SetObjectField(TEXT("expect"), ScriptExpectToJson(Step.Expect));
 		return O;
 	}
@@ -471,6 +520,7 @@ namespace MCPPIE
 			D.Expect.bHasTarget = S.Expect.bHasTarget;
 			D.Expect.Target = S.Expect.Target;
 			D.Expect.WithinMs = FMath::Max(0, S.Expect.WithinMs);
+			D.bAgentJudgeable = D.Judge != EScriptJudge::Manual || S.bAgentJudgeable;
 			Out.Add(MoveTemp(D));
 		}
 	}
@@ -490,6 +540,7 @@ namespace MCPPIE
 			S.Expect.bHasTarget = D.Expect.bHasTarget;
 			S.Expect.Target = D.Expect.Target;
 			S.Expect.WithinMs = D.Expect.WithinMs;
+			S.bAgentJudgeable = D.bAgentJudgeable;
 			Asset->Steps.Add(MoveTemp(S));
 		}
 	}
@@ -699,8 +750,16 @@ namespace MCPPIE
 		Run.CurrentStep = FirstUnsettled;
 	}
 
+	FString NormalizeScriptVerdictSource(const FString& Source)
+	{
+		const FString S = Source.TrimStartAndEnd().ToLower();
+		if (S.IsEmpty() || S == TEXT("human") || S == TEXT("action")) return TEXT("action");
+		if (S == TEXT("elicitation") || S == TEXT("agent")) return S;
+		return FString();
+	}
+
 	bool ApplyScriptVerdict(FScriptRun& Run, int32 Step, const FString& Verdict, const FString& Note,
-		const FString& Source, bool& bOutUnchanged, FString& OutError)
+		const FString& Source, const FScriptVerdictEvidence& Evidence, bool& bOutUnchanged, FString& OutError)
 	{
 		bOutUnchanged = false;
 		EScriptStepStatus NewStatus;
@@ -712,10 +771,17 @@ namespace MCPPIE
 			OutError = FString::Printf(TEXT("verdict must be pass, fail or skip, got '%s'"), *Verdict);
 			return false;
 		}
-		const FString VerdictSource = Source.IsEmpty() ? FString(TEXT("action")) : Source.ToLower();
-		if (VerdictSource != TEXT("action") && VerdictSource != TEXT("elicitation"))
+		const FString VerdictSource = NormalizeScriptVerdictSource(Source);
+		if (VerdictSource.IsEmpty())
 		{
-			OutError = FString::Printf(TEXT("source must be action or elicitation, got '%s'"), *Source);
+			OutError = FString::Printf(TEXT("source must be human or agent, got '%s'"), *Source);
+			return false;
+		}
+		const bool bAgent = VerdictSource == TEXT("agent");
+		const FString EvidenceNote = Evidence.Note.TrimStartAndEnd();
+		if (bAgent && EvidenceNote.IsEmpty())
+		{
+			OutError = TEXT("an agent verdict needs evidence: {note, captures?}, a note saying what was observed");
 			return false;
 		}
 		if (!Run.Steps.IsValidIndex(Step))
@@ -729,12 +795,18 @@ namespace MCPPIE
 			OutError = FString::Printf(TEXT("step %d is an auto step; its verdict comes from the observed values"), Step);
 			return false;
 		}
+		if (bAgent && !St.Def.bAgentJudgeable)
+		{
+			OutError = FString::Printf(TEXT("step %d is agent_judgeable false; only a person can give its verdict"), Step);
+			return false;
+		}
 		if (St.Status == EScriptStepStatus::Pending)
 		{
 			OutError = FString::Printf(TEXT("step %d has not started yet"), Step);
 			return false;
 		}
-		if (St.Status == NewStatus && St.Note == Note)
+		if (St.Status == NewStatus && St.Note == Note && St.VerdictSource == VerdictSource
+			&& St.Evidence.Note == EvidenceNote && St.Evidence.Captures == Evidence.Captures)
 		{
 			bOutUnchanged = true;
 			return true;
@@ -742,6 +814,8 @@ namespace MCPPIE
 		St.Status = NewStatus;
 		St.Note = Note;
 		St.VerdictSource = VerdictSource;
+		St.Evidence.Note = EvidenceNote;
+		St.Evidence.Captures = Evidence.Captures;
 		St.EndedAtMs = Run.NowMs;
 		St.EndedAt = ScriptNowIso();
 
@@ -750,6 +824,12 @@ namespace MCPPIE
 		D->SetStringField(TEXT("verdict"), Verdict.ToLower());
 		if (!Note.IsEmpty()) D->SetStringField(TEXT("note"), Note);
 		D->SetStringField(TEXT("verdict_source"), VerdictSource);
+		if (ScriptHasVerdictEvidence(St.Evidence))
+		{
+			TSharedRef<FJsonObject> E = MakeShared<FJsonObject>();
+			ScriptVerdictEvidenceToJson(St.Evidence, E);
+			D->SetObjectField(TEXT("evidence"), E);
+		}
 		AddScriptEvent(Run, TEXT("verdict"), Step, D);
 		return true;
 	}
@@ -792,6 +872,11 @@ namespace MCPPIE
 			default: S.Pending++; break;
 			}
 			if (St.bRegression) S.Regressions++;
+			if (St.Def.Judge == EScriptJudge::Manual && IsScriptStepSettled(St.Status))
+			{
+				if (St.VerdictSource == TEXT("agent")) S.AgentVerdicts++;
+				else if (St.VerdictSource == TEXT("action") || St.VerdictSource == TEXT("elicitation")) S.HumanVerdicts++;
+			}
 		}
 		return S;
 	}
@@ -815,6 +900,8 @@ namespace MCPPIE
 		O->SetNumberField(TEXT("skipped"), Summary.Skipped);
 		O->SetNumberField(TEXT("pending"), Summary.Pending);
 		O->SetNumberField(TEXT("awaiting"), Summary.Awaiting);
+		O->SetNumberField(TEXT("human_verdicts"), Summary.HumanVerdicts);
+		O->SetNumberField(TEXT("agent_verdicts"), Summary.AgentVerdicts);
 		if (bReplay) O->SetNumberField(TEXT("regressions"), Summary.Regressions);
 		return O;
 	}
@@ -825,6 +912,7 @@ namespace MCPPIE
 		O->SetNumberField(TEXT("index"), Index);
 		O->SetStringField(TEXT("instruction"), St.Def.Instruction);
 		O->SetStringField(TEXT("judge"), ScriptJudgeToString(St.Def.Judge));
+		if (St.Def.Judge == EScriptJudge::Manual) O->SetBoolField(TEXT("agent_judgeable"), St.Def.bAgentJudgeable);
 		if (St.Def.bHasExpect) O->SetObjectField(TEXT("expect"), ScriptExpectToJson(St.Def.Expect));
 		O->SetStringField(TEXT("status"), ScriptStepStatusToString(St.Status));
 		O->SetNumberField(TEXT("within_ms"), St.WithinMs);
@@ -836,10 +924,11 @@ namespace MCPPIE
 		{
 			O->SetObjectField(TEXT("evidence"), ScriptEvidenceToJson(St.Evidence));
 		}
-		else if (!St.Evidence.Reason.IsEmpty())
+		else if (!St.Evidence.Reason.IsEmpty() || ScriptHasVerdictEvidence(St.Evidence))
 		{
 			TSharedRef<FJsonObject> E = MakeShared<FJsonObject>();
-			E->SetStringField(TEXT("reason"), St.Evidence.Reason);
+			if (!St.Evidence.Reason.IsEmpty()) E->SetStringField(TEXT("reason"), St.Evidence.Reason);
+			ScriptVerdictEvidenceToJson(St.Evidence, E);
 			O->SetObjectField(TEXT("evidence"), E);
 		}
 		if (!St.Note.IsEmpty()) O->SetStringField(TEXT("note"), St.Note);
@@ -1014,6 +1103,8 @@ namespace MCPPIE
 				{
 					St.Status = Src.Status;
 					St.Note = Src.Note;
+					St.Evidence.Note = Src.Evidence.Note;
+					St.Evidence.Captures = Src.Evidence.Captures;
 				}
 				else
 				{
@@ -1378,14 +1469,14 @@ namespace MCPPIE
 	}
 
 	bool FPIEScriptRunner::Verdict(int32 Step, const FString& InVerdict, const FString& Note, const FString& Source,
-		bool& bOutUnchanged, FString& OutError)
+		const FScriptVerdictEvidence& Evidence, bool& bOutUnchanged, FString& OutError)
 	{
 		if (!bHasRun)
 		{
 			OutError = TEXT("No script run to give a verdict on");
 			return false;
 		}
-		if (!ApplyScriptVerdict(Run, Step, InVerdict, Note, Source, bOutUnchanged, OutError)) return false;
+		if (!ApplyScriptVerdict(Run, Step, InVerdict, Note, Source, Evidence, bOutUnchanged, OutError)) return false;
 		if (bOutUnchanged) return true;
 		if (IsActive())
 		{

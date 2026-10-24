@@ -109,6 +109,7 @@ namespace
 			TSharedRef<FJsonObject> A = MakeShared<FJsonObject>();
 			A->SetNumberField(TEXT("index"), I);
 			A->SetStringField(TEXT("instruction"), Run.Steps[I].Def.Instruction);
+			A->SetBoolField(TEXT("agent_judgeable"), Run.Steps[I].Def.bAgentJudgeable);
 			Awaiting.Add(MakeShared<FJsonValueObject>(A));
 		}
 		R->SetArrayField(TEXT("awaiting"), Awaiting);
@@ -134,9 +135,9 @@ void FPIEHandlers::RegisterScriptHandlers(FMCPHandlerRegistry& Registry)
 	const TCHAR* const PieInstanceDoc = TEXT("FWorldContext PIEInstance to observe (default the active PIE world)");
 	const TCHAR* const ClientIdDoc = TEXT("Local-player index inside the selected PIE world (default 0)");
 
-	// One step: {instruction, judge auto|manual, expect {value, op decreasing|increasing|eq|gt|lt|visible|exists, target, within_ms}}.
+	// One step: {instruction, judge auto|manual, agent_judgeable, expect {value, op decreasing|increasing|eq|gt|lt|visible|exists, target, within_ms}}.
 	// The shape is validated in the handler, so the replay actions' inline steps and these share one key type.
-	const TCHAR* const StepsShape = TEXT("{instruction, judge: auto|manual (default auto), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}");
+	const TCHAR* const StepsShape = TEXT("{instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}");
 
 	Registry.RegisterHandler(TEXT("pie_script_create"), &PieScriptCreate, {
 		MCPParam::Required(TEXT("name"), EType::String, TEXT("Asset name")),
@@ -195,7 +196,12 @@ void FPIEHandlers::RegisterScriptHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Required(TEXT("verdict"), EType::String, TEXT("Verdict")).Enum({ TEXT("pass"), TEXT("fail"), TEXT("skip") }),
 		MCPParam::Optional(TEXT("note"), EType::String, TEXT("Tester's note")),
 		MCPParam::Optional(TEXT("run_id"), EType::String, TEXT("Run the step belongs to (default the current or last run)")),
-		MCPParam::Optional(TEXT("source"), EType::String, TEXT("Where the verdict came from (default action)")).Enum({ TEXT("action"), TEXT("elicitation") }),
+		MCPParam::Optional(TEXT("source"), EType::String, TEXT("Who judged the step: human (default) or agent. An agent verdict needs evidence and is refused on a step with agent_judgeable false. elicitation is the verdict form's human channel, action an alias of human")).Enum({
+			TEXT("human"), TEXT("agent"), TEXT("elicitation"), TEXT("action") }),
+		MCPParam::Optional(TEXT("evidence"), EType::Object, TEXT("What the verdict rests on; required when source is agent")).WithFields({
+			MCPParam::RequiredField(TEXT("note"), EType::String, TEXT("What was observed")),
+			MCPParam::OptionalField(TEXT("captures"), EType::Array, TEXT("Capture files that show it: absolute, or relative to the run's output_dir; each must exist")).Items(EType::String),
+		}),
 	});
 	Registry.RegisterHandler(TEXT("pie_script_results"), &PieScriptResults, {
 		MCPParam::Optional(TEXT("run_id"), EType::String, RunIdDoc),
@@ -606,9 +612,38 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptVerdict(const TSharedPtr<FJsonObje
 	TSharedPtr<FJsonValue> VerdictErr = RequireString(Params, TEXT("verdict"), Verdict);
 	const FString Note = OptionalString(Params, TEXT("note"));
 	const FString RunId = OptionalString(Params, TEXT("run_id"));
-	const FString Source = OptionalString(Params, TEXT("source"), TEXT("action"));
+	const FString Source = OptionalString(Params, TEXT("source"), TEXT("human"));
 	if (StepErr) return StepErr;
 	if (VerdictErr) return VerdictErr;
+
+	FScriptVerdictEvidence Evidence;
+	TArray<FString> RawCaptures;
+	if (HasParam(Params, TEXT("evidence")))
+	{
+		const TSharedPtr<FJsonObject>* EvObj = nullptr;
+		if (RequireObject(Params, TEXT("evidence"), EvObj))
+		{
+			return MCPError(TEXT("evidence must be an object {note, captures?}"));
+		}
+		(*EvObj)->TryGetStringField(TEXT("note"), Evidence.Note);
+		if ((*EvObj)->HasField(TEXT("captures")))
+		{
+			const TArray<TSharedPtr<FJsonValue>>* Captures = nullptr;
+			if (!(*EvObj)->TryGetArrayField(TEXT("captures"), Captures) || !Captures)
+			{
+				return MCPError(TEXT("evidence.captures must be an array of file paths"));
+			}
+			for (const TSharedPtr<FJsonValue>& C : *Captures)
+			{
+				FString Path;
+				if (!C.IsValid() || !C->TryGetString(Path) || Path.TrimStartAndEnd().IsEmpty())
+				{
+					return MCPError(TEXT("evidence.captures must be an array of non-empty file paths"));
+				}
+				RawCaptures.Add(Path.TrimStartAndEnd());
+			}
+		}
+	}
 
 	FPIEScriptRunner& Runner = FPIEScriptRunner::Get();
 	const FScriptRun* Run = Runner.GetRun();
@@ -618,14 +653,28 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptVerdict(const TSharedPtr<FJsonObje
 		return MCPError(FString::Printf(TEXT("Run %s is not the current run (%s)"), *RunId, *Run->RunId));
 	}
 
+	// A capture is resolved against the run's folder and must exist, so the evidence trail points at real files.
+	for (const FString& Raw : RawCaptures)
+	{
+		FString Full = FPaths::IsRelative(Raw) ? FPaths::Combine(Run->OutputDir, Raw) : Raw;
+		Full = FPaths::ConvertRelativePathToFull(Full);
+		FPaths::NormalizeFilename(Full);
+		if (!FPaths::FileExists(Full) && !FPaths::DirectoryExists(Full))
+		{
+			return MCPError(FString::Printf(TEXT("evidence capture '%s' does not exist (resolved to %s)"), *Raw, *Full));
+		}
+		Evidence.Captures.Add(Full);
+	}
+
 	const bool bValidStep = Run->Steps.IsValidIndex(Step);
 	const FString PrevVerdict = bValidStep ? ScriptVerdictForStatus(Run->Steps[Step].Status) : FString();
 	const FString PrevNote = bValidStep ? Run->Steps[Step].Note : FString();
 	const FString PrevSource = bValidStep ? Run->Steps[Step].VerdictSource : FString();
+	const FScriptEvidence PrevEvidence = bValidStep ? Run->Steps[Step].Evidence : FScriptEvidence();
 
 	bool bUnchanged = false;
 	FString Err;
-	if (!Runner.Verdict(Step, Verdict, Note, Source, bUnchanged, Err)) return MCPError(Err);
+	if (!Runner.Verdict(Step, Verdict, Note, Source, Evidence, bUnchanged, Err)) return MCPError(Err);
 
 	Run = Runner.GetRun();
 	const FScriptStepRun& St = Run->Steps[Step];
@@ -636,6 +685,15 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptVerdict(const TSharedPtr<FJsonObje
 	Result->SetStringField(TEXT("verdict"), Verdict.ToLower());
 	Result->SetStringField(TEXT("verdict_source"), St.VerdictSource);
 	if (!St.Note.IsEmpty()) Result->SetStringField(TEXT("note"), St.Note);
+	if (!St.Evidence.Note.IsEmpty() || St.Evidence.Captures.Num() > 0)
+	{
+		TSharedPtr<FJsonObject> Ev = MakeShared<FJsonObject>();
+		if (!St.Evidence.Note.IsEmpty()) Ev->SetStringField(TEXT("note"), St.Evidence.Note);
+		TArray<TSharedPtr<FJsonValue>> Caps;
+		for (const FString& C : St.Evidence.Captures) Caps.Add(MakeShared<FJsonValueString>(C));
+		if (Caps.Num() > 0) Ev->SetArrayField(TEXT("captures"), Caps);
+		Result->SetObjectField(TEXT("evidence"), Ev);
+	}
 	Result->SetStringField(TEXT("state"), ScriptRunStateToString(Run->State));
 	TArray<TSharedPtr<FJsonValue>> Awaiting;
 	for (int32 I : ScriptAwaitingSteps(*Run)) Awaiting.Add(MakeShared<FJsonValueNumber>(I));
@@ -654,7 +712,16 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptVerdict(const TSharedPtr<FJsonObje
 		Payload->SetNumberField(TEXT("step"), Step);
 		Payload->SetStringField(TEXT("verdict"), PrevVerdict);
 		Payload->SetStringField(TEXT("note"), PrevNote);
-		Payload->SetStringField(TEXT("source"), PrevSource.IsEmpty() ? FString(TEXT("action")) : PrevSource);
+		Payload->SetStringField(TEXT("source"), PrevSource.IsEmpty() ? FString(TEXT("human")) : PrevSource == TEXT("action") ? FString(TEXT("human")) : PrevSource);
+		if (!PrevEvidence.Note.IsEmpty() || PrevEvidence.Captures.Num() > 0)
+		{
+			TSharedPtr<FJsonObject> Ev = MakeShared<FJsonObject>();
+			Ev->SetStringField(TEXT("note"), PrevEvidence.Note);
+			TArray<TSharedPtr<FJsonValue>> Caps;
+			for (const FString& C : PrevEvidence.Captures) Caps.Add(MakeShared<FJsonValueString>(C));
+			if (Caps.Num() > 0) Ev->SetArrayField(TEXT("captures"), Caps);
+			Payload->SetObjectField(TEXT("evidence"), Ev);
+		}
 		MCPSetRollback(Result, TEXT("pie_script_verdict"), Payload);
 	}
 	else

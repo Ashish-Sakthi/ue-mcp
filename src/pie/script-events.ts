@@ -17,7 +17,8 @@ export type ScriptEventType =
 
 export type ScriptJudge = "auto" | "manual";
 export type ScriptStepStatus = "pending" | "running" | "passed" | "failed" | "awaiting_verdict" | "skipped";
-export type ScriptVerdictSource = "auto" | "action" | "elicitation" | "source_run";
+/** action and elicitation are a person's verdicts, agent the calling agent's. */
+export type ScriptVerdictSource = "auto" | "action" | "elicitation" | "agent" | "source_run";
 
 export interface ScriptExpect {
   value: string;
@@ -32,8 +33,10 @@ export interface ScriptStep {
   instruction: string;
   judge: ScriptJudge;
   expect?: ScriptExpect;
+  /** Manual steps: false means only a person may give the verdict. */
+  agentJudgeable?: boolean;
   status: ScriptStepStatus;
-  /** What the observer saw for an auto step: {value, at_start, at_end, samples, observed?}. */
+  /** What the observer saw for an auto step: {value, at_start, at_end, samples, observed?}; for a manual step, the verdict's {note, captures?}. */
   evidence?: Record<string, unknown>;
   note?: string;
   verdictSource?: ScriptVerdictSource;
@@ -57,6 +60,9 @@ export interface ScriptSummary {
   awaiting?: number;
   /** Replay runs: steps that passed in the source run and fail in the replay. */
   regressions?: number;
+  /** Manual steps settled by a person, and by an agent. */
+  humanVerdicts?: number;
+  agentVerdicts?: number;
 }
 
 interface ScriptEventBase {

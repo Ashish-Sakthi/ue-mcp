@@ -70,7 +70,7 @@ export const pieTool: ToolDef = categoryTool(
       followUp: scriptStatusFollowUp,
     },
     script_stop:          specBp("mutate", "End a script run now; unsettled steps stay pending and results.json is written.", "pie_script_stop"),
-    verdict:              specBp("mutate", "Record a manual step's verdict: pass, fail or skip, with a note.", "pie_script_verdict"),
+    verdict:              specBp("mutate", "Record a manual step's verdict: pass, fail or skip, with a note. source=agent marks the calling agent's own judgement and needs evidence {note, captures?}; a step with agent_judgeable=false takes only a person's verdict.", "pie_script_verdict"),
     script_results:       specBp("read", "Read a finished run's results.json.", "pie_script_results"),
     script_replay: {
       ...specBp("mutate", "Replay a finished run's recording and re-evaluate its auto steps at their recorded offsets; manual steps keep their verdicts. Reports regressions.", "pie_script_replay"),

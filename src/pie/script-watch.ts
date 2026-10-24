@@ -341,16 +341,23 @@ function toStep(raw: Record<string, unknown> | undefined, index: number, fallbac
     status: (typeof r.status === "string" ? r.status : fallbackStatus) as ScriptStepStatus,
   };
   if (r.expect && typeof r.expect === "object") step.expect = r.expect as ScriptStep["expect"];
+  if (typeof r.agent_judgeable === "boolean") step.agentJudgeable = r.agent_judgeable;
   if (r.evidence && typeof r.evidence === "object") step.evidence = r.evidence as Record<string, unknown>;
   if (typeof r.note === "string") step.note = r.note;
   const source = r.verdict_source ?? r.verdictSource;
-  if (source === "auto" || source === "action" || source === "elicitation" || source === "source_run") step.verdictSource = source;
+  if (source === "auto" || source === "action" || source === "elicitation" || source === "agent" || source === "source_run") step.verdictSource = source;
   if (typeof r.within_ms === "number") step.withinMs = r.within_ms;
   if (typeof r.started_at_ms === "number") step.startedAtMs = r.started_at_ms;
   if (typeof r.ended_at_ms === "number") step.endedAtMs = r.ended_at_ms;
   if (typeof r.source_status === "string") step.sourceStatus = r.source_status as ScriptStepStatus;
   if (typeof r.regression === "boolean") step.regression = r.regression;
   return step;
+}
+
+/** A summary count under its bridge (snake_case) or stream (camelCase) name. */
+function raw(s: object | undefined, snake: string, camel: string): unknown {
+  const o = s as Record<string, unknown> | undefined;
+  return o?.[snake] ?? o?.[camel];
 }
 
 const STATUS_AFTER: Record<string, ScriptStepStatus> = {
@@ -423,6 +430,8 @@ export function mapBridgeEvent(e: BridgeScriptEvent, w: { runId: string; script:
         pending: Number(s?.pending ?? 0),
         ...(s?.awaiting !== undefined ? { awaiting: Number(s.awaiting) } : {}),
         ...(s?.regressions !== undefined ? { regressions: Number(s.regressions) } : {}),
+        ...(raw(s, "human_verdicts", "humanVerdicts") !== undefined ? { humanVerdicts: Number(raw(s, "human_verdicts", "humanVerdicts")) } : {}),
+        ...(raw(s, "agent_verdicts", "agentVerdicts") !== undefined ? { agentVerdicts: Number(raw(s, "agent_verdicts", "agentVerdicts")) } : {}),
       };
       const state = typeof data.state === "string" ? data.state : status?.state && TERMINAL.has(status.state) ? status.state : undefined;
       return { ...base, type: "run_finished", summary, ...(state ? { state } : {}), ...(resultsPath ? { resultsPath } : {}) };
@@ -497,7 +506,7 @@ export async function waitForScriptRun(
   }
 }
 
-const VERDICT_HINT = "call pie(verdict, step, verdict, note?)";
+const VERDICT_HINT = "call pie(verdict, step, verdict, note?); an agent passes source=\"agent\" with evidence {note, captures?}";
 
 function merge(answered: Record<string, unknown>, final: ScriptStatus | null, wait: ScriptWait, keepEvents: boolean): Record<string, unknown> {
   const status: Record<string, unknown> = { ...(final ?? {}) };

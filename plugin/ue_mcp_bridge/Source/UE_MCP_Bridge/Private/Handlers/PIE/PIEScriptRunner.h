@@ -62,6 +62,8 @@ namespace MCPPIE
 		EScriptJudge Judge = EScriptJudge::Auto;
 		bool bHasExpect = false;
 		FScriptExpect Expect;
+		// Manual steps: false refuses a verdict with source agent.
+		bool bAgentJudgeable = true;
 	};
 
 	struct FScriptDef
@@ -118,6 +120,16 @@ namespace MCPPIE
 		int64 VerdictFrame = -1;
 		double VerdictAtMs = -1.0;
 		FString Reason;
+		// Manual steps: what the verdict's author cites. Required for an agent verdict.
+		FString Note;
+		TArray<FString> Captures;
+	};
+
+	// The evidence a verdict carries: a note plus capture file paths.
+	struct FScriptVerdictEvidence
+	{
+		FString Note;
+		TArray<FString> Captures;
 	};
 
 	struct FScriptStepRun
@@ -131,7 +143,7 @@ namespace MCPPIE
 		FString EndedAt;
 		FScriptEvidence Evidence;
 		FString Note;
-		// auto | action | elicitation | source_run
+		// auto | action | elicitation | agent | source_run. action and elicitation are human verdicts.
 		FString VerdictSource;
 		// Replay only.
 		bool bHasSourceStatus = false;
@@ -160,6 +172,9 @@ namespace MCPPIE
 		int32 Pending = 0;
 		int32 Awaiting = 0;
 		int32 Regressions = 0;
+		// Manual steps settled by a person (action, elicitation) and by an agent.
+		int32 HumanVerdicts = 0;
+		int32 AgentVerdicts = 0;
 	};
 
 	struct FScriptRun
@@ -210,9 +225,13 @@ namespace MCPPIE
 	void AdvanceScriptRun(FScriptRun& Run, double NowMs, int64 Frame, FScriptValueReader Reader);
 	// Replay mode: every auto step is judged in its own recorded window.
 	void AdvanceScriptReplay(FScriptRun& Run, double NowMs, int64 Frame, FScriptValueReader Reader);
-	// Manual steps only. A repeated identical verdict succeeds with bOutUnchanged.
+	// Manual steps only. Source is human (recorded as action), elicitation or agent; an agent
+	// verdict needs an evidence note and is refused on a step with agent_judgeable false.
+	// A repeated identical verdict succeeds with bOutUnchanged.
 	bool ApplyScriptVerdict(FScriptRun& Run, int32 Step, const FString& Verdict, const FString& Note,
-		const FString& Source, bool& bOutUnchanged, FString& OutError);
+		const FString& Source, const FScriptVerdictEvidence& Evidence, bool& bOutUnchanged, FString& OutError);
+	// The recorded verdict_source for a pie_script_verdict source param, or empty when unknown.
+	FString NormalizeScriptVerdictSource(const FString& Source);
 	bool IsScriptRunSettled(const FScriptRun& Run);
 	// A running auto step fails with Reason; pending and awaiting steps stay as they are.
 	void SettleUnfinishedScriptSteps(FScriptRun& Run, const FString& Reason);
@@ -266,7 +285,7 @@ namespace MCPPIE
 		bool StartReplay(const FScriptReplayConfig& Cfg, FString& OutError, FString& OutMessage);
 		bool Stop(const FString& Reason, FString& OutError);
 		bool Verdict(int32 Step, const FString& Verdict, const FString& Note, const FString& Source,
-			bool& bOutUnchanged, FString& OutError);
+			const FScriptVerdictEvidence& Evidence, bool& bOutUnchanged, FString& OutError);
 
 		// The active run, or the last finished one; null before the first run.
 		const FScriptRun* GetRun() const { return bHasRun ? &Run : nullptr; }

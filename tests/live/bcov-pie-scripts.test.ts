@@ -3,8 +3,11 @@
  * Test script runs in Play-In-Editor: auto steps judged from observed values,
  * a manual step held until its verdict, the run's events and results.json,
  * a replay that re-evaluates the auto steps from the run's recording, and a
- * run stopped early. PIE is stopped after every run.
+ * run stopped early, and agent verdicts with their evidence. PIE is stopped
+ * after every run.
  */
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { callBridge, disconnectBridge, getBridge, type TestResult } from "../setup.js";
 import type { EditorBridge } from "../../src/bridge/bridge.js";
@@ -184,5 +187,70 @@ describe("stopping a run", () => {
     const again = await callBridge(bridge, "pie_script_stop", {});
     expect(body(again).alreadyStopped).toBe(true);
     await stopPie();
+  }, 120_000);
+});
+
+describe("agent verdicts", () => {
+  it("verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts", async () => {
+    const started = await call("pie_script_run", {
+      name: "bcov_agent", start_pie: true, record: false, block_on_manual: false,
+      steps: [
+        { instruction: "The cube is on screen", judge: "manual" },
+        { instruction: "The motion feels right", judge: "manual", agent_judgeable: false },
+      ],
+    });
+    const runId = String(started.run_id);
+    const awaiting = await until(runId, (s) => rows(s.awaiting).length === 2);
+    expect(rows(awaiting.awaiting).map((a) => [a.index, a.agent_judgeable])).toEqual([[0, true], [1, false]]);
+    expect(stepOf(awaiting, 1).agent_judgeable).toBe(false);
+
+    const refused = async (params: Json): Promise<string> => {
+      const r = await callBridge(bridge, "pie_script_verdict", { run_id: runId, ...params });
+      expect(succeeded(r), JSON.stringify(r.result)).toBe(false);
+      return String(r.error ?? body(r).error ?? "");
+    };
+    expect(await refused({ step: 0, verdict: "pass", source: "agent" })).toMatch(/evidence/);
+    expect(await refused({ step: 1, verdict: "pass", source: "agent", evidence: { note: "looks smooth" } })).toMatch(/agent_judgeable/);
+    expect(await refused({ step: 0, verdict: "pass", source: "agent", evidence: { note: "seen", captures: ["bcov_missing_capture.png"] } })).toMatch(/does not exist/);
+    const held = await call("pie_script_status", { run_id: runId });
+    expect(stepOf(held, 0).status).toBe("awaiting_verdict");
+    expect(stepOf(held, 1).status).toBe("awaiting_verdict");
+
+    const outputDir = String(started.output_dir);
+    const capture = join(outputDir, "bcov_agent_capture.png");
+    mkdirSync(outputDir, { recursive: true });
+    writeFileSync(capture, "capture");
+    try {
+      const agent = await call("pie_script_verdict", {
+        run_id: runId, step: 0, verdict: "pass", source: "agent",
+        evidence: { note: "The cube fills the centre of the capture", captures: ["bcov_agent_capture.png"] },
+      });
+      expect(agent.verdict_source).toBe("agent");
+      const captures = rows((agent.evidence as Json | undefined)?.captures).map(String);
+      expect(captures).toHaveLength(1);
+      expect(captures[0].replace(/\\/g, "/")).toMatch(/\/bcov_agent_capture\.png$/);
+
+      await call("pie_script_verdict", { run_id: runId, step: 1, verdict: "fail", note: "a hitch at the turn" });
+      const finished = await until(runId, (s) => s.state === "finished");
+      expect(finished.state).toBe("finished");
+      expect(stepOf(finished, 0).verdict_source).toBe("agent");
+      expect(stepOf(finished, 1).verdict_source).toBe("action");
+      const agentEvent = rows(finished.events).find((e) => e.type === "verdict" && e.step === 0);
+      const eventData = (agentEvent?.data ?? {}) as Json;
+      expect(eventData.verdict_source).toBe("agent");
+      expect((eventData.evidence as Json | undefined)?.note).toBe("The cube fills the centre of the capture");
+
+      await stopPie();
+      const results = await call("pie_script_results", { run_id: runId });
+      expect(results.summary).toMatchObject({ total: 2, passed: 1, failed: 1, agent_verdicts: 1, human_verdicts: 1 });
+      const step0 = rows(results.steps)[0];
+      expect(step0.verdict_source).toBe("agent");
+      expect((step0.evidence as Json).note).toBe("The cube fills the centre of the capture");
+      expect(rows((step0.evidence as Json).captures)).toHaveLength(1);
+      expect(rows(results.steps)[1].agent_judgeable).toBe(false);
+    } finally {
+      rmSync(capture, { force: true });
+      await stopPie();
+    }
   }, 120_000);
 });
