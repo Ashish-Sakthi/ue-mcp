@@ -102,7 +102,7 @@ namespace MCPPIE
 		}
 		if (Dir.IsEmpty())
 		{
-			Dir = FPaths::ProjectSavedDir() / TEXT("MCPSessions") /
+			Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPSessions") /
 				FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S"));
 		}
 		BeginSession(Dir);

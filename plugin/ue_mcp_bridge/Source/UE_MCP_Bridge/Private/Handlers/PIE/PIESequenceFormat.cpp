@@ -987,7 +987,7 @@ namespace MCPPIE
 
 	FString DefaultRecordingsRoot()
 	{
-		return FPaths::ProjectSavedDir() / TEXT("MCPRecordings");
+		return FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPRecordings");
 	}
 
 	FString MakeRecordingId(const FString& Override)
@@ -1012,6 +1012,9 @@ namespace MCPPIE
 			AActor* A = *It;
 			if (!A) continue;
 			if (A->GetName() == Id) return A;
+#if WITH_EDITOR
+			if (A->GetActorLabel() == Id) return A;
+#endif
 			const UClass* C = A->GetClass();
 			if (C && (C->GetName() == Id || C->GetPathName() == Id)) return A;
 			if (A->GetPathName().EndsWith(Id)) return A;

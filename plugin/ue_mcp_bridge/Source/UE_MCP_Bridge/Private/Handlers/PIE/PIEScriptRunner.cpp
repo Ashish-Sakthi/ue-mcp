@@ -1036,7 +1036,7 @@ namespace MCPPIE
 
 	FString DefaultScriptObservationsRoot()
 	{
-		return FPaths::ProjectSavedDir() / TEXT("MCPObservations");
+		return FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPObservations");
 	}
 
 	FString MakeScriptRunId(const FString& Prefix, const FString& Name)
@@ -1325,7 +1325,8 @@ namespace MCPPIE
 		FReplayerArmConfig RepCfg;
 		RepCfg.SourceRecordingId = Source.RecordingId;
 		RepCfg.SourceDir = RecDir;
-		RepCfg.bAutoStopPIE = Cfg.bAutoStopPIE;
+		// The replayer ends when its input runs out, which can be before the last step window; the run ends PIE itself.
+		RepCfg.bAutoStopPIE = false;
 		RepCfg.TimeScale = Cfg.TimeScale;
 		RepCfg.ClientId = Cfg.ClientId;
 		RepCfg.PIEInstance = Cfg.PIEInstance;
@@ -1337,6 +1338,7 @@ namespace MCPPIE
 			return false;
 		}
 		NewRun.bOwnsReplayer = true;
+		NewRun.bEndPIEWhenSettled = Cfg.bAutoStopPIE;
 		NewRun.State = EScriptRunState::Armed;
 		Run = MoveTemp(NewRun);
 		bHasRun = true;
@@ -1479,6 +1481,10 @@ namespace MCPPIE
 
 		WriteResults();
 		UnbindEndFrame();
+		if (Run.bEndPIEWhenSettled && FinalState == EScriptRunState::Finished && GEditor && GEditor->PlayWorld)
+		{
+			GEditor->RequestEndPlayMap();
+		}
 		UE_LOG(LogMCPPIE, Log, TEXT("[PIE-SCRIPT] Run %s %s: %s -> %s"),
 			*Run.RunId, *ScriptRunStateToString(FinalState), *Reason, *Run.ResultsPath);
 	}

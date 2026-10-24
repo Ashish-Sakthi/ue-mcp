@@ -435,7 +435,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieObserveList(const TSharedPtr<FJsonObject
 {
 	MCP_CHECK_GAME_THREAD();
 	const FString Root = OptionalString(Params, TEXT("output_dir"),
-		FPaths::ProjectSavedDir() / TEXT("MCPObservations"));
+		FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPObservations"));
 	const int32 Limit = OptionalInt(Params, TEXT("limit"), 200);
 
 	TArray<FString> Dirs;
@@ -487,7 +487,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieObserveRead(const TSharedPtr<FJsonObject
 	if (auto Err = RequireString(Params, TEXT("run_id"), RunId)) return Err;
 
 	const FString Root = OptionalString(Params, TEXT("output_dir"),
-		FPaths::ProjectSavedDir() / TEXT("MCPObservations"));
+		FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPObservations"));
 	const FString File = OptionalString(Params, TEXT("file"), TEXT("manifest"));
 	const int32 Limit = OptionalInt(Params, TEXT("limit"), 1000);
 	const int32 Offset = OptionalInt(Params, TEXT("offset"), 0);

@@ -1424,7 +1424,7 @@ namespace MCPPIE
 		Impl->bWindowless = Fresh.bWindowless;
 		Impl->ClientFps = Fresh.ClientFps;
 		Impl->Steps = MoveTemp(Fresh.Steps);
-		Impl->ReportDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir() / TEXT("PIEStudio") / TEXT("UAT") /
+		Impl->ReportDir = FPaths::ConvertRelativePathToFull(FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("PIEStudio") / TEXT("UAT") /
 			FString::Printf(TEXT("%s_%s"), *FPaths::MakeValidFileName(Impl->Name), *FDateTime::Now().ToString(TEXT("%Y%m%d-%H%M%S"))));
 		IFileManager::Get().MakeDirectory(*Impl->ReportDir, true);
 

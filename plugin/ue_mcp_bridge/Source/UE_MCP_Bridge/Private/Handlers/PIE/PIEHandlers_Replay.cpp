@@ -326,7 +326,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieReplayAnalyze(const TSharedPtr<FJsonObje
 	else
 	{
 		const FString Root = RecDir.IsEmpty()
-			? (FPaths::ProjectSavedDir() / TEXT("MCPRecordings"))
+			? (FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPRecordings"))
 			: RecDir;
 		Folder = Root / Id;
 	}

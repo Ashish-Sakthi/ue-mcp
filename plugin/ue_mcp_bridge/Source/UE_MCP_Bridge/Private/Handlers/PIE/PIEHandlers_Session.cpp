@@ -33,7 +33,7 @@ namespace
 		const FString Id = OptionalString(Params, TEXT("session"));
 		if (!Id.IsEmpty())
 		{
-			return FPaths::ProjectSavedDir() / TEXT("MCPSessions") / Id;
+			return FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPSessions") / Id;
 		}
 		return FString();
 	}

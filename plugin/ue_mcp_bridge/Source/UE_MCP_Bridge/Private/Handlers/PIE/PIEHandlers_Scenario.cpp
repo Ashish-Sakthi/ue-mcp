@@ -22,7 +22,7 @@ namespace
 		const FString RecDir = OptionalString(Params, TEXT("recording_dir"));
 		FString Folder;
 		if (!RecDir.IsEmpty() && Id.IsEmpty()) Folder = RecDir;
-		else Folder = (RecDir.IsEmpty() ? (FPaths::ProjectSavedDir() / TEXT("MCPRecordings")) : RecDir) / Id;
+		else Folder = (RecDir.IsEmpty() ? (FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPRecordings")) : RecDir) / Id;
 		Folder.RemoveFromEnd(TEXT("/"));
 		Folder.RemoveFromEnd(TEXT("\\"));
 		return Folder;

@@ -36,7 +36,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PiePerfSummary(const TSharedPtr<FJsonObject
 	}
 	else
 	{
-		const FString Root = RecDir.IsEmpty() ? (FPaths::ProjectSavedDir() / TEXT("MCPRecordings")) : RecDir;
+		const FString Root = RecDir.IsEmpty() ? (FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPRecordings")) : RecDir;
 		Folder = Root / Id;
 	}
 	Folder.RemoveFromEnd(TEXT("/"));

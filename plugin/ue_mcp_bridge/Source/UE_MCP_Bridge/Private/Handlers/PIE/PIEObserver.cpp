@@ -331,7 +331,7 @@ namespace MCPPIE
 				Cfg.ProfilePath.IsEmpty() ? TEXT("adhoc") : *FPaths::GetBaseFilename(Cfg.ProfilePath),
 				*FDateTime::Now().ToString(TEXT("%Y%m%d_%H%M%S")));
 		const FString Root = Cfg.OutputDir.IsEmpty()
-			? (FPaths::ProjectSavedDir() / TEXT("MCPObservations"))
+			? (FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPObservations"))
 			: Cfg.OutputDir;
 		S.OutputDir = Root / S.RunId;
 

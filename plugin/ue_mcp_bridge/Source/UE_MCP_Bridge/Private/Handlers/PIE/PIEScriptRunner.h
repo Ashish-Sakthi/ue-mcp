@@ -196,6 +196,8 @@ namespace MCPPIE
 		// Runtime ownership, not serialised.
 		bool bOwnsRecorder = false;
 		bool bOwnsReplayer = false;
+		/** Replay runs: end PIE once every step has settled. */
+		bool bEndPIEWhenSettled = false;
 		bool bStartedPIE = false;
 	};
 

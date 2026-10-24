@@ -592,7 +592,7 @@ namespace MCPPIE
 				}
 				else
 				{
-					Dir = FPaths::ProjectSavedDir() / TEXT("Screenshots") / TEXT("MCPReplay");
+					Dir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("Screenshots") / TEXT("MCPReplay");
 				}
 				IFileManager::Get().MakeDirectory(*Dir, true);
 				// Source-backed replays use the drift frame index so the
@@ -735,7 +735,7 @@ namespace MCPPIE
 					}
 					else
 					{
-						CaptureDir = FPaths::ProjectSavedDir() / TEXT("Screenshots") / TEXT("MCPReplay");
+						CaptureDir = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("Screenshots") / TEXT("MCPReplay");
 					}
 					IFileManager::Get().MakeDirectory(*CaptureDir, true);
 				}

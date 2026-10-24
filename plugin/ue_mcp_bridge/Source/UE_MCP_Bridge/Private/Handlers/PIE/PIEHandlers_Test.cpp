@@ -24,7 +24,7 @@ namespace
 	{
 		FString Folder;
 		if (!RecDir.IsEmpty() && Id.IsEmpty()) Folder = RecDir;
-		else Folder = (RecDir.IsEmpty() ? (FPaths::ProjectSavedDir() / TEXT("MCPRecordings")) : RecDir) / Id;
+		else Folder = (RecDir.IsEmpty() ? (FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPRecordings")) : RecDir) / Id;
 		Folder.RemoveFromEnd(TEXT("/"));
 		Folder.RemoveFromEnd(TEXT("\\"));
 		return Folder;
@@ -124,7 +124,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieTestList(const TSharedPtr<FJsonObject>& 
 	}
 	else
 	{
-		const FString Root = FPaths::ProjectSavedDir() / TEXT("MCPRecordings");
+		const FString Root = FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPRecordings");
 		TArray<FString> Dirs;
 		IFileManager::Get().FindFiles(Dirs, *(Root / TEXT("*")), false, true);
 		for (const FString& D : Dirs) Folders.Add(Root / D);
@@ -303,7 +303,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieAssertEval(const TSharedPtr<FJsonObject>
 		if (!RunId.IsEmpty())
 		{
 			const FString Root = OptionalString(Params, TEXT("output_dir"),
-				FPaths::ProjectSavedDir() / TEXT("MCPObservations"));
+				FPaths::ConvertRelativePathToFull(FPaths::ProjectSavedDir()) / TEXT("MCPObservations"));
 			RunDir = Root / RunId;
 		}
 		else
