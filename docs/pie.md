@@ -208,7 +208,7 @@ pie(action="profile_create",
     tracked_actors=["BP_Hero_C", "BP_Boss_C"])
 ```
 
-Observation output goes to `Saved/MCPObservations/<run_id>/`: `manifest.json`, `observation.csv`, and `tracked.jsonl` when actors are tracked. One recording replayed with different profiles investigates different systems.
+Observation output goes to `Saved/MCPObservations/<run_id>/`: `manifest.json`, `observation.csv`, and `tracked.jsonl` when actors are tracked. One recording replayed with different profiles investigates different systems. A test script run observes and records under its own run id (`script_<name>_<YYYYMMDD_HHMMSS>`) and adds `results.json` to its observation folder; see [Test scripts](pie-scripts.md).
 
 ### Input injection
 
@@ -298,6 +298,7 @@ Without `pie_instance`, the tool prefers an eligible `GEditor->PlayWorld`, then 
   manifest.json
   observation.csv
   tracked.jsonl
+  results.json         test script results, for a script run
 ```
 
 ## Flows
