@@ -174,7 +174,7 @@ The `plugins:` array in **`ue-mcp.yml`** declares npm packages that inject new a
 
 ```yaml
 plugins:
-  - name: pie-studio
+  - name: ue-mcp-perforce
   - name: some-other-plugin
     version: "0.2.x"        # optional - npm semver range
 ```
@@ -203,10 +203,10 @@ Everything the server injects at session start - the `initialize` instructions p
 | Strategy | Seed | What's advertised | Cost to use |
 |----------|------|-------------------|-------------|
 | **`micro`** (default) | <!-- tax:micro -->~2.2k<!-- /tax --> tokens | a single `tools` gateway - `search`, `list_categories`, `describe`, and `call` - fronting every category | discovery for everything |
-| **`lean`** | <!-- tax:lean -->~19k<!-- /tax --> tokens | the <!-- count:tools -->29<!-- /count --> category tools with their `action` enums and a one-line summary each; a `catalog` tool (`search` / `describe` / `list_categories`) and a per-category `describe` action serve the signatures on demand | ~1 round-trip to learn a category |
-| **`full`** | <!-- tax:full -->~51k<!-- /tax --> tokens | the <!-- count:tools -->29<!-- /count --> category tools, each with one signature line per action inline | zero discovery calls |
+| **`lean`** | <!-- tax:lean -->~20k<!-- /tax --> tokens | the <!-- count:tools -->30<!-- /count --> category tools with their `action` enums and a one-line summary each; a `catalog` tool (`search` / `describe` / `list_categories`) and a per-category `describe` action serve the signatures on demand | ~1 round-trip to learn a category |
+| **`full`** | <!-- tax:full -->~55k<!-- /tax --> tokens | the <!-- count:tools -->30<!-- /count --> category tools, each with one signature line per action inline | zero discovery calls |
 
-On demand, micro's `describe` of the largest category (a page of signatures) costs <!-- tax:describe -->~1.5k<!-- /tax --> tokens and a default `search` <!-- tax:search -->~500<!-- /tax -->.
+On demand, micro's `describe` of the largest category (a page of signatures) costs <!-- tax:describe -->~1.5k<!-- /tax --> tokens and a default `search` <!-- tax:search -->~520<!-- /tax -->.
 
 The figures include the <!-- count:nativeToolActions -->830<!-- /count --> wrapped Epic tools, which are declared in the package, and are measured hermetically (throwaway project, no editor) by `npm run context-tax`, which stamps them into these docs. Set `ANTHROPIC_API_KEY` for exact token counts instead of the chars/4 estimate. The `context-tax` release gate (`node scripts/check-release-gates.mjs context-tax`) fails the build when a seed exceeds its budget: micro <!-- tax:microBudget -->~5.0k<!-- /tax -->, lean <!-- tax:leanBudget -->~30k<!-- /tax -->, full <!-- tax:fullBudget -->~60k<!-- /tax -->, a category describe <!-- tax:describeBudget -->~2.0k<!-- /tax --> and a search <!-- tax:searchBudget -->~1.0k<!-- /tax -->.
 
@@ -265,7 +265,7 @@ ue-mcp:
     openBrowserOnCrash: false    # open the client UI in your browser when the editor crashes
 ```
 
-A call that still cannot reach the editor says why it last went away. The daemon's event stream (`GET /v1/events`) carries `call.started` and `call.finished` for every MCP call from every client, named by the client, with the category, action, duration and outcome.
+A call that still cannot reach the editor says why it last went away. The daemon's event stream (`GET /v1/events`) carries `call.started` and `call.finished` for every MCP call from every client, named by the client, with the category, action, duration and outcome. It also carries `dialog.opened`, `dialog.answered`, `dialog.delegated` and `dialog.closed` for editor dialogs, and the progress of every PIE test script run: `script.run_started`, `script.step_started`, `script.step_passed`, `script.step_failed`, `script.verdict_requested`, `script.verdict` and `script.run_finished`. [Test scripts](pie-scripts.md#daemon-events) lists their payloads.
 
 The daemon also manages the project's plugins over HTTP, for clients such as an in-editor panel. `GET /v1/plugins` lists the plugins `ue-mcp.yml` declares with their version, status and categories, and `GET /v1/plugins/catalog` lists the registry's published plugins. `POST /v1/plugins/install` (`{ name, version? }`), `POST /v1/plugins/update` (`{ name? }`) and `POST /v1/plugins/uninstall` (`{ name }`) run the same `ue-mcp plugin` commands, one at a time, and publish `plugins.changed` on the event stream. A change takes effect when the server restarts.
 

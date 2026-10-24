@@ -35,6 +35,7 @@ const PER_SESSION: Record<string, string> = {
   "editor/dialog-guard.ts": "One guard per editor: the modal blocking IT, and the decision every route defers to.",
   "editor/dialog-mode.ts": "Resolves the dialog handling mode for the project it is handed, from that project's stored preference.",
   "sessions/session.ts": "The registry of editors itself.",
+  "pie/script-watch.ts": "Follows one script run through the ToolContext of the call that started it, so it polls that call's editor.",
   "sessions/session-surface.ts": "One tool graph per editor, and the union advertised from them.",
   "config/session-env.ts": "Reports which environment variables flatten the registered editors.",
   "dispatch/editor-gate.ts": "Routes a call to an editor and refuses an untargeted change.",
@@ -200,6 +201,8 @@ const SESSION_INDEPENDENT: Record<string, string> = {
   "core/yaml-dump.ts": "Pure YAML serialization of the value it is handed.",
 
   "flow/events.ts": "One process-wide event bus. Which editor a run belongs to rides on the event, not here.",
+  "pie/script-events.ts": "One process-wide bus for script run events. The run id rides on the event.",
+  "extensions/superseded.ts": "A constant list of plugins core replaced. No editor is involved.",
   "flow/schema.ts": "Shared flow schema declarations.",
   "flow/rollback.ts": "Pure shaping of a rollback record.",
   "flow/handler-outcome.ts": "Pure reading of a handler's own verdict off the body it answered with.",

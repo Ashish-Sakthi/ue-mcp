@@ -1,0 +1,348 @@
+# Test scripts
+
+A test script is an ordered list of steps run against a Play In Editor session. Each step is an instruction for the person playing, and either an expectation the bridge checks against observed values (`judge: "auto"`) or a question the person answers (`judge: "manual"`). A run arms the observer and the recorder under one run id, so a finished run can be replayed later and its auto steps checked again against the same input.
+
+Every action on this page is in the `pie` category.
+
+## Steps
+
+```json
+{
+  "instruction": "Walk up to the door",
+  "judge": "auto",
+  "expect": { "value": "Door.Distance", "op": "decreasing", "within_ms": 3000 }
+}
+```
+
+| Field | Type | Meaning |
+|---|---|---|
+| `instruction` | string | Required. What the person does, or what they check. Shown on the verdict form for a manual step. |
+| `judge` | `auto` or `manual` | Default `auto`. `auto`: the bridge decides from `expect`. `manual`: the step waits for a verdict. |
+| `expect.value` | string | Required in `expect`. For `decreasing`, `increasing`, `eq`, `gt` and `lt`: a tracked value path, or its last segment. For `exists`: an actor id. For `visible`: a widget class or name. |
+| `expect.op` | string | Required in `expect`. One of the ops below. |
+| `expect.target` | number or boolean | Required for `eq`, `gt` and `lt`. Optional for `visible` and `exists`, default `true`; `false` asks for the opposite. Refused for `decreasing` and `increasing`. A boolean given to `eq`, `gt` or `lt` is read as 1 or 0. |
+| `expect.within_ms` | integer | How long the step has to meet its expectation, in game milliseconds from the moment it starts. 0 or absent uses the run's `default_within_ms`. |
+
+A manual step takes no `expect`, and a step that has one is refused. An auto step without `expect` passes as soon as it starts, with `evidence.reason` set to `no expectation`.
+
+A value the profile does not track is added to the observer for the run, so a script can name values, actors and widgets that no profile lists.
+
+### Ops
+
+An auto step is checked on every observed frame from the frame it starts. It passes on the first frame its condition holds, and fails on the first frame that is `within_ms` or more after it started. A frame where the value cannot be read does not count as holding.
+
+| Op | Holds when |
+|---|---|
+| `decreasing` | The value is lower than the first value observed in the step. |
+| `increasing` | The value is higher than the first value observed in the step. |
+| `eq` | The value is within 0.0001 of `target`, or within 0.01% of the larger of the two magnitudes when that is more. |
+| `gt` | The value is greater than `target`. |
+| `lt` | The value is less than `target`. |
+| `visible` | The widget is visible (or not, with `target: false`). |
+| `exists` | The actor resolves in the PIE world (or does not, with `target: false`). |
+
+Auto steps run one at a time. The next step starts on the frame the previous one settled, so the baseline of a `decreasing` or `increasing` step is the value at that frame.
+
+## Storing scripts
+
+Scripts are data assets, saved under `/Game/PIEStudio/Scripts` unless you give another package path. A script holds `steps`, an optional `description`, an optional `profile` (the observation profile asset the run arms) and `default_within_ms`.
+
+| Action | Params |
+|---|---|
+| `script_create` | `name`, `steps`, `package_path?`, `description?`, `profile?`, `default_within_ms?` (default 5000), `onConflict?` (`skip` (default), `update`, `replace` or `error`) |
+| `script_read` | `path`. Returns `path`, `name`, `description`, `profile`, `default_within_ms`, `steps` and `step_count`. |
+| `script_update` | `path`, and any of `steps`, `description`, `profile` (empty clears it), `default_within_ms` |
+| `script_delete` | `path`, `confirm=true` |
+| `script_list` | `directory?` (default `/Game`). Returns `scripts` (`path`, `object_path`, `name`) and `count`. |
+
+A profile that does not exist is refused. `steps` must hold at least one step.
+
+```text
+pie(action="script_create", name="DoorOpens", profile="/Game/PIEStudio/Profiles/Door",
+    steps=[
+      {"instruction": "Walk up to the door", "judge": "auto",
+       "expect": {"value": "Door.Distance", "op": "decreasing", "within_ms": 3000}},
+      {"instruction": "Open the door", "judge": "auto",
+       "expect": {"value": "Door.OpenAngle", "op": "gt", "target": 80}},
+      {"instruction": "The door opens without a visible pop", "judge": "manual"}
+    ])
+```
+
+## Running a script
+
+```text
+pie(action="script_run", script="/Game/PIEStudio/Scripts/DoorOpens", start_pie=true, wait=true)
+```
+
+`script_run` takes a stored script (`script`) or inline `steps`, exactly one of them. The editor runs one script at a time; `script_run` is refused while another run is active.
+
+| Param | Default | Meaning |
+|---|---|---|
+| `script` or `steps` | | The script asset path, or the steps themselves. |
+| `name` | the asset name, or `inline` | The run's name. Also overrides the asset name for a stored script. |
+| `profile` | the script's | The observation profile to arm. |
+| `record` | `true` | Arm the recorder too, so the run can be replayed. With `record=false` the run has no recording and cannot be replayed. |
+| `start_pie` | `false` | Start PIE when it is not running. Otherwise the run waits for the next PIE session. |
+| `block_on_manual` | `true` | Hold the run at a manual step until it has a verdict. Consecutive manual steps are put up together and the run holds until each has one. `false` starts each manual step and moves on. |
+| `default_within_ms` | the script's, or `5000` | The window for an auto step that names none. |
+| `pie_instance` | the active PIE world | Which PIE world to observe. |
+| `client_id` | `0` | Which local player in that world. |
+| `wait` | `false` | Hold the answer until the run finishes, stops, or needs a verdict that nobody was asked for. |
+| `timeout_seconds` | `600` | How long `wait` holds the answer. The run keeps going after it. |
+
+### Run ids and files
+
+A run id is `script_<name>_<YYYYMMDD_HHMMSS>`, from the editor's local time, for example `script_DoorOpens_20261023_100000`. Characters other than letters, digits, `-` and `_` in the name become `_`. When a folder of that id already exists, `_2`, `_3` and so on are appended. A replay run's id is `script_replay_<name>_<YYYYMMDD_HHMMSS>`.
+
+The observation and the recording use the run id as their ids, so `observation_run_id` and `recording_id` equal `run_id`. Paths in answers are absolute:
+
+- `output_dir`: `<Project>/Saved/MCPObservations/<run_id>`, holding the observation files and `results.json`.
+- `results_path`: `<output_dir>/results.json`.
+- `recording_dir`: `<Project>/Saved/MCPRecordings/<run_id>`.
+
+### The answer
+
+`script_run` answers with the run as it stands when armed: `run_id`, `script` (the asset path, or `inline`), `script_name`, `state` (`armed`), `current_step`, `output_dir`, `results_path`, `observation_run_id`, `recording_id` (absent with `record=false`), `elapsed_ms`, `steps`, `awaiting`, `events`, `last_seq`, `summary`, `pie_started`, `pie_running` and `message`.
+
+The run moves to `running` on the observer's first frame. All step and event times (`started_at_ms`, `ended_at_ms`, `at_ms`, `elapsed_ms`) are game milliseconds from that frame, the clock the observer and the replayer share.
+
+With `wait=true` the answer is merged with the run's final status, without `events`, and carries a `wait` object:
+
+```json
+{
+  "run_id": "script_DoorOpens_20261023_100000",
+  "state": "finished",
+  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0 },
+  "wait": { "state": "finished", "durationMs": 41250, "elicitation": "accepted" }
+}
+```
+
+`wait` holds `state`, `durationMs`, `awaiting` (step indices, with `awaiting_verdict`), `elicitation` (how the last verdict form went: `accepted`, `declined`, `cancelled`, `auto_answered`, `failed` or `unavailable`) and `error` (with `timed_out` or `unreachable`). `wait.state` is one of:
+
+| State | Meaning |
+|---|---|
+| `finished` | The run ended: every step settled, PIE ended, or the observation ended. |
+| `stopped` | `script_stop` ended the run, or the editor no longer holds it. |
+| `awaiting_verdict` | Manual steps wait for `pie(verdict)` and no form will ask for them. The answer carries `verdictHint`. |
+| `timed_out` | `timeout_seconds` ran out. The run is still going. |
+| `unreachable` | The editor failed five status calls in a row, or the six hour follow limit ran out. |
+
+### Status
+
+`script_status` (`run_id?`, `since_seq?`, `wait?`, `timeout_seconds?`) reports a run with the same fields as the `script_run` answer, plus `active`. Run states are `armed`, `running`, `awaiting_verdict`, `finished`, `stopped` and `idle`. Step statuses are `pending`, `running`, `passed`, `failed`, `awaiting_verdict` and `skipped`.
+
+The editor holds one run in memory: the active one, or the last one to end. An older run id answers from that run's `results.json`, events included, with `live: false`. A run id with no `results.json`, and any call before the first run, answers `state: "idle"` with empty `steps`, `awaiting` and `events`, and `last_seq` equal to `since_seq`.
+
+`awaiting` lists the steps waiting for a verdict as `{ index, instruction }`. `since_seq` returns only the events after that number, so a caller that polls passes the `last_seq` it last saw. Each event is `{ seq, type, run_id, step, at_ms, wall_time, data }`, where `step` is the step index or `-1`. The editor's event types are `run_started`, `step_started`, `step_passed`, `step_failed`, `awaiting_verdict`, `verdict` and `run_finished`.
+
+`wait` and `timeout_seconds` work as they do on `script_run`, and the merged answer keeps `events` after `since_seq`. Calling `script_status` on a run that has not ended also makes the server follow it again, so its events reach the daemon stream after a server restart.
+
+### How a run ends
+
+A run finishes with `stop_reason` `all steps settled` once every step has passed, failed or been skipped. It also finishes when PIE ends (`PIE ended`) or the observation ends (`observation ended`). An auto step still running then fails with `run ended before the step settled (<reason>)`. Pending steps stay `pending` and manual steps without a verdict stay `awaiting_verdict`.
+
+`script_stop` (`run_id?`, `reason?`) ends the active run the same way with state `stopped` and `stop_reason` set to `reason` (default `stopped`), writes `results.json`, and answers with the run's fields, `stopped: true` and `changed: true`. A `run_id` that is not the active run is refused. With no active run the answer has `success: false`, `alreadyStopped: true`, and the last run's `run_id`, `state` and `results_path`.
+
+## Manual steps and verdicts
+
+When the run reaches manual steps, the server puts them to the person in one form, if the MCP client advertises the elicitation capability. Each step has a choice of `pass`, `fail` or `skip` and an optional note. The answers are posted as the steps' verdicts, with `verdict_source: "elicitation"`.
+
+The form is asked once per step. When the client cannot show it, or the person declines or cancels it, or the client answers faster than a person could (`UE_MCP_ELICIT_MIN_HUMAN_MS`, default 1000), the steps are left for the `verdict` action and are not asked about again in that run. A step left blank on an accepted form is also left for `verdict`.
+
+```text
+pie(action="verdict", step=2, verdict="fail", note="Pops on the second frame")
+```
+
+| Param | Meaning |
+|---|---|
+| `step` | The step's 0-based index. It must be a manual step that has started. |
+| `verdict` | `pass`, `fail` or `skip`. |
+| `note` | Optional. Kept in `results.json`. |
+| `run_id` | Optional. Defaults to the run the editor holds. Any other run is refused. |
+| `source` | `action` (default) or `elicitation`. Recorded as the step's `verdict_source`. |
+
+A verdict on an auto step, a step that has not started, or a run other than the one the editor holds is refused with `success: false` and an `error`. A verdict can replace an earlier one, and repeating the same verdict and note answers `unchanged: true`. A verdict on a run that has already ended is accepted for its awaiting steps and rewrites its `results.json`.
+
+The answer carries `run_id`, `step`, `status`, `verdict`, `verdict_source`, `note`, `state` and `awaiting` (the indices still waiting).
+
+## Results
+
+`script_results` (`run_id?` or `results_path?`) returns `results.json` with `success` and `live` added. For the active run it is built from the run in memory (`live: true`). Otherwise it is read from `results_path`, or from `<Project>/Saved/MCPObservations/<run_id>/results.json`. The run writes the file when it ends.
+
+```json
+{
+  "version": 1,
+  "run_id": "script_DoorOpens_20261023_100000",
+  "script": "/Game/PIEStudio/Scripts/DoorOpens",
+  "script_name": "DoorOpens",
+  "description": "The front door opens when the player walks up",
+  "profile": "/Game/PIEStudio/Profiles/Door",
+  "started_at": "2026-10-23T15:00:00.412Z",
+  "ended_at": "2026-10-23T15:00:31.050Z",
+  "state": "finished",
+  "stop_reason": "all steps settled",
+  "block_on_manual": true,
+  "default_within_ms": 5000,
+  "observation_run_id": "script_DoorOpens_20261023_100000",
+  "output_dir": "C:/MyGame/Saved/MCPObservations/script_DoorOpens_20261023_100000",
+  "results_path": "C:/MyGame/Saved/MCPObservations/script_DoorOpens_20261023_100000/results.json",
+  "recording_id": "script_DoorOpens_20261023_100000",
+  "recording_dir": "C:/MyGame/Saved/MCPRecordings/script_DoorOpens_20261023_100000",
+  "summary": { "total": 3, "passed": 2, "failed": 1, "skipped": 0, "pending": 0, "awaiting": 0 },
+  "steps": [
+    {
+      "index": 0,
+      "instruction": "Walk up to the door",
+      "judge": "auto",
+      "expect": { "value": "Door.Distance", "op": "decreasing", "within_ms": 3000 },
+      "status": "passed",
+      "within_ms": 3000,
+      "started_at_ms": 33.3,
+      "ended_at_ms": 50,
+      "started_at": "2026-10-23T15:00:00.412Z",
+      "ended_at": "2026-10-23T15:00:00.429Z",
+      "evidence": {
+        "value": "Door.Distance", "at_start": 412.5, "at_end": 411.9, "samples": 2,
+        "observed": true, "verdict_frame": 3, "verdict_at_ms": 16.7
+      },
+      "verdict_source": "auto"
+    },
+    {
+      "index": 1,
+      "instruction": "Open the door",
+      "judge": "auto",
+      "expect": { "value": "Door.OpenAngle", "op": "gt", "target": 80 },
+      "status": "passed",
+      "within_ms": 5000,
+      "started_at_ms": 50,
+      "ended_at_ms": 2210,
+      "started_at": "2026-10-23T15:00:00.429Z",
+      "ended_at": "2026-10-23T15:00:02.590Z",
+      "evidence": {
+        "value": "Door.OpenAngle", "at_start": 0, "at_end": 81.4, "samples": 130,
+        "observed": true, "verdict_frame": 133, "verdict_at_ms": 2160
+      },
+      "verdict_source": "auto"
+    },
+    {
+      "index": 2,
+      "instruction": "The door opens without a visible pop",
+      "judge": "manual",
+      "status": "failed",
+      "within_ms": 5000,
+      "started_at_ms": 2210,
+      "ended_at_ms": 30671,
+      "started_at": "2026-10-23T15:00:02.590Z",
+      "ended_at": "2026-10-23T15:00:31.050Z",
+      "note": "Pops on the second frame",
+      "verdict_source": "elicitation"
+    }
+  ],
+  "success": true,
+  "live": false
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `version` | `1`. |
+| `script`, `script_name` | The asset path (or `inline`) and the run's name. |
+| `description` | The script's description. Absent when empty. |
+| `profile` | The observation profile, or an empty string. |
+| `started_at`, `ended_at` | ISO 8601 UTC wall time of the observer's first frame and of the end. |
+| `state` | `finished` or `stopped`, or the live state with `live: true`. |
+| `stop_reason` | Why the run ended. |
+| `block_on_manual`, `default_within_ms` | The run's settings. |
+| `observation_run_id`, `output_dir`, `results_path` | As in [Run ids and files](#run-ids-and-files). |
+| `recording_id`, `recording_dir` | Absent with `record=false`. |
+| `summary` | `total`, `passed`, `failed`, `skipped`, `pending` and `awaiting`. `pending` counts every step not settled, awaiting ones included. A replay adds `regressions`. |
+| `steps[].within_ms` | The step's effective window. |
+| `steps[].started_at_ms`, `ended_at_ms` | Game ms from the observer's first frame. Absent for a step that never started or ended. |
+| `steps[].started_at`, `ended_at` | ISO 8601 UTC wall time. |
+| `steps[].evidence` | Auto steps with `expect`: `value`, `at_start` and `at_end` (first and last observed value in the step, `null` when never read; 1 or 0 for `visible` and `exists`), `samples`, `observed`, `verdict_frame` (the observer frame of the verdict), `verdict_at_ms` (ms from the step's start to its verdict) and `reason` (why it failed). Other steps carry `evidence` only as `{ reason }`, when there is one. |
+| `steps[].note` | The verdict's note. |
+| `steps[].verdict_source` | `auto`, `action`, `elicitation`, or `source_run` on a replay. |
+
+## Replay regression
+
+`script_replay` (`run_id?` or `results_path?`, `time_scale?` (default 1), `auto_stop_pie?` (default `true`), `pie_instance?`, `client_id?`, `wait?`, `timeout_seconds?`) replays the source run's recording with the same observation profile and checks every auto step again in its recorded window. Without `run_id` or `results_path` it replays the last run. It needs PIE stopped, starts PIE itself, and with `auto_stop_pie` ends PIE once the replay finishes. A run made with `record=false` has no recording and is refused.
+
+```text
+pie(action="script_replay", run_id="script_DoorOpens_20261023_100000", wait=true)
+```
+
+The answer is the replay run's status, as for `script_run`, plus `pie_started`, `auto_stop_pie`, `time_scale`, `replay_of` and `message`.
+
+- Each auto step that started in the source run gets a window from `window_start_ms` (its source `started_at_ms` plus `replay_offset_ms`, the recording's settle time) to `window_end_ms` (`window_start_ms` plus `within_ms`). It starts on the first frame at or after `window_start_ms` and is judged as in a live run. Steps are judged in their own windows, not one after another.
+- An auto step that never started in the source run is `skipped` with reason `not reached in the source run`.
+- A manual step keeps the source run's verdict and note, with `verdict_source: "source_run"`. One without a verdict there is `skipped` with reason `no verdict in the source run`.
+- Every step carries `source_status` (its status in the source run) and `regression`, which is `true` when it passed in the source run and failed in the replay.
+
+The replay's `results.json` adds `replay_of` (the source run id), `time_scale`, `replay_offset_ms` and `summary.regressions`. Its `recording_id` and `recording_dir` are the source run's, and `block_on_manual` is `false`. A replayed step:
+
+```json
+{
+  "index": 0,
+  "instruction": "Walk up to the door",
+  "judge": "auto",
+  "expect": { "value": "Door.Distance", "op": "decreasing", "within_ms": 3000 },
+  "status": "failed",
+  "within_ms": 3000,
+  "started_at_ms": 533.3,
+  "ended_at_ms": 3533.3,
+  "started_at": "2026-10-23T15:05:00.912Z",
+  "ended_at": "2026-10-23T15:05:03.912Z",
+  "evidence": {
+    "value": "Door.Distance", "at_start": 412.5, "at_end": 412.5, "samples": 181,
+    "observed": true, "verdict_frame": 214, "verdict_at_ms": 3000,
+    "reason": "Door.Distance decreasing did not hold within 3000 ms"
+  },
+  "verdict_source": "auto",
+  "source_status": "passed",
+  "regression": true,
+  "window_start_ms": 533.3,
+  "window_end_ms": 3533.3
+}
+```
+
+## Daemon events
+
+The daemon publishes every event of a run the server follows on its event stream, `GET /v1/events`, as the server reads it from the editor. The server follows a run it started, and a run `script_status` was called on before it ended. A client that did not start the run sees it too.
+
+| Event | When | Payload beyond the common fields |
+|---|---|---|
+| `script.run_started` | The run was armed. | `resultsPath?` |
+| `script.step_started` | A step began. | `step` |
+| `script.step_passed` | An auto step met its expectation. | `step` |
+| `script.step_failed` | An auto step did not, or the run ended while it ran. | `step` |
+| `script.verdict_requested` | Manual steps wait for a verdict. | `awaiting`: `[{ index, instruction }]` |
+| `script.verdict` | A manual step got its verdict. | `step` |
+| `script.run_finished` | The run finished or was stopped. | `summary`, `state?`, `resultsPath?` |
+
+Every payload carries `runId`, `script` (the asset path, or `inline`), `at` (the editor's ISO wall time of the event), `atMs` (the event's `at_ms`: game ms from the observer's first frame, 0 for `run_started`), `seq` (the editor's number for the event, increasing within a run) and, for a replay, `replayOf`.
+
+`step` is `{ index, instruction, judge, expect?, status, evidence?, note?, verdictSource?, withinMs?, startedAtMs?, endedAtMs?, sourceStatus?, regression? }`. `evidence` is the editor's evidence object, unchanged. `verdictSource` is `auto`, `action`, `elicitation` or, on a replay, `source_run`; `sourceStatus` and `regression` appear on a replay only. Fields the event does not carry are filled from the status the server read with it, so a `step_started` step can already hold `evidence` and `verdictSource`. `summary` on `run_finished` is `{ total, passed, failed, skipped, pending, awaiting? }`, plus `regressions` on a replay.
+
+```text
+id: 412
+event: script.step_passed
+data: {"at":"2026-10-23T15:00:00.429Z","runId":"script_DoorOpens_20261023_100000","script":"/Game/PIEStudio/Scripts/DoorOpens","atMs":50,"seq":3,"step":{"index":0,"instruction":"Walk up to the door","judge":"auto","status":"passed","expect":{"value":"Door.Distance","op":"decreasing","within_ms":3000},"evidence":{"value":"Door.Distance","at_start":412.5,"at_end":411.9,"samples":2,"observed":true,"verdict_frame":3,"verdict_at_ms":16.7},"verdictSource":"auto"}}
+
+id: 416
+event: script.verdict_requested
+data: {"at":"2026-10-23T15:00:02.590Z","runId":"script_DoorOpens_20261023_100000","script":"/Game/PIEStudio/Scripts/DoorOpens","atMs":2210,"seq":7,"awaiting":[{"index":2,"instruction":"The door opens without a visible pop"}]}
+
+id: 418
+event: script.run_finished
+data: {"at":"2026-10-23T15:00:31.050Z","runId":"script_DoorOpens_20261023_100000","script":"/Game/PIEStudio/Scripts/DoorOpens","atMs":30671,"seq":9,"summary":{"total":3,"passed":2,"failed":1,"skipped":0,"pending":0},"state":"finished","resultsPath":"C:/MyGame/Saved/MCPObservations/script_DoorOpens_20261023_100000/results.json"}
+```
+
+To subscribe, read the daemon's port and token from `~/.ue-mcp/daemons/<key>.json` and open the stream with the token:
+
+```bash
+curl -N -H "Authorization: Bearer $TOKEN" http://127.0.0.1:$PORT/v1/events
+```
+
+A browser `EventSource`, which cannot set headers, passes `?token=` instead. To resume after a disconnect, send the last `id:` you saw as the `Last-Event-ID` header (or `?since=`); the daemon replays what came after it. When some of those events have already dropped out of its window, it sends a `gap` event first, and the client reads the run's state with `pie(script_status)`.
+
+A daemon publishes each event of a run once. A new daemon process that picks up a run in progress (after `pie(script_status)` on it) reads it from its first event again, so a client that keeps state across a daemon restart ignores an event whose `runId` and `seq` it has already seen.

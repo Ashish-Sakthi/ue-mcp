@@ -38,6 +38,7 @@
 #include "Handlers/Lock/LockHandlers.h"
 #include "Handlers/Diff/DiffHandlers.h"
 #include "Handlers/SourceControl/SourceControlHandlers.h"
+#include "Handlers/PIE/PIEHandlers.h"
 
 void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 {
@@ -81,4 +82,5 @@ void MCPHandlerCatalog::RegisterAllHandlers(FMCPHandlerRegistry& Registry)
 	FLockHandlers::RegisterHandlers(Registry);
 	FDiffHandlers::RegisterHandlers(Registry);
 	FSourceControlHandlers::RegisterHandlers(Registry);
+	FPIEHandlers::RegisterHandlers(Registry);
 }

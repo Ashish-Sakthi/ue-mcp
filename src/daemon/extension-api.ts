@@ -114,6 +114,9 @@ export interface DaemonExtensionApi {
    *   "modes"                    `modes` reads and sets this project's feedback and dialog modes
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
+   *   "events.script"            script.run_started, script.step_started, script.step_passed,
+   *                              script.step_failed, script.verdict_requested, script.verdict and
+   *                              script.run_finished on the event stream (see ScriptEvent)
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
