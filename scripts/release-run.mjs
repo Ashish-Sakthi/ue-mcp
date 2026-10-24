@@ -47,7 +47,7 @@ const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 const node = process.execPath;
 const t0 = Date.now();
 const stamp = () => `${((Date.now() - t0) / 1000).toFixed(0).padStart(5)}s`;
-const sh = (cmd, args, opts = {}) => execFileSync(cmd, args, { cwd: ROOT, encoding: "utf-8", stdio: ["ignore", "pipe", "inherit"], ...opts }).trim();
+const sh = (cmd, args, opts = {}) => (execFileSync(cmd, args, { cwd: ROOT, encoding: "utf-8", stdio: ["ignore", "pipe", "inherit"], ...opts }) ?? "").trim();
 const git = (...args) => sh("git", args);
 
 // What changed since the last release decides which conditional lanes run.
