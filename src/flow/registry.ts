@@ -9,6 +9,8 @@ import { actionPreparation } from "./run-action.js";
 import { MICRO_GATEWAY_TOOL, MICRO_GATEWAY_CALL, microGatewayTargets, resolveMicroCall } from "../surface/context/micro-context.js";
 import { McpError, ErrorCode } from "../core/errors.js";
 import { paramMapperOf } from "../surface/epic-input.js";
+import { AGENT_TASK_CLASSES } from "./agent-step.js";
+import { PLAYTEST_TASK_CLASSES } from "./playtest.js";
 
 /** A gateway call is an alias for the target task, not a handler that executes
  *  another action and repackages its result. Both MCP and FlowRunner create
@@ -53,6 +55,9 @@ export function buildFlowRegistry(tools: ToolDef[]): TaskRegistry {
   registry.register("shell", ShellTask as unknown as TaskConstructor);
   registry.register("editor.restart", editorOperationTask("restart"));
   registry.register("editor.rebuild", editorOperationTask("rebuild"));
+  // Model steps (agent, agent_prompt) and the playtest flow's own tasks.
+  for (const [classPath, ctor] of Object.entries(AGENT_TASK_CLASSES)) registry.registerClassPath(classPath, ctor);
+  for (const [name, ctor] of Object.entries(PLAYTEST_TASK_CLASSES)) registry.register(name, ctor);
 
   for (const tool of tools) {
     for (const [actionName, spec] of Object.entries(tool.actions)) {

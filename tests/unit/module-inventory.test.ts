@@ -115,6 +115,7 @@ const PER_SESSION: Record<string, string> = {
   "flow/guard-config.ts": "Owns one session's last valid YAML guard declarations, merged from its project and user-global config layers.",
   "flow/guard-schema.ts": "What a guard declaration is, shared by the manifest and ue-mcp.yml.",
   "flow/loader.ts": "Loads each project's own ue-mcp.yml.",
+  "flow/playtest.ts": "Its tasks call the bridge of the session the playtest flow runs in.",
   "flow/git-snapshot.ts": "Snapshots the repository holding one project, through its bridge.",
   "flow/http-server.ts": "Resolves an editor per request and refuses an untargeted run.",
 
@@ -205,6 +206,8 @@ const SESSION_INDEPENDENT: Record<string, string> = {
   "pie/script-events.ts": "One process-wide bus for script run events. The run id rides on the event.",
   "extensions/superseded.ts": "A constant list of plugins core replaced. No editor is involved.",
   "flow/schema.ts": "Shared flow schema declarations.",
+  "flow/model-provider.ts": "One process-wide model for flow agent steps, registered by a daemon extension or read from the environment. No editor is involved.",
+  "flow/agent-step.ts": "Puts the resolved model on an agent step's context. No editor is involved.",
   "flow/rollback.ts": "Pure shaping of a rollback record.",
   "flow/handler-outcome.ts": "Pure reading of a handler's own verdict off the body it answered with.",
   "flow/write-methods.ts": "Pure classification of a bridge call against the recorded handler specs.",
