@@ -334,8 +334,11 @@ namespace MCPPIE
 
 	// ── Step definitions ────────────────────────────────────────────────
 
-	bool ParseScriptStepJson(const TSharedPtr<FJsonValue>& Value, int32 Index, FScriptStepDef& Out, FString& OutError)
+	bool ParseScriptStepJson(const TSharedPtr<FJsonValue>& Value, int32 Index, FScriptStepDef& Out, FString& OutError, FString* OutField)
 	{
+		FString Ignored;
+		FString& Field = OutField ? *OutField : Ignored;
+		Field.Reset();
 		const FString Where = FString::Printf(TEXT("steps[%d]"), Index);
 		const TSharedPtr<FJsonObject>* ObjPtr = nullptr;
 		if (!Value.IsValid() || !Value->TryGetObject(ObjPtr) || !ObjPtr || !ObjPtr->IsValid())
@@ -348,6 +351,7 @@ namespace MCPPIE
 
 		if (!Obj->TryGetStringField(TEXT("instruction"), Out.Instruction) || Out.Instruction.TrimStartAndEnd().IsEmpty())
 		{
+			Field = TEXT("instruction");
 			OutError = FString::Printf(TEXT("%s.instruction is required"), *Where);
 			return false;
 		}
@@ -355,6 +359,7 @@ namespace MCPPIE
 		FString Judge;
 		if (Obj->TryGetStringField(TEXT("judge"), Judge) && !ParseScriptJudge(Judge, Out.Judge))
 		{
+			Field = TEXT("judge");
 			OutError = FString::Printf(TEXT("%s.judge must be auto or manual, got '%s'"), *Where, *Judge);
 			return false;
 		}
@@ -364,30 +369,52 @@ namespace MCPPIE
 		{
 			if (AgentValue->Type != EJson::Boolean)
 			{
+				Field = TEXT("agent_judgeable");
 				OutError = FString::Printf(TEXT("%s.agent_judgeable must be a boolean"), *Where);
 				return false;
 			}
 			Out.bAgentJudgeable = AgentValue->AsBool();
 			if (!Out.bAgentJudgeable && Out.Judge != EScriptJudge::Manual)
 			{
+				Field = TEXT("agent_judgeable");
 				OutError = FString::Printf(TEXT("%s: agent_judgeable applies to manual steps; an auto step is judged from the observed values"), *Where);
 				return false;
 			}
 		}
 
+		const TSharedPtr<FJsonValue> ResolveValue = Obj->TryGetField(TEXT("resolve_in_pie"));
+		if (ResolveValue.IsValid() && !ResolveValue->IsNull())
+		{
+			if (ResolveValue->Type != EJson::Boolean)
+			{
+				Field = TEXT("resolve_in_pie");
+				OutError = FString::Printf(TEXT("%s.resolve_in_pie must be a boolean"), *Where);
+				return false;
+			}
+			Out.bResolveInPIE = ResolveValue->AsBool();
+		}
+
 		const TSharedPtr<FJsonValue> ExpectValue = Obj->TryGetField(TEXT("expect"));
 		if (!ExpectValue.IsValid() || ExpectValue->IsNull())
 		{
+			if (Out.bResolveInPIE)
+			{
+				Field = TEXT("resolve_in_pie");
+				OutError = FString::Printf(TEXT("%s.resolve_in_pie applies to a step with expect; this step has none"), *Where);
+				return false;
+			}
 			return true;
 		}
 		const TSharedPtr<FJsonObject>* ExpPtr = nullptr;
 		if (!ExpectValue->TryGetObject(ExpPtr) || !ExpPtr || !ExpPtr->IsValid())
 		{
+			Field = TEXT("expect");
 			OutError = FString::Printf(TEXT("%s.expect must be an object {value, op, target, within_ms}"), *Where);
 			return false;
 		}
 		if (Out.Judge == EScriptJudge::Manual)
 		{
+			Field = TEXT("expect");
 			OutError = FString::Printf(TEXT("%s: a manual step takes no expect; use judge=auto to evaluate one"), *Where);
 			return false;
 		}
@@ -396,16 +423,19 @@ namespace MCPPIE
 		FString Op;
 		if (!Exp->TryGetStringField(TEXT("op"), Op) || Op.IsEmpty())
 		{
+			Field = TEXT("expect.op");
 			OutError = FString::Printf(TEXT("%s.expect.op is required (decreasing, increasing, eq, gt, lt, visible, exists)"), *Where);
 			return false;
 		}
 		if (!ParseScriptExpectOp(Op, Out.Expect.Op))
 		{
+			Field = TEXT("expect.op");
 			OutError = FString::Printf(TEXT("%s.expect.op '%s' is unknown (decreasing, increasing, eq, gt, lt, visible, exists)"), *Where, *Op);
 			return false;
 		}
 		if (!Exp->TryGetStringField(TEXT("value"), Out.Expect.Value) || Out.Expect.Value.TrimStartAndEnd().IsEmpty())
 		{
+			Field = TEXT("expect.value");
 			OutError = FString::Printf(TEXT("%s.expect.value is required for op '%s' (%s)"), *Where, *Op,
 				Out.Expect.Op == EScriptExpectOp::Visible ? TEXT("a widget class or name")
 				: Out.Expect.Op == EScriptExpectOp::Exists ? TEXT("an actor id")
@@ -419,12 +449,14 @@ namespace MCPPIE
 		{
 			if (IsScriptRelativeOp(Out.Expect.Op))
 			{
+				Field = TEXT("expect.target");
 				OutError = FString::Printf(TEXT("%s.expect.target does not apply to op '%s', which compares against the value at step start"), *Where, *Op);
 				return false;
 			}
 			if (TargetValue->Type == EJson::Boolean)
 			{
 				Out.Expect.Target = TargetValue->AsBool() ? 1.0 : 0.0;
+				Out.Expect.bTargetIsBool = true;
 			}
 			else if (TargetValue->Type == EJson::Number)
 			{
@@ -432,6 +464,7 @@ namespace MCPPIE
 			}
 			else
 			{
+				Field = TEXT("expect.target");
 				OutError = FString::Printf(TEXT("%s.expect.target must be a number or a boolean"), *Where);
 				return false;
 			}
@@ -439,6 +472,7 @@ namespace MCPPIE
 		}
 		else if (ScriptOpNeedsTarget(Out.Expect.Op))
 		{
+			Field = TEXT("expect.target");
 			OutError = FString::Printf(TEXT("%s.expect.target is required for op '%s'"), *Where, *Op);
 			return false;
 		}
@@ -448,6 +482,7 @@ namespace MCPPIE
 		{
 			if (WithinValue->Type != EJson::Number || WithinValue->AsNumber() < 0.0)
 			{
+				Field = TEXT("expect.within_ms");
 				OutError = FString::Printf(TEXT("%s.expect.within_ms must be a non-negative number"), *Where);
 				return false;
 			}
@@ -494,6 +529,7 @@ namespace MCPPIE
 		O->SetStringField(TEXT("instruction"), Step.Instruction);
 		O->SetStringField(TEXT("judge"), ScriptJudgeToString(Step.Judge));
 		if (Step.Judge == EScriptJudge::Manual) O->SetBoolField(TEXT("agent_judgeable"), Step.bAgentJudgeable);
+		if (Step.bResolveInPIE) O->SetBoolField(TEXT("resolve_in_pie"), true);
 		if (Step.bHasExpect) O->SetObjectField(TEXT("expect"), ScriptExpectToJson(Step.Expect));
 		return O;
 	}
@@ -521,6 +557,7 @@ namespace MCPPIE
 			D.Expect.Target = S.Expect.Target;
 			D.Expect.WithinMs = FMath::Max(0, S.Expect.WithinMs);
 			D.bAgentJudgeable = D.Judge != EScriptJudge::Manual || S.bAgentJudgeable;
+			D.bResolveInPIE = D.bHasExpect && S.bResolveInPIE;
 			Out.Add(MoveTemp(D));
 		}
 	}
@@ -541,6 +578,7 @@ namespace MCPPIE
 			S.Expect.Target = D.Expect.Target;
 			S.Expect.WithinMs = D.Expect.WithinMs;
 			S.bAgentJudgeable = D.bAgentJudgeable;
+			S.bResolveInPIE = D.bResolveInPIE;
 			Asset->Steps.Add(MoveTemp(S));
 		}
 	}

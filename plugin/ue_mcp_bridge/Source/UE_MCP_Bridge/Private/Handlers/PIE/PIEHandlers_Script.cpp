@@ -7,6 +7,7 @@
 #include "Handlers/PIE/MCPPIETestScript.h"
 #include "Handlers/PIE/MCPPIEObservationProfile.h"
 #include "Handlers/PIE/PIEScriptRunner.h"
+#include "Handlers/PIE/PIEScriptValidation.h"
 #include "Handlers/PIE/PIESequenceFormat.h"
 #include "AssetRegistry/AssetRegistryModule.h"
 #include "EditorAssetLibrary.h"
@@ -38,6 +39,7 @@ namespace
 		R->SetStringField(TEXT("description"), Asset->Description);
 		R->SetStringField(TEXT("profile"), Asset->Profile);
 		R->SetNumberField(TEXT("default_within_ms"), Asset->DefaultWithinMs);
+		R->SetBoolField(TEXT("manual_only"), Asset->bManualOnly);
 		R->SetArrayField(TEXT("steps"), ScriptStepDefsToJson(Steps));
 		R->SetNumberField(TEXT("step_count"), Steps.Num());
 	}
@@ -53,6 +55,7 @@ namespace
 		P->SetStringField(TEXT("description"), Asset->Description);
 		P->SetStringField(TEXT("profile"), Asset->Profile);
 		P->SetNumberField(TEXT("default_within_ms"), Asset->DefaultWithinMs);
+		P->SetBoolField(TEXT("manual_only"), Asset->bManualOnly);
 		return P;
 	}
 
@@ -69,6 +72,38 @@ namespace
 	bool TestScriptProfileExists(const FString& Profile)
 	{
 		return Profile.IsEmpty() || LoadObject<UMCPPIEObservationProfile>(nullptr, *Profile) != nullptr;
+	}
+
+	// The checks script_create and script_update share: the profile exists, and each step is one
+	// the observer can check against the level and that profile. Issues already found (parse
+	// failures) come in through Issues. Returns the structured refusal, or null.
+	TSharedPtr<FJsonValue> CheckTestScript(const TArray<FScriptStepDef>& Steps, const FString& Profile, bool bManualOnly,
+		TArray<FScriptStepIssue>& Issues)
+	{
+		TSet<int32> Failed;
+		for (const FScriptStepIssue& I : Issues)
+		{
+			if (I.Step != INDEX_NONE) Failed.Add(I.Step);
+		}
+		if (!TestScriptProfileExists(Profile))
+		{
+			TArray<FString> Profiles;
+			FAssetRegistryModule& ARM = FModuleManager::LoadModuleChecked<FAssetRegistryModule>(TEXT("AssetRegistry"));
+			TArray<FAssetData> Assets;
+			ARM.Get().GetAssetsByClass(UMCPPIEObservationProfile::StaticClass()->GetClassPathName(), Assets, true);
+			for (const FAssetData& A : Assets) Profiles.Add(A.PackageName.ToString());
+			FScriptStepIssue Issue;
+			Issue.Field = TEXT("profile");
+			Issue.Message = FString::Printf(TEXT("Profile not found: %s"), *Profile);
+			Issue.Candidates = RankScriptCandidates(Profile, Profiles);
+			Issues.Add(MoveTemp(Issue));
+		}
+		else if (Steps.Num() > 0)
+		{
+			ValidateScriptSteps(Steps, bManualOnly, MakeEditorScriptValidationContext(Profile), Issues, Failed);
+		}
+		if (Issues.Num() == 0) return nullptr;
+		return MakeShared<FJsonValueObject>(ScriptIssuesErrorObject(Issues));
 	}
 
 	FString ScriptVerdictForStatus(EScriptStepStatus Status)
@@ -137,7 +172,8 @@ void FPIEHandlers::RegisterScriptHandlers(FMCPHandlerRegistry& Registry)
 
 	// One step: {instruction, judge auto|manual, agent_judgeable, expect {value, op decreasing|increasing|eq|gt|lt|visible|exists, target, within_ms}}.
 	// The shape is validated in the handler, so the replay actions' inline steps and these share one key type.
-	const TCHAR* const StepsShape = TEXT("{instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}");
+	const TCHAR* const StepsShape = TEXT("{instruction, judge: auto|manual (default auto), agent_judgeable (manual steps: false means only a person gives the verdict, default true), resolve_in_pie (true: expect.value only resolves once PIE runs, so script_create and script_update do not check it), expect: {value (tracked value path or last segment, actor id for exists, widget for visible), op: decreasing|increasing|eq|gt|lt|visible|exists, target (number for eq/gt/lt, boolean for visible/exists, default true), within_ms}}");
+	const TCHAR* const ManualOnlyDoc = TEXT("Every step is judged by a verdict: allows a script with no auto step that has an expect (default false)");
 
 	Registry.RegisterHandler(TEXT("pie_script_create"), &PieScriptCreate, {
 		MCPParam::Required(TEXT("name"), EType::String, TEXT("Asset name")),
@@ -146,6 +182,7 @@ void FPIEHandlers::RegisterScriptHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("description"), EType::String, TEXT("What the script tests")),
 		MCPParam::Optional(TEXT("profile"), EType::String, TEXT("Observation profile asset path")),
 		MCPParam::Optional(TEXT("default_within_ms"), EType::Integer, TEXT("Default auto-step window in game ms (default 5000)")).Min(1),
+		MCPParam::Optional(TEXT("manual_only"), EType::Boolean, ManualOnlyDoc),
 		MCPParam::Optional(TEXT("onConflict"), EType::String, TEXT("When the asset exists: skip (default), update or replace (overwrite it), error")).Enum({
 			TEXT("skip"), TEXT("update"), TEXT("replace"), TEXT("error") }),
 	}, MCPSpec::ContractExempt(TEXT("Creates and saves a script asset")));
@@ -158,6 +195,7 @@ void FPIEHandlers::RegisterScriptHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("description"), EType::String, TEXT("What the script tests")),
 		MCPParam::Optional(TEXT("profile"), EType::String, TEXT("Observation profile asset path; empty clears it")),
 		MCPParam::Optional(TEXT("default_within_ms"), EType::Integer, TEXT("Default auto-step window in game ms")).Min(1),
+		MCPParam::Optional(TEXT("manual_only"), EType::Boolean, ManualOnlyDoc),
 	});
 	Registry.RegisterHandler(TEXT("pie_script_delete"), &PieScriptDelete, {
 		MCPParam::Required(TEXT("path"), EType::String, PathDoc),
@@ -230,6 +268,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptCreate(const TSharedPtr<FJsonObjec
 	const FString Description = OptionalString(Params, TEXT("description"));
 	const FString Profile = OptionalString(Params, TEXT("profile"));
 	const int32 DefaultWithinMs = OptionalInt(Params, TEXT("default_within_ms"), 5000);
+	const bool bManualOnly = OptionalBool(Params, TEXT("manual_only"), false);
 	const FString OnConflict = OptionalString(Params, TEXT("onConflict"), TEXT("skip")).ToLower();
 	if (NameErr) return NameErr;
 	if (StepsErr) return StepsErr;
@@ -240,9 +279,9 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptCreate(const TSharedPtr<FJsonObjec
 	}
 	if (DefaultWithinMs <= 0) return MCPError(TEXT("default_within_ms must be at least 1"));
 	TArray<FScriptStepDef> Steps;
-	FString ParseErr;
-	if (!ParseScriptStepsJson(*StepsArr, Steps, ParseErr)) return MCPError(ParseErr);
-	if (!TestScriptProfileExists(Profile)) return MCPError(FString::Printf(TEXT("Profile not found: %s"), *Profile));
+	TArray<FScriptStepIssue> Issues;
+	ParseScriptStepsJsonIssues(*StepsArr, Steps, Issues);
+	if (TSharedPtr<FJsonValue> Refusal = CheckTestScript(Steps, Profile, bManualOnly, Issues)) return Refusal;
 
 	const FString AssetPath = PackagePath / Name;
 	if (OnConflict == TEXT("update") || OnConflict == TEXT("replace"))
@@ -255,6 +294,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptCreate(const TSharedPtr<FJsonObjec
 			Existing->Description = Description;
 			Existing->Profile = Profile;
 			Existing->DefaultWithinMs = DefaultWithinMs;
+			Existing->bManualOnly = bManualOnly;
 			auto Result = MCPSuccess();
 			if (TestScriptStateKey(Existing) == Before)
 			{
@@ -281,6 +321,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptCreate(const TSharedPtr<FJsonObjec
 	Script->Description = Description;
 	Script->Profile = Profile;
 	Script->DefaultWithinMs = DefaultWithinMs;
+	Script->bManualOnly = bManualOnly;
 	FString SaveError;
 	if (!SaveAssetPackageChecked(Script, SaveError))
 	{
@@ -324,19 +365,28 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptUpdate(const TSharedPtr<FJsonObjec
 	const bool bHasProfile = TryGetStringParam(Params, TEXT("profile"), Profile);
 	int32 DefaultWithinMs = 0;
 	const bool bHasWithin = TryGetNumberParam(Params, TEXT("default_within_ms"), DefaultWithinMs);
+	bool bManualOnly = false;
+	const bool bHasManualOnly = TryGetBoolParam(Params, TEXT("manual_only"), bManualOnly);
 	if (PathErr) return PathErr;
-
-	TArray<FScriptStepDef> Steps;
-	if (bHasSteps)
-	{
-		FString ParseErr;
-		if (!ParseScriptStepsJson(*StepsArr, Steps, ParseErr)) return MCPError(ParseErr);
-	}
 	if (bHasWithin && DefaultWithinMs <= 0) return MCPError(TEXT("default_within_ms must be at least 1"));
 
 	UMCPPIETestScript* Script = LoadTestScriptAsset(Path);
 	if (!Script) return MCPError(FString::Printf(TEXT("Test script not found: %s"), *Path));
-	if (bHasProfile && !TestScriptProfileExists(Profile)) return MCPError(FString::Printf(TEXT("Profile not found: %s"), *Profile));
+
+	// The script as it would stand after the update is checked whenever its steps, profile or
+	// manual_only change; a description or window change alone leaves the steps as they were.
+	TArray<FScriptStepDef> Steps;
+	if (bHasSteps || bHasProfile || bHasManualOnly)
+	{
+		TArray<FScriptStepIssue> Issues;
+		if (bHasSteps) ParseScriptStepsJsonIssues(*StepsArr, Steps, Issues);
+		else ScriptStepsFromAsset(Script, Steps);
+		if (TSharedPtr<FJsonValue> Refusal = CheckTestScript(Steps, bHasProfile ? Profile : Script->Profile,
+			bHasManualOnly ? bManualOnly : Script->bManualOnly, Issues))
+		{
+			return Refusal;
+		}
+	}
 
 	const FString Before = TestScriptStateKey(Script);
 	TSharedPtr<FJsonObject> Inverse = TestScriptUpdatePayload(Script, Path);
@@ -344,6 +394,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptUpdate(const TSharedPtr<FJsonObjec
 	if (bHasDescription) Script->Description = Description;
 	if (bHasProfile) Script->Profile = Profile;
 	if (bHasWithin) Script->DefaultWithinMs = DefaultWithinMs;
+	if (bHasManualOnly) Script->bManualOnly = bManualOnly;
 
 	auto Result = MCPSuccess();
 	if (TestScriptStateKey(Script) == Before)
@@ -391,6 +442,7 @@ TSharedPtr<FJsonValue> FPIEHandlers::PieScriptDelete(const TSharedPtr<FJsonObjec
 	Recreate->SetStringField(TEXT("description"), Script->Description);
 	Recreate->SetStringField(TEXT("profile"), Script->Profile);
 	Recreate->SetNumberField(TEXT("default_within_ms"), Script->DefaultWithinMs);
+	Recreate->SetBoolField(TEXT("manual_only"), Script->bManualOnly);
 
 	if (!UEditorAssetLibrary::DeleteAsset(Path)) return MCPError(FString::Printf(TEXT("Failed to delete: %s"), *Path));
 

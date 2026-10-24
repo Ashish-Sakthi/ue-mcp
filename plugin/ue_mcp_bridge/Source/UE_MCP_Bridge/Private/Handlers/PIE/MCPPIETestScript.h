@@ -73,6 +73,10 @@ struct FMCPPIETestStep
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Step",
 		meta=(EditCondition="Judge == EMCPPIEStepJudge::Manual", ToolTip="Whether the calling agent may give this manual step's verdict. Off means only a person can."))
 	bool bAgentJudgeable = true;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Step",
+		meta=(EditCondition="bHasExpect", ToolTip="The expected value only resolves once PIE runs, such as a spawned actor, so authoring does not check it against the level."))
+	bool bResolveInPIE = false;
 };
 
 UCLASS(BlueprintType)
@@ -96,4 +100,8 @@ public:
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Script",
 		meta=(ClampMin="1", ToolTip="Default time window (ms of game time) for an auto step whose expectation sets none."))
 	int32 DefaultWithinMs = 5000;
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite, Category="Script",
+		meta=(ToolTip="Every step is judged by a verdict. Without it a script needs at least one auto step with an expectation."))
+	bool bManualOnly = false;
 };

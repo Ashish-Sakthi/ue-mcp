@@ -52,6 +52,8 @@ namespace MCPPIE
 		EScriptExpectOp Op = EScriptExpectOp::Eq;
 		bool bHasTarget = false;
 		double Target = 0.0;
+		// The target was given as true or false rather than a number. Draft-time checks only.
+		bool bTargetIsBool = false;
 		// 0 = the run's default.
 		int32 WithinMs = 0;
 	};
@@ -64,6 +66,9 @@ namespace MCPPIE
 		FScriptExpect Expect;
 		// Manual steps: false refuses a verdict with source agent.
 		bool bAgentJudgeable = true;
+		// expect.value only resolves once PIE runs (a spawned actor, a widget created at runtime),
+		// so the draft-time check leaves it alone.
+		bool bResolveInPIE = false;
 	};
 
 	struct FScriptDef
@@ -78,8 +83,9 @@ namespace MCPPIE
 
 	// ── Step definitions: JSON and asset ────────────────────────────────
 
-	// {instruction, judge, expect:{value, op, target (number or boolean), within_ms}}.
-	bool ParseScriptStepJson(const TSharedPtr<FJsonValue>& Value, int32 Index, FScriptStepDef& Out, FString& OutError);
+	// {instruction, judge, agent_judgeable, resolve_in_pie, expect:{value, op, target (number or boolean), within_ms}}.
+	// OutField, when given, names the field the error is about, such as instruction or expect.op.
+	bool ParseScriptStepJson(const TSharedPtr<FJsonValue>& Value, int32 Index, FScriptStepDef& Out, FString& OutError, FString* OutField = nullptr);
 	bool ParseScriptStepsJson(const TArray<TSharedPtr<FJsonValue>>& Values, TArray<FScriptStepDef>& Out, FString& OutError);
 	TSharedRef<FJsonObject> ScriptExpectToJson(const FScriptExpect& Expect);
 	TSharedRef<FJsonObject> ScriptStepDefToJson(const FScriptStepDef& Step);
