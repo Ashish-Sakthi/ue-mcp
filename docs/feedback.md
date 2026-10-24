@@ -32,8 +32,8 @@ Before assembling the body, the server reads the published catalog from `https:/
 
 | Signal | Example | Result |
 |---|---|---|
-| `repo` parameter | `repo="db-lyon/pie-studio"` | Honored, but **only** for ue-mcp core or a repo a registered plugin owns. Anything else is ignored and the report files against core. |
-| Ownership | `idealTool="pie(action=replay)"` and a loaded plugin provides the `pie` category | That plugin's repo, confidence `certain`. |
+| `repo` parameter | `repo="db-lyon/ue-mcp-perforce"` | Honored, but **only** for ue-mcp core or a repo a registered plugin owns. Anything else is ignored and the report files against core. |
+| Ownership | `idealTool="recorder(action=replay)"` and a loaded plugin provides the `recorder` category | That plugin's repo, confidence `certain`. |
 | Core anchor | The text names a built-in action such as `editor(play_in_editor)` | Core keeps it, even when a plugin also matched. The match is still shown at the prompt. |
 | Identity terms | The title names the plugin's slug, name, or a category it provides | That plugin's repo, confidence `likely`. |
 | Tag terms only | A listing's descriptive tag (`import`, `replay`) appears in the text | Core keeps it. The match is offered at the prompt as a one-click override. |
@@ -44,8 +44,8 @@ Preview the decision without posting anything:
 
 ```text
 feedback(action="route",
-  title="pie(replay) diverges from the recorded run after 200 frames",
-  summary="Replaying a recorded PIE session drifts from the capture...")
+  title="recorder(replay) diverges from the recorded run after 200 frames",
+  summary="Replaying a recorded session drifts from the capture by several metres.")
 ```
 
 It returns the target repo, the matched plugin and why, any runner-up suggestions, the core anchor it found, and whether the registry was reachable.
