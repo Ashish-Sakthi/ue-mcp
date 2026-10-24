@@ -134,6 +134,8 @@ UBT's incremental build + Live Coding can mask registration failures from earlie
 CI **gates the publish job** on a single pre-staged input: the draft GitHub release for `vX.Y.Z`. The draft body must begin with YAML frontmatter declaring a `headline:` array. CI parses, validates against the regex enforced by `scripts/release-headline.mjs`, joins with ` · `, posts the `landing/headline` commit status itself, strips the frontmatter from the body, then promotes the draft. No manual `gh api ... statuses` step.
 
 0. **Green gates first**, all against `tests/ue_mcp`: `npm run test:smoke`, `npm run test:live`, `npm run test:live -- --lifecycle`, `npm run test:automation`, and `node scripts/check-release-gates.mjs all`, whose `behavioural-coverage` gate prints the covered-action share. The release notes state that share.
+   - Run them from the release worktree: `node scripts/release-worktree.mjs` creates `../ue-mcp-release` once and moves it to `origin/main` after that, keeping its build output, so the gate build compiles only what changed.
+   - `node scripts/release-run.mjs` runs every gate there with per-step timing: deploy, build, live, editor launch, smoke, automation and lifecycle in one lane; the release gates, `npm test` and, with `--binaries`, `binaries:build` start once the live suite is done and run beside the rest. It writes `release-logs/<step>.log` and `release-logs/release-timing.json`; compare the timing with `tests/timing/`.
 
 1. **Author release notes locally** with frontmatter. Notes file lives anywhere (gitignored, scratch, /tmp). The frontmatter must be the first thing in the file:
    ```yaml

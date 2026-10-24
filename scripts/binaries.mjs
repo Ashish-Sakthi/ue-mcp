@@ -104,8 +104,15 @@ function build() {
     fs.rmSync(stage, { recursive: true, force: true });
     console.log(`\n== UE ${engine.version}: BuildPlugin -> ${pkg}`);
     const started = Date.now();
-    const hadFilter = fs.existsSync(path.join(path.dirname(PLUGIN), "Config"));
-    const uatArgs = ["BuildPlugin", `-Plugin=${PLUGIN}`, `-Package=${pkg}`, `-TargetPlatforms=${platform}`, "-Rocket"];
+    // BuildPlugin from a copy: it writes a template Config/FilterPlugin.ini into the plugin it is
+    // given, and a write into plugin/ shows up to anything reading the tree while it runs.
+    const source = path.join(stage, "src", "UE_MCP_Bridge");
+    fs.cpSync(path.dirname(PLUGIN), source, {
+      recursive: true,
+      filter: (p) => !["Binaries", "Intermediate"].includes(path.basename(p)),
+    });
+    const plugin = path.join(source, path.basename(PLUGIN));
+    const uatArgs = ["BuildPlugin", `-Plugin=${plugin}`, `-Package=${pkg}`, `-TargetPlatforms=${platform}`, "-Rocket"];
     // A .bat runs under cmd, and the engine path has spaces: quote every piece and pass the line verbatim.
     const r = process.platform === "win32"
       ? spawnSync(process.env.ComSpec ?? "cmd.exe", ["/d", "/s", "/c", `"${[uat, ...uatArgs].map((x) => `"${x}"`).join(" ")}"`], {
@@ -113,8 +120,6 @@ function build() {
           windowsVerbatimArguments: true,
         })
       : spawnSync(uat, uatArgs, { stdio: "inherit" });
-    // BuildPlugin writes a template Config/FilterPlugin.ini into the source plugin when it has none.
-    if (!hadFilter) fs.rmSync(path.join(path.dirname(PLUGIN), "Config"), { recursive: true, force: true });
     if (r.status !== 0) throw new Error(`BuildPlugin failed for UE ${engine.version} (exit ${r.status})`);
 
     // The installer strips these too; leaving them out keeps the download small.
