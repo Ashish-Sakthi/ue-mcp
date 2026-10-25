@@ -18,6 +18,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import type { DependencySnapshot } from "./lib/lockfile-delta.js";
 import { buildTestGraph, type BuildStats } from "./lib/test-graph.js";
 import { selectTests, type Selection } from "./lib/test-selection.js";
 
@@ -74,6 +75,12 @@ export function describeSelection(file: SelectionFile, sel: Selection): string[]
     byFile.set(t.file, e);
   }
   for (const [f, e] of byFile) lines.push(`  automation  ${path.posix.basename(f)} x${e.n}  (${e.reason})`);
+  const deps = sel.dependencies;
+  if (deps) {
+    for (const [top, files] of Object.entries(deps.importers)) lines.push(`  dependency  ${top}, imported by ${files.join(", ")}`);
+    for (const top of deps.unimported) lines.push(`  dependency  ${top}, imported by nothing in src/`);
+    for (const top of deps.dev) lines.push(`  dependency  ${top}, a devDependency`);
+  }
   for (const f of sel.inert) lines.push(`  no test     ${f}`);
   return lines;
 }
@@ -83,6 +90,20 @@ export function changedSince(base: string, head = "HEAD"): string[] {
     .split("\n")
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+/** package.json and package-lock.json at a ref, or in the working tree when ref is null. */
+export function dependencySnapshot(ref: string | null, repo = REPO): DependencySnapshot {
+  const at = (file: string): string | null => {
+    try {
+      return ref === null
+        ? fs.readFileSync(path.join(repo, file), "utf8")
+        : execFileSync("git", ["show", `${ref}:${file}`], { cwd: repo, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, stdio: ["ignore", "pipe", "ignore"] });
+    } catch {
+      return null;
+    }
+  };
+  return { manifest: at("package.json"), lock: at("package-lock.json") };
 }
 
 export function readBaseline(repo = REPO): Record<string, { durationMs?: number }> {
@@ -108,7 +129,12 @@ function main(argv: string[]): number {
   const stats: BuildStats = { files: 0, reparsed: 0 };
   const started = Date.now();
   const graph = buildTestGraph(REPO, { stats });
-  const sel = selectTests(graph, changed, { stable: argv.includes("--stable") });
+  // The diff is base...head, so the dependency files are compared at the merge base.
+  const head = flag("--head") ?? "HEAD";
+  const dependencies = base
+    ? { base: dependencySnapshot(execFileSync("git", ["merge-base", base, head], { cwd: REPO, encoding: "utf8" }).trim()), head: dependencySnapshot(head) }
+    : undefined;
+  const sel = selectTests(graph, changed, { stable: argv.includes("--stable"), dependencies });
   const file = toSelectionFile(sel, changed, base, readBaseline());
   console.log(`select: graph of ${stats.files} files (${stats.reparsed} reparsed) in ${Date.now() - started} ms`);
   for (const line of describeSelection(file, sel)) console.log(line);
