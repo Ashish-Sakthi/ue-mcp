@@ -629,12 +629,13 @@ namespace
 		{
 			CkDiffFact(Facts, TEXT("Row struct"), GetPathNameSafe(Table->RowStruct));
 			CkDiffFact(Facts, TEXT("Rows"), FString::FromInt(Table->GetRowMap().Num()));
-			int32 Listed = 0;
+			TArray<FString> Names;
 			for (const TPair<FName, uint8*>& Row : Table->GetRowMap())
 			{
-				if (++Listed > 100) break;
-				CkDiffFact(Facts, FString::Printf(TEXT("Row %s"), *Row.Key.ToString()), FString());
+				if (Names.Num() == 100) { Names.Add(FString::Printf(TEXT("and %d more"), Table->GetRowMap().Num() - 100)); break; }
+				Names.Add(Row.Key.ToString());
 			}
+			CkDiffFact(Facts, TEXT("Row names"), FString::Join(Names, TEXT(", ")));
 		}
 		else if (USoundWave* Sound = Cast<USoundWave>(Asset))
 		{
