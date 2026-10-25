@@ -20,7 +20,7 @@ import { fileURLToPath } from "node:url";
 
 import type { DependencySnapshot } from "./lib/lockfile-delta.js";
 import { buildTestGraph, type BuildStats } from "./lib/test-graph.js";
-import { selectTests, type Selection } from "./lib/test-selection.js";
+import { descriptorStampOnly, selectTests, type Selection } from "./lib/test-selection.js";
 
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 export const LIFECYCLE_FILE = "tests/live/editor-lifecycle.test.ts";
@@ -125,7 +125,22 @@ function main(argv: string[]): number {
     console.error("usage: npx tsx scripts/select-tests.ts (--base <ref> [--head <ref>] | --files a,b) [--stable] [--out <file>] [--related]");
     return 2;
   }
-  const changed = files ? files.split(",").filter(Boolean) : changedSince(base!, flag("--head") ?? "HEAD");
+  const listed = files ? files.split(",").filter(Boolean) : changedSince(base!, flag("--head") ?? "HEAD");
+  // The release stamps the version and the action count into the .uplugin; that alone selects nothing.
+  const at = (ref: string, file: string): string | null => {
+    const r = spawnSync("git", ["show", `${ref}:${file}`], { cwd: REPO, encoding: "utf8" });
+    return r.status === 0 ? r.stdout : null;
+  };
+  const stampOnly = (f: string): boolean => {
+    if (!base || !f.endsWith(".uplugin")) return false;
+    const mergeBase = execFileSync("git", ["merge-base", base, flag("--head") ?? "HEAD"], { cwd: REPO, encoding: "utf8" }).trim();
+    return descriptorStampOnly(at(mergeBase, f), at(flag("--head") ?? "HEAD", f));
+  };
+  const changed = listed.filter((f) => {
+    const skip = stampOnly(f);
+    if (skip) console.log(`select: ${f} changed only its version and description stamp, which selects nothing`);
+    return !skip;
+  });
   const stats: BuildStats = { files: 0, reparsed: 0 };
   const started = Date.now();
   const graph = buildTestGraph(REPO, { stats });

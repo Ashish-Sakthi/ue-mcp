@@ -58,6 +58,27 @@ export interface SelectOptions {
 
 const DEPENDENCY_FILES = ["package.json", "package-lock.json"];
 
+/** Descriptor fields the release stamps on every version: a change to only these alters no behaviour. */
+const DESCRIPTOR_STAMP_FIELDS = ["Version", "VersionName", "Description"];
+
+/**
+ * Whether two versions of a .uplugin differ only in the fields `generate:metadata` stamps (the version
+ * and the action count in the description). Such a change is not opaque: it selects nothing.
+ */
+export function descriptorStampOnly(baseText: string | null, headText: string | null): boolean {
+  if (baseText === null || headText === null) return false;
+  try {
+    const strip = (t: string) => {
+      const o = JSON.parse(t) as Record<string, unknown>;
+      for (const k of DESCRIPTOR_STAMP_FIELDS) delete o[k];
+      return JSON.stringify(o);
+    };
+    return strip(baseText) === strip(headText);
+  } catch {
+    return false;
+  }
+}
+
 /** Why the graph cannot see a file's effect, or null when it can. */
 export function opaqueReason(file: string): string | null {
   if (/\.(?:Build|Target)\.cs$/.test(file)) return "build rules";
