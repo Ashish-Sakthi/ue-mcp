@@ -157,6 +157,11 @@ export interface DispatchDeps {
   dialogGuardFor: (session: EditorSession, canElicit?: boolean) => DialogGuard;
   elicit: () => ElicitFn | undefined;
   client: () => { name: string; version?: string } | undefined;
+  /**
+   * The load a call runs against in place of the session's own: a context
+   * projection's, whose registry holds the tasks of the tools it advertises.
+   */
+  loadView?: (load: SessionLoad) => SessionLoad;
 }
 
 /** Window actions that can remove the window the dialog gate is holding (#1231). */
@@ -261,6 +266,7 @@ export async function dispatchCategoryCall(
   let sessionLoad: SessionLoad;
   try {
     sessionLoad = await loads.ensure(session);
+    if (deps.loadView) sessionLoad = deps.loadView(sessionLoad);
   } catch (e) {
     return errorResult(
       "NOT_CONNECTED",

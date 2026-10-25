@@ -36,6 +36,47 @@ export interface SessionLoad {
   registry?: ReturnType<typeof buildFlowRegistry>;
 }
 
+/**
+ * What one session advertises and dispatches under a context strategy. With
+ * `scope`, only those enabled categories are advertised (lean's catalog and
+ * micro's gateway reach only them too); the registry still holds every other
+ * category unchanged, so flows resolve as they always do.
+ */
+export function strategySurface(
+  surface: SessionSurface,
+  strategy: ContextStrategy,
+  scope?: ReadonlySet<string>,
+): { advertisedTools: ToolDef[]; registryTools: ToolDef[] } {
+  const enabled = surface.tools.filter((t) => !surface.disabled.has(t.name) && (!scope || scope.has(t.name)));
+  if (strategy === "micro") {
+    const gateway = buildMicroGateway(enabled);
+    // Keep every category task in the registry so flows still resolve.
+    return { advertisedTools: [gateway], registryTools: [gateway, ...surface.tools] };
+  }
+  if (strategy === "lean") {
+    const leaned = applyLeanContext(enabled);
+    const leanedNames = new Set(enabled.map((t) => t.name));
+    // Discovery describes callable categories; internal flows retain the full registry.
+    return { advertisedTools: leaned, registryTools: [...leaned, ...surface.tools.filter((t) => !leanedNames.has(t.name))] };
+  }
+  return { advertisedTools: enabled, registryTools: surface.tools };
+}
+
+/** One task registry over a load's registry tools and its plugins' task classes (#817). */
+export function buildLoadRegistry(
+  registryTools: ToolDef[],
+  pluginLoad: SessionLoad["pluginLoad"],
+): ReturnType<typeof buildFlowRegistry> {
+  const registry = buildFlowRegistry(registryTools);
+  for (const { name, ctor } of pluginLoad.taskRegistrations) {
+    registry.register(name, ctor);
+  }
+  for (const { classPath, ctor } of pluginLoad.classPathRegistrations) {
+    registry.registerClassPath(classPath, ctor);
+  }
+  return registry;
+}
+
 /** The `plugins:` entries of a project's ue-mcp.yml. A bad file means none. */
 function readPluginEntries(configDir: string | undefined): PluginEntry[] {
   if (!configDir) return [];
@@ -292,21 +333,7 @@ export class SessionLoads {
 
   /** Each session's registry dispatches only what its own project provides. */
   private applyContextStrategy(load: SessionLoad): void {
-    const enabled = load.surface.tools.filter((t) => !load.surface.disabled.has(t.name));
-    if (this.contextStrategy === "micro") {
-      const gateway = buildMicroGateway(enabled);
-      load.advertisedTools = [gateway];
-      // Keep every category task in the registry so flows still resolve.
-      load.registryTools = [gateway, ...load.surface.tools];
-    } else if (this.contextStrategy === "lean") {
-      const leaned = applyLeanContext(enabled);
-      load.advertisedTools = leaned;
-      // Discovery describes callable categories; internal flows retain the full registry.
-      load.registryTools = [...leaned, ...load.surface.tools.filter((t) => load.surface.disabled.has(t.name))];
-    } else {
-      load.advertisedTools = enabled;
-      load.registryTools = load.surface.tools;
-    }
+    Object.assign(load, strategySurface(load.surface, this.contextStrategy));
   }
 
   /** Record a finished load and make it visible to every reader. */
@@ -322,14 +349,7 @@ export class SessionLoads {
 
   /** One task registry per session, built from the graph that session has (#817). */
   private async buildRegistryFor(load: SessionLoad): Promise<void> {
-    const sessionRegistry = buildFlowRegistry(load.registryTools);
-    for (const { name, ctor } of load.pluginLoad.taskRegistrations) {
-      sessionRegistry.register(name, ctor);
-    }
-    for (const { classPath, ctor } of load.pluginLoad.classPathRegistrations) {
-      sessionRegistry.registerClassPath(classPath, ctor);
-    }
-    load.registry = sessionRegistry;
+    load.registry = buildLoadRegistry(load.registryTools, load.pluginLoad);
   }
 
   /**

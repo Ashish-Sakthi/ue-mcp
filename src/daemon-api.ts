@@ -46,6 +46,11 @@ export {
   type DaemonSkillOwner,
   type ShadowedSkill,
   type ProjectSkillFolder,
+  type ContextCallOptions,
+  type ContextProjection,
+  type ContextProjectionOptions,
+  type ProjectedTool,
+  type ActionEffectInfo,
 } from "./daemon/extension-api.js";
 export type { DaemonEvent } from "./daemon/events.js";
 export type { DialogPromptFn, DialogPromptRequest, DialogPromptResult } from "./core/types.js";

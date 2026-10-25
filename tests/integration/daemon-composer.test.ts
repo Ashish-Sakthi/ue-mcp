@@ -1,6 +1,7 @@
 /**
  * What the daemon offers a client that composes its own agent context: the
- * skills it can load, over HTTP and through the extension API, against a
+ * skills it can load and the surface a context strategy would advertise, over
+ * HTTP and through the extension API, against a
  * spawned daemon in a sandbox.
  */
 import * as fs from "node:fs";
@@ -34,6 +35,9 @@ beforeAll(async () => {
     activate: `
       api.route("GET", "/features", () => ({ body: { features: api.features } }));
       api.route("GET", "/skills", () => ({ body: { skills: api.skills.list() } }));
+      api.route("GET", "/actions", () => ({ body: { actions: api.actions.effects(["asset"]) } }));
+      api.route("GET", "/projection", () => ({ body: api.context.project({ strategy: "lean", categories: ["level"] }) }));
+      api.route("POST", "/call", async (req) => ({ body: await api.context.call(req.body.tool, req.body.input, req.body.opts) }));
     `,
   });
   d = await startDaemonCli(sb, project);
@@ -76,5 +80,57 @@ describe("skills", () => {
     const ext = await call(d, "GET", "/v1/ext/composer/skills");
     expect(ext.status, ext.text).toBe(200);
     expect(ext.body.skills).toEqual(skills);
+  });
+});
+
+describe("context projection", () => {
+  it("serves a strategy and category scope over /v1/context/projection and api.context", async () => {
+    covers("daemon.context-projection");
+    expect((await call(d, "GET", "/v1/health")).body.features).toContain("context.projection");
+
+    const all = await call(d, "GET", "/v1/context/projection?strategy=lean");
+    expect(all.status, all.text).toBe(200);
+    const scoped = await call(d, "GET", "/v1/context/projection?strategy=lean&categories=level,blueprint");
+    expect(scoped.status, scoped.text).toBe(200);
+    expect(scoped.body).toMatchObject({ strategy: "lean", estimator: "chars/4" });
+    expect([...scoped.body.categories].sort()).toEqual(["blueprint", "level"]);
+    expect(scoped.body.tools.map((t: { name: string }) => t.name).sort()).toEqual(["blueprint", "catalog", "flow", "level"]);
+    expect(scoped.body.seedTokens).toBeLessThan(all.body.seedTokens);
+    expect(scoped.body.tools.find((t: { name: string }) => t.name === "level").inputSchema).toMatchObject({ type: "object" });
+
+    const micro = await call(d, "GET", "/v1/context/projection");
+    expect(micro.body.strategy).toBe("micro");
+    expect((await call(d, "GET", "/v1/context/projection?strategy=huge")).status).toBe(400);
+    expect((await call(d, "GET", "/v1/context/projection?categories=level,nope")).status).toBe(400);
+
+    const viaExt = await call(d, "GET", "/v1/ext/composer/projection");
+    expect(viaExt.body).toEqual((await call(d, "GET", "/v1/context/projection?strategy=lean&categories=level")).body);
+
+    const described = await call(d, "POST", "/v1/ext/composer/call", { tool: "level", input: { action: "describe" }, opts: { strategy: "lean", categories: ["level"] } });
+    expect(described.body.isError, described.text).toBe(false);
+    expect(JSON.parse(described.body.content[0].text)).toMatchObject({ category: "level" });
+
+    const refused = await call(d, "POST", "/v1/ext/composer/call", { tool: "tools", input: { action: "call", category: "asset", method: "list", args: {} }, opts: { strategy: "micro", categories: ["level"] } });
+    expect(refused.body.isError).toBe(true);
+    expect(refused.body.content[0].text).toMatch(/'asset' is outside this context's categories/);
+  });
+});
+
+describe("action effects", () => {
+  it("lists each action's effect and destructive flag over /v1/actions and api.actions", async () => {
+    covers("daemon.actions-effects");
+    expect((await call(d, "GET", "/v1/health")).body.features).toContain("actions.effects");
+    const all = await call(d, "GET", "/v1/actions");
+    expect(all.status, all.text).toBe(200);
+    const find = (category: string, action: string) =>
+      (all.body.actions as Array<Record<string, unknown>>).find((a) => a.category === category && a.action === action);
+    expect(find("asset", "delete")).toEqual({ category: "asset", action: "delete", effect: "mutate", effectSource: "declared", destructive: true, destructiveSource: "lexicon" });
+    expect(find("level", "get_outliner")).toMatchObject({ effect: "read", destructive: false, destructiveSource: "none" });
+    expect(find("project", "drop_editor")).toMatchObject({ destructive: false, destructiveSource: "declared" });
+
+    const asset = await call(d, "GET", "/v1/actions?categories=asset");
+    expect(new Set(asset.body.actions.map((a: { category: string }) => a.category))).toEqual(new Set(["asset"]));
+    expect((await call(d, "GET", "/v1/ext/composer/actions")).body.actions).toEqual(asset.body.actions);
+    expect((await call(d, "GET", "/v1/actions?categories=asset,nope")).status).toBe(400);
   });
 });

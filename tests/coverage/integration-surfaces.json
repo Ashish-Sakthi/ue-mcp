@@ -562,6 +562,16 @@
       "summary": "each changed package gets an asset diff from the editor on the versions the shadow history exports, cached per pair of versions, its pictures served by blob id, the first 25 diffed and the rest named and diffed on request, and Unreal's own diff opened with both versions"
     },
     {
+      "id": "daemon.context-projection",
+      "group": "daemon",
+      "summary": "the daemon reports the instructions and tools a context strategy and category scope advertise over /v1/context/projection and api.context.project, and api.context.call runs a call against that surface"
+    },
+    {
+      "id": "daemon.actions-effects",
+      "group": "daemon",
+      "summary": "the daemon lists every action's effect and destructive flag over /v1/actions and api.actions.effects"
+    },
+    {
       "id": "package.dist-server",
       "group": "daemon",
       "summary": "the compiled package, laid out as npm installs it, starts from dist/index.js and serves what the source does"
