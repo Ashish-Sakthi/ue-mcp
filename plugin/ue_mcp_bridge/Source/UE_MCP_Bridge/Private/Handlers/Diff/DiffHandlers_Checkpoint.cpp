@@ -216,8 +216,9 @@ namespace
 	/**
 	 * DiffUtils::CompareUnrelatedStructs, serialized: every FSingleObjectDiffEntry
 	 * with its path, type, the engine's message, and both values exported as text.
-	 * Differences under a property the details panel does not show (no CPF_Edit) are
-	 * counted in OutHidden rather than listed, as the engine's details diff does.
+	 * A difference under a property the details panel does not show (no CPF_Edit) is
+	 * listed too, marked hidden, and counted in OutHidden, so nothing that changed is
+	 * left out of what the caller is asked to decide on.
 	 */
 	void CkDiffProperties(
 		const UStruct* StructA, const void* A, const UObject* OuterA,
@@ -231,16 +232,14 @@ namespace
 		for (const FSingleObjectDiffEntry& Entry : Entries)
 		{
 			const FProperty* Root = CkDiffRootProperty(Entry, StructA, A, StructB, B);
-			if (!Root || (bOnlyEditable && !Root->HasAnyPropertyFlags(CPF_Edit)))
-			{
-				++OutHidden;
-				continue;
-			}
+			const bool bHidden = !Root || (bOnlyEditable && !Root->HasAnyPropertyFlags(CPF_Edit));
+			if (bHidden) ++OutHidden;
 			if (!Sink.Take()) continue;
 			TSharedPtr<FJsonObject> Rec = MakeShared<FJsonObject>();
 			if (!Group.IsEmpty()) Rec->SetStringField(TEXT("group"), Group);
 			Rec->SetStringField(TEXT("path"), Entry.Identifier.ToDisplayName());
-			Rec->SetStringField(TEXT("property"), Root->GetName());
+			if (Root) Rec->SetStringField(TEXT("property"), Root->GetName());
+			if (bHidden) Rec->SetBoolField(TEXT("hidden"), true);
 			Rec->SetStringField(TEXT("diffType"), CkDiffPropertyTypeName(Entry.DiffType));
 			Rec->SetStringField(TEXT("displayString"), DiffViewUtils::PropertyDiffMessage(Entry, ObjectName).ToString());
 			Rec->SetField(TEXT("before"), CkDiffValue(Entry.Identifier.Resolve(StructA, A), Names));
@@ -451,6 +450,12 @@ namespace
 		return Enum ? Enum->GetNameStringByValue(Value) : FString::Printf(TEXT("%lld"), Value);
 	}
 
+	/** "Material slot 0" or "Material slot 0 (Body)": an unnamed slot has no name to show. */
+	FString CkDiffSlotLabel(int32 Index, const FName& Name)
+	{
+		return Name.IsNone() ? FString::Printf(TEXT("Material slot %d"), Index) : FString::Printf(TEXT("Material slot %d (%s)"), Index, *Name.ToString());
+	}
+
 	FString CkDiffVector(const FVector& V)
 	{
 		return FString::Printf(TEXT("(%.2f, %.2f, %.2f)"), V.X, V.Y, V.Z);
@@ -526,7 +531,7 @@ namespace
 		{
 			CkDiffFact(Facts, TEXT("Domain"), CkDiffEnum(StaticEnum<EMaterialDomain>(), Material->MaterialDomain));
 			CkDiffFact(Facts, TEXT("Blend mode"), CkDiffEnum(StaticEnum<EBlendMode>(), Material->BlendMode));
-			CkDiffFact(Facts, TEXT("Two sided"), Material->IsTwoSided() ? TEXT("true") : TEXT("false"));
+			CkDiffFact(Facts, TEXT("Two sided"), Material->IsTwoSided() ? TEXT("True") : TEXT("False"));
 			CkDiffFact(Facts, TEXT("Expressions"), FString::FromInt(Material->GetExpressions().Num()));
 			TArray<FMaterialParameterInfo> Infos;
 			TArray<FGuid> Ids;
@@ -580,7 +585,7 @@ namespace
 			const TArray<FStaticMaterial>& Slots = Mesh->GetStaticMaterials();
 			for (int32 i = 0; i < Slots.Num(); ++i)
 			{
-				CkDiffFact(Facts, FString::Printf(TEXT("Material slot %d %s"), i, *Slots[i].MaterialSlotName.ToString()), GetPathNameSafe(Slots[i].MaterialInterface));
+				CkDiffFact(Facts, CkDiffSlotLabel(i, Slots[i].MaterialSlotName), GetPathNameSafe(Slots[i].MaterialInterface));
 			}
 			CkDiffFact(Facts, TEXT("Bounds extent"), CkDiffVector(Mesh->GetBounds().BoxExtent));
 			if (const UBodySetup* Body = Mesh->GetBodySetup())
@@ -607,7 +612,7 @@ namespace
 			const TArray<FSkeletalMaterial>& Slots = Skel->GetMaterials();
 			for (int32 i = 0; i < Slots.Num(); ++i)
 			{
-				CkDiffFact(Facts, FString::Printf(TEXT("Material slot %d %s"), i, *Slots[i].MaterialSlotName.ToString()), GetPathNameSafe(Slots[i].MaterialInterface));
+				CkDiffFact(Facts, CkDiffSlotLabel(i, Slots[i].MaterialSlotName), GetPathNameSafe(Slots[i].MaterialInterface));
 			}
 			CkDiffFact(Facts, TEXT("Skeleton"), GetPathNameSafe(Skel->GetSkeleton()));
 			CkDiffFact(Facts, TEXT("Physics asset"), GetPathNameSafe(Skel->GetPhysicsAsset()));
@@ -622,7 +627,7 @@ namespace
 				CkDiffFact(Facts, TEXT("Pixel format"), CkDiffEnum(StaticEnum<EPixelFormat>(), T2D->GetPixelFormat()));
 			}
 			CkDiffFact(Facts, TEXT("Compression"), CkDiffEnum(StaticEnum<TextureCompressionSettings>(), Texture->CompressionSettings));
-			CkDiffFact(Facts, TEXT("sRGB"), Texture->SRGB ? TEXT("true") : TEXT("false"));
+			CkDiffFact(Facts, TEXT("sRGB"), Texture->SRGB ? TEXT("True") : TEXT("False"));
 			CkDiffFact(Facts, TEXT("LOD group"), CkDiffEnum(StaticEnum<TextureGroup>(), Texture->LODGroup));
 		}
 		else if (UDataTable* Table = Cast<UDataTable>(Asset))
@@ -976,6 +981,16 @@ namespace
 				TArray<TSharedPtr<FJsonValue>> Loc;
 				for (int32 I : Entry.TreeIdentifier.TreeLocation) Loc.Add(MakeShared<FJsonValueNumber>(I));
 				Rec->SetArrayField(TEXT("treeLocation"), Loc);
+				if (Entry.DiffType == ETreeDiffType::NODE_ADDED || Entry.DiffType == ETreeDiffType::NODE_REMOVED || Entry.DiffType == ETreeDiffType::NODE_TYPE_CHANGED)
+				{
+					// The component's class, from the side it exists on.
+					const UObject* OB = CkDiffSCSObject(HB, Entry.TreeIdentifier);
+					const UObject* OA = CkDiffSCSObject(HA, Entry.TreeIdentifier);
+					TArray<TSharedPtr<FJsonValue>> Facts;
+					if (OA && Entry.DiffType != ETreeDiffType::NODE_ADDED) CkDiffFact(Facts, Entry.DiffType == ETreeDiffType::NODE_TYPE_CHANGED ? TEXT("Class before") : TEXT("Class"), OA->GetClass()->GetName());
+					if (OB && Entry.DiffType != ETreeDiffType::NODE_REMOVED) CkDiffFact(Facts, Entry.DiffType == ETreeDiffType::NODE_TYPE_CHANGED ? TEXT("Class after") : TEXT("Class"), OB->GetClass()->GetName());
+					if (Facts.Num()) Rec->SetArrayField(TEXT("facts"), Facts);
+				}
 				if (Entry.DiffType == ETreeDiffType::NODE_PROPERTY_CHANGED)
 				{
 					const UObject* OA = CkDiffSCSObject(HA, Entry.TreeIdentifier);
