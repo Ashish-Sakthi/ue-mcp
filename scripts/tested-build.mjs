@@ -1,4 +1,3 @@
-#!/usr/bin/env node
 /**
  * Find the build a pull request's CI made of the tree being published, so the publish job ships
  * those exact files instead of installing and compiling again.
