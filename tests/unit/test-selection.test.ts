@@ -18,6 +18,7 @@ import {
 } from "../../scripts/lib/test-graph.js";
 import { changedPackageKeys, dependencyDelta, packageOf, resolveFrom, treeOf, type DependencySnapshot } from "../../scripts/lib/lockfile-delta.js";
 import { opaqueReason, selectTests } from "../../scripts/lib/test-selection.js";
+import { descriptorStampOnly } from "../../scripts/lib/test-selection.js";
 import { LIFECYCLE_FILE, toSelectionFile } from "../../scripts/select-tests.js";
 
 const H = "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge";
@@ -428,5 +429,19 @@ describe("the real graph", () => {
     buildTestGraph(repo, { cacheFile, stats });
     expect(stats.files).toBeGreaterThan(1000);
     expect(stats.reparsed).toBe(0);
+  });
+});
+
+describe("a plugin descriptor change", () => {
+  const descriptor = (o: Record<string, unknown>) => JSON.stringify({ FileVersion: 3, Version: 1, VersionName: "1.4.11-beta.3", Description: "2038+ editor actions", Modules: [{ Name: "UE_MCP_Bridge", Type: "Editor" }], ...o }, null, "\t");
+
+  it("that only restamps the version and the action count selects nothing", () => {
+    expect(descriptorStampOnly(descriptor({}), descriptor({ VersionName: "1.4.11-beta.4", Version: 2, Description: "2044+ editor actions" }))).toBe(true);
+  });
+
+  it("that changes anything else is still opaque", () => {
+    expect(descriptorStampOnly(descriptor({}), descriptor({ Modules: [{ Name: "UE_MCP_Bridge", Type: "Runtime" }] }))).toBe(false);
+    expect(descriptorStampOnly(descriptor({}), null)).toBe(false);
+    expect(descriptorStampOnly("not json", descriptor({}))).toBe(false);
   });
 });
