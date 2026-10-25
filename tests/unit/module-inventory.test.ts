@@ -209,6 +209,7 @@ const SESSION_INDEPENDENT: Record<string, string> = {
   "flow/events.ts": "One process-wide event bus. Which editor a run belongs to rides on the event, not here.",
   "pie/script-events.ts": "One process-wide bus for script run events. The run id rides on the event.",
   "checkpoints/text-diff.ts": "A line diff of two strings. No editor or project is involved.",
+  "checkpoints/asset-diff.ts": "Types and pure conversions of an asset diff the bridge returned. The service that calls the editor passes its answer in.",
   "extensions/superseded.ts": "A constant list of plugins core replaced. No editor is involved.",
   "flow/schema.ts": "Shared flow schema declarations.",
   "flow/model-provider.ts": "One process-wide model for flow agent steps, registered by a daemon extension or read from the environment. No editor is involved.",
