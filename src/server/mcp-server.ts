@@ -84,6 +84,8 @@ export function createMcpServer(rt: Runtime): RuntimeServer {
     dialogGuardFor: rt.dialogGuardFor,
     elicit: () => elicit,
     client: () => server.server.getClientVersion(),
+    // An MCP session's playtest runs follow `ue-mcp playtest mode`.
+    gatePlaytest: true,
   };
 
   // The upgrade notice leads this client's first tool response.

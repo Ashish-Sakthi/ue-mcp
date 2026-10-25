@@ -28,6 +28,7 @@ import {
 } from "../editor/dialog-guard.js";
 import { connectedEditorOf } from "../editor/editor-control.js";
 import { clientAdvertisesElicitation } from "../editor/dialog-mode.js";
+import { playtestRefusal } from "../editor/playtest-mode.js";
 import { contestedProject } from "../editor/project-holders.js";
 import { withAssetLocks, type LockingConfig } from "./locking.js";
 import { unknownActionMessage } from "../surface/action-schema.js";
@@ -162,6 +163,12 @@ export interface DispatchDeps {
    * projection's, whose registry holds the tasks of the tools it advertises.
    */
   loadView?: (load: SessionLoad) => SessionLoad;
+  /**
+   * Refuse pie(script_run) and pie(script_replay) while the addressed
+   * project's playtest mode is manual. Set by the MCP server; an in-process
+   * caller enforces its own rules.
+   */
+  gatePlaytest?: boolean;
 }
 
 /** Window actions that can remove the window the dialog gate is holding (#1231). */
@@ -240,6 +247,11 @@ export async function dispatchCategoryCall(
   // (#817, plan 5.2). Returns null at one editor without classifying anything.
   const untargeted = refuseUntargetedInRegistry(sessions, effectiveTask, routed.targeted, loads.dispatchUnion.tools);
   if (untargeted) return errorResult("INVALID_PARAMS", untargeted);
+
+  if (deps.gatePlaytest) {
+    const refused = playtestRefusal(effectiveTask, session.project.projectDir);
+    if (refused) return refusalResult(refused, attribution(sessions, session));
+  }
 
   // One guard per editor, shared by every route. The mode is read per call,
   // so changing it takes effect without restarting anything.
