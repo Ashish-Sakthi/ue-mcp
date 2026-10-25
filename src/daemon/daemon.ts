@@ -53,10 +53,10 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "events.dialog", "events.script", "models.provider", "modes", "skills"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "skills"];
 
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
-export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "skills"];
+export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
@@ -474,7 +474,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         state: (o) => of(o?.editor).state(o?.limit),
         setEnabled: (enabled, o) => of(o?.editor).setEnabled(enabled),
         create: (label, o) => of(o?.editor).create(label),
-        changes: (from, to, o) => of(o?.editor).changes(from, to ?? null),
+        changes: (from, to, o) => of(o?.editor).changes(from, to ?? null, { assetDiffs: o?.assetDiffs }),
+        assetDiff: (from, to, file, o) => of(o?.editor).assetDiff(from, to ?? null, file),
+        thumbnail: (id, o) => of(o?.editor).thumbnail(id),
+        openNativeDiff: (file, from, to, o) => of(o?.editor).openNativeDiff(file, from, to ?? null),
         restore: (checkpoint, o) => of(o?.editor).restore(checkpoint, { paths: o?.paths, force: o?.force }),
         clear: (o) => of(o?.editor).clear(),
       };
@@ -652,7 +655,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       const sub = url.pathname.slice("/v1/checkpoints".length).replace(/\/+$/, "");
       readBody(req)
         .then((body) => checkpointRoute(rt.sessions, req.method ?? "GET", sub, url.searchParams, body))
-        .then((r) => (r ? json(res, r.status, r.body) : void res.writeHead(404).end()), (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
+        .then((r) => {
+          if (!r) return void res.writeHead(404).end();
+          if (!r.file) return json(res, r.status, r.body);
+          // A picture is named by the blob id of the version it shows, so it never changes.
+          res.writeHead(200, { "content-type": r.file.type, "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" });
+          fs.createReadStream(r.file.path).pipe(res);
+        }, (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
       return;
     }
     if (url.pathname === "/v1/flows" || url.pathname.startsWith("/v1/flows/")) {

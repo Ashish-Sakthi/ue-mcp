@@ -8,12 +8,27 @@ import type { DisconnectCause } from "./disconnect.js";
 import type { DaemonEvent } from "./events.js";
 import type { UiManifest } from "./ui-bundles.js";
 import type { ModelProvider } from "../flow/model-provider.js";
-import type { ChangesResult, CheckpointResult, CheckpointState, RestoreResult } from "../checkpoints/service.js";
+import type { AssetDiff, ChangesResult, CheckpointResult, CheckpointState, NativeDiffResult, RestoreResult } from "../checkpoints/service.js";
 import type { DaemonSkill } from "../extensions/skills-list.js";
 
 export type { DaemonSkill, DaemonSkillOwner, ShadowedSkill, ProjectSkillFolder } from "../extensions/skills-list.js";
 
-export type { ChangeEntry, CheckpointInfo, ChangesResult, CheckpointResult, CheckpointState, RestoreRefusal, RestoreResult } from "../checkpoints/service.js";
+export type {
+  AssetDiff,
+  AssetDiffRecord,
+  AssetDiffSection,
+  AssetFact,
+  AssetThumbnail,
+  AssetVersion,
+  ChangeEntry,
+  CheckpointInfo,
+  ChangesResult,
+  CheckpointResult,
+  CheckpointState,
+  NativeDiffResult,
+  RestoreRefusal,
+  RestoreResult,
+} from "../checkpoints/service.js";
 
 export type { ModelProvider, ModelRequest, ModelResponse } from "../flow/model-provider.js";
 
@@ -141,6 +156,9 @@ export interface DaemonExtensionApi {
    *   "checkpoints"              `checkpoints` drives each session's shadow history, and
    *                              checkpoint.created, checkpoint.restored, checkpoints.toggled and
    *                              checkpoints.cleared are on the event stream (API 3)
+   *   "checkpoints.assetDiff"    `checkpoints.changes` gives each package an assetDiff built on
+   *                              Unreal's diff code, and `assetDiff`, `thumbnail` and
+   *                              `openNativeDiff` are on `checkpoints`
    *   "skills"                   `skills.list` lists ue-mcp's packaged skills and the project's own
    * Absent on a daemon older than the field.
    */
@@ -168,7 +186,13 @@ export interface DaemonExtensionApi {
     state(opts?: { editor?: string; limit?: number }): Promise<CheckpointState>;
     setEnabled(enabled: boolean | null, opts?: { editor?: string }): Promise<CheckpointState>;
     create(label?: string, opts?: { editor?: string }): Promise<CheckpointResult>;
-    changes(from: string, to?: string, opts?: { editor?: string }): Promise<ChangesResult>;
+    changes(from: string, to?: string, opts?: { editor?: string; assetDiffs?: boolean }): Promise<ChangesResult>;
+    /** One package's asset diff, for a path `changes` deferred (feature "checkpoints.assetDiff"). */
+    assetDiff?(from: string, to: string | undefined, path: string, opts?: { editor?: string }): Promise<AssetDiff>;
+    /** The PNG an asset diff's thumbnail id names, or null (feature "checkpoints.assetDiff"). */
+    thumbnail?(id: string, opts?: { editor?: string }): { file: string; type: string } | null;
+    /** Unreal's own diff of a package, brought to the front (feature "checkpoints.assetDiff"). */
+    openNativeDiff?(path: string, from: string, to?: string, opts?: { editor?: string }): Promise<NativeDiffResult>;
     restore(checkpoint: string, opts?: { paths?: string[]; force?: boolean; editor?: string }): Promise<RestoreResult>;
     clear(opts?: { editor?: string }): Promise<{ editor: string; cleared: true }>;
   };
