@@ -35,6 +35,7 @@ beforeAll(async () => {
     activate: `
       api.route("GET", "/features", () => ({ body: { features: api.features } }));
       api.route("GET", "/skills", () => ({ body: { skills: api.skills.list() } }));
+      api.route("GET", "/actions", () => ({ body: { actions: api.actions.effects(["asset"]) } }));
       api.route("GET", "/projection", () => ({ body: api.context.project({ strategy: "lean", categories: ["level"] }) }));
       api.route("POST", "/call", async (req) => ({ body: await api.context.call(req.body.tool, req.body.input, req.body.opts) }));
     `,
@@ -112,5 +113,24 @@ describe("context projection", () => {
     const refused = await call(d, "POST", "/v1/ext/composer/call", { tool: "tools", input: { action: "call", category: "asset", method: "list", args: {} }, opts: { strategy: "micro", categories: ["level"] } });
     expect(refused.body.isError).toBe(true);
     expect(refused.body.content[0].text).toMatch(/'asset' is outside this context's categories/);
+  });
+});
+
+describe("action effects", () => {
+  it("lists each action's effect and destructive flag over /v1/actions and api.actions", async () => {
+    covers("daemon.actions-effects");
+    expect((await call(d, "GET", "/v1/health")).body.features).toContain("actions.effects");
+    const all = await call(d, "GET", "/v1/actions");
+    expect(all.status, all.text).toBe(200);
+    const find = (category: string, action: string) =>
+      (all.body.actions as Array<Record<string, unknown>>).find((a) => a.category === category && a.action === action);
+    expect(find("asset", "delete")).toEqual({ category: "asset", action: "delete", effect: "mutate", effectSource: "declared", destructive: true, destructiveSource: "lexicon" });
+    expect(find("level", "get_outliner")).toMatchObject({ effect: "read", destructive: false, destructiveSource: "none" });
+    expect(find("project", "drop_editor")).toMatchObject({ destructive: false, destructiveSource: "declared" });
+
+    const asset = await call(d, "GET", "/v1/actions?categories=asset");
+    expect(new Set(asset.body.actions.map((a: { category: string }) => a.category))).toEqual(new Set(["asset"]));
+    expect((await call(d, "GET", "/v1/ext/composer/actions")).body.actions).toEqual(asset.body.actions);
+    expect((await call(d, "GET", "/v1/actions?categories=asset,nope")).status).toBe(400);
   });
 });

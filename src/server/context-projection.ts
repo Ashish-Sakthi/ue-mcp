@@ -69,7 +69,7 @@ interface Built {
 }
 
 /** The enabled graph the server would advertise under `full`: one session's, or the union. */
-function enabledGraph(rt: Runtime): ToolDef[] {
+export function enabledGraph(rt: Runtime): ToolDef[] {
   const enabled = (load: SessionLoad): ToolDef[] => load.surface.tools.filter((t) => !load.surface.disabled.has(t.name));
   const loads = rt.loads.all();
   if (loads.length <= 1) return enabled(rt.primaryLoad);

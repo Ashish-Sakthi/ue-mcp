@@ -15,6 +15,7 @@
  *   /v1/checkpoints     checkpoints per editor session, see checkpoint-routes.ts
  *   GET  /v1/skills     every skill a client of this project can load, see skills-list.ts
  *   GET  /v1/context/projection  what a strategy and category scope advertise, see context-projection.ts
+ *   GET  /v1/actions    each action's effect and destructive flag, see action-effects.ts
  *   WS   /v1/mcp        one MCP session per socket
  */
 import * as fs from "node:fs";
@@ -54,10 +55,10 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "skills", "context.projection"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "skills", "context.projection", "actions.effects"];
 
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
-export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection"];
+export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection", "actions.effects"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
@@ -72,7 +73,8 @@ import { releaseStartLock, waitForStartTurn } from "./start-lock.js";
 import { checkpointRoute } from "./checkpoint-routes.js";
 import { checkpointsFor, subscribeCheckpointEvents } from "../checkpoints/service.js";
 import { listDaemonSkills } from "../extensions/skills-list.js";
-import { ContextProjectionError, ContextProjector } from "../server/context-projection.js";
+import { ContextProjectionError, ContextProjector, enabledGraph } from "../server/context-projection.js";
+import { actionEffectInfo } from "../surface/action-effects.js";
 import type { ContextStrategy } from "../surface/context/lean-context.js";
 
 const DEFAULT_IDLE_MS = 30 * 60_000;
@@ -414,6 +416,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   // ── Context projection ──────────────────────────────────────────
   const projector = new ContextProjector(rt);
+  const actionEffects = (categories?: string[]) => actionEffectInfo(enabledGraph(rt), rt.loads.dispatchUnion.tools, categories);
 
   // ── UI bundles and extensions ───────────────────────────────────
   const ui = new UiBundleStore(DAEMON_API_VERSION, opts.uiDir);
@@ -448,6 +451,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     skills: {
       list: () => listDaemonSkills(projectDir),
+    },
+    actions: {
+      effects: (categories) => actionEffects(categories),
     },
     context: {
       project: (o) => projector.project(o),
@@ -609,6 +615,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         json(res, 200, { skills: listDaemonSkills(projectDir) });
       } catch (e) {
         json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/v1/actions") {
+      const raw = url.searchParams.get("categories");
+      try {
+        json(res, 200, { actions: actionEffects(raw === null ? undefined : raw.split(",").map((c) => c.trim()).filter(Boolean)) });
+      } catch (e) {
+        json(res, e instanceof RangeError ? 400 : 500, { error: e instanceof Error ? e.message : String(e) });
       }
       return;
     }

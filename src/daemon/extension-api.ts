@@ -11,6 +11,9 @@ import type { ModelProvider } from "../flow/model-provider.js";
 import type { AssetDiff, ChangesResult, CheckpointResult, CheckpointState, NativeDiffResult, RestoreResult } from "../checkpoints/service.js";
 import type { DaemonSkill } from "../extensions/skills-list.js";
 import type { ContextProjection, ContextProjectionOptions } from "../server/context-projection.js";
+import type { ActionEffectInfo } from "../surface/action-effects.js";
+
+export type { ActionEffectInfo } from "../surface/action-effects.js";
 
 export type { ContextProjection, ContextProjectionOptions, ProjectedTool } from "../server/context-projection.js";
 
@@ -176,6 +179,7 @@ export interface DaemonExtensionApi {
    *   "context.projection"       `context.project` gives the instructions and tools a strategy and
    *                              category scope would advertise, and `context.call` runs one call
    *                              against that surface
+   *   "actions.effects"          `actions.effects` lists each action's effect and whether it is destructive
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
@@ -236,6 +240,18 @@ export interface DaemonExtensionApi {
   context?: {
     project(opts: ContextProjectionOptions): ContextProjection;
     call(tool: string, input: Record<string, unknown>, opts?: ContextCallOptions): Promise<ActionResult>;
+  };
+
+  /**
+   * Every enabled action's effect and destructive flag (feature
+   * "actions.effects"), the same list as GET /v1/actions. The effect is read
+   * from the graph the server dispatches, plugin actions included.
+   * `destructive` is what the action declares, else (for mutate and unknown)
+   * whether its name leads with a destructive verb; the verb list is a
+   * fallback. `categories` narrows the list; an unknown name throws.
+   */
+  actions?: {
+    effects(categories?: string[]): ActionEffectInfo[];
   };
 
   editors(): EditorStatus[];
@@ -300,6 +316,6 @@ export interface DaemonHealth {
   extensions: Array<{ name: string; version: string }>;
   /** Version of the UI bundle being served, or null. */
   ui: string | null;
-  /** What the HTTP API offers beyond apiVersion, for feature detection ("checkpoints", "skills", "context.projection"). Absent on a daemon older than the field. */
+  /** What the HTTP API offers beyond apiVersion, for feature detection ("checkpoints", "skills", "context.projection", "actions.effects"). Absent on a daemon older than the field. */
   features?: readonly string[];
 }

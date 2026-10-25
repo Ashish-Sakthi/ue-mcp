@@ -50,6 +50,7 @@ export {
   type ContextProjection,
   type ContextProjectionOptions,
   type ProjectedTool,
+  type ActionEffectInfo,
 } from "./daemon/extension-api.js";
 export type { DaemonEvent } from "./daemon/events.js";
 export type { DialogPromptFn, DialogPromptRequest, DialogPromptResult } from "./core/types.js";

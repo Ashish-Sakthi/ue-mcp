@@ -379,6 +379,8 @@ export const sessionActions: Record<string, ActionSpec> = {
   drop_editor: {
     kind: "handler",
     effect: "mutate",
+    // Detaches; the editor and its project are untouched.
+    destructive: false,
     description: "Forget an editor session and close its bridge socket. The editor process is LEFT RUNNING and untouched - this detaches, it does not stop anything (use editor(stop_editor) for that). Params: editorTarget (#817)",
     handler: async (ctx, p) => {
       if (!ctx.sessions) throw new Error("This server drives one editor; there is nothing to drop.");
