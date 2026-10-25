@@ -276,6 +276,7 @@ These routes serve a client that builds its own agent context, such as an in-edi
 | Route | Extension API | Feature | Answers |
 |---|---|---|---|
 | `GET /v1/skills` | `api.skills.list()` | `skills` | Every skill a client of this project can load |
+| `GET /v1/context/projection?strategy=&categories=` | `api.context.project(opts)`, `api.context.call(tool, input, opts?)` | `context.projection` | What a context strategy and category scope advertise, and a call against that surface |
 
 **Skills.** `GET /v1/skills` returns `{ skills }`: ue-mcp's packaged skills and every skill directory under the project's `.claude/skills` and `.agents/skills`. Each entry has its `id` (the directory name; a plugin's skills are installed as `<namespace>-<skill>`), `name` and `description` from the frontmatter, the absolute `dir`, the other `files` in it, the `body` without frontmatter, the parsed `frontmatter`, `tokens` (SKILL.md characters / 4, rounded up), `location` (`packaged` or `project`) with the project `folder`, and `owner`:
 
@@ -284,6 +285,10 @@ These routes serve a client that builds its own agent context, such as an in-edi
 - `{ kind: "project" }` for anything else, and for everything in `.agents/skills`.
 
 One id is listed once. A project copy wins over the packaged one, and `.claude/skills` over `.agents/skills`; the winner lists what it hides in `shadows`. A SKILL.md whose frontmatter does not parse is still listed, with the reason in `problems`.
+
+**Context projection.** `GET /v1/context/projection?strategy=micro|lean|full&categories=a,b` returns what the server would hand a client under that [context strategy](#context-strategy-full-lean-micro), narrowed to those categories: `strategy`, `categories` (the scope after resolving; omitted means every enabled category), `instructions` (the initialize text, quoting the scope's counts and categories), `tools` (each tool's `name`, `description`, `inputSchema` as `tools/list` sends it, and `category`, null for micro's `tools` gateway, lean's `catalog` and `flow`), and `seedTokens`, the characters of the instructions and tools JSON divided by 4, the estimate `scripts/context-tax.mjs` makes without an API key (`estimator: "chars/4"`). Over every category it is exactly what the server sends for that strategy. Lean's `catalog` and micro's gateway search and describe only the scope. `strategy` defaults to the server's own; an unknown strategy or category answers 400.
+
+`api.context.call(tool, input, { strategy?, categories?, dialogPrompt?, dialogWaitMs?, elicit? })` runs one call to a projected tool as the MCP server would: a category, its lean `describe`, `catalog`, micro's `tools` gateway, or `flow`, through the same dispatch as `api.callAction`, so dialogs, forms, effect gates and checkpoints apply the same way. A tool or gateway call to a category outside the scope is refused with an error result and nothing runs.
 
 ### Updates through the daemon
 

@@ -10,6 +10,9 @@ import type { UiManifest } from "./ui-bundles.js";
 import type { ModelProvider } from "../flow/model-provider.js";
 import type { AssetDiff, ChangesResult, CheckpointResult, CheckpointState, NativeDiffResult, RestoreResult } from "../checkpoints/service.js";
 import type { DaemonSkill } from "../extensions/skills-list.js";
+import type { ContextProjection, ContextProjectionOptions } from "../server/context-projection.js";
+
+export type { ContextProjection, ContextProjectionOptions, ProjectedTool } from "../server/context-projection.js";
 
 export type { DaemonSkill, DaemonSkillOwner, ShadowedSkill, ProjectSkillFolder } from "../extensions/skills-list.js";
 
@@ -109,6 +112,16 @@ export interface DialogEventData {
   via?: "prompt" | "action";
 }
 
+/**
+ * Options for one api.context.call: the projection the call runs against, plus
+ * the callAction prompts. `strategy` defaults to the one the server runs;
+ * `categories` to every category.
+ */
+export interface ContextCallOptions extends CallActionOptions {
+  strategy?: "micro" | "lean" | "full";
+  categories?: string[];
+}
+
 /** The text and error flag of an action's result. */
 export interface ActionResult {
   isError: boolean;
@@ -160,6 +173,9 @@ export interface DaemonExtensionApi {
    *                              Unreal's diff code, and `assetDiff`, `thumbnail` and
    *                              `openNativeDiff` are on `checkpoints`
    *   "skills"                   `skills.list` lists ue-mcp's packaged skills and the project's own
+   *   "context.projection"       `context.project` gives the instructions and tools a strategy and
+   *                              category scope would advertise, and `context.call` runs one call
+   *                              against that surface
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
@@ -206,6 +222,20 @@ export interface DaemonExtensionApi {
    */
   skills?: {
     list(): DaemonSkill[];
+  };
+
+  /**
+   * The surface a client would be handed under a context strategy and a set
+   * of categories (feature "context.projection"), the same answer as GET
+   * /v1/context/projection. `project` throws on an unknown strategy or
+   * category. `call` runs one call to a projected tool (a category, lean's
+   * catalog or a category's describe, micro's tools gateway, or flow) exactly
+   * as the MCP server would, through the dispatch callAction uses; a tool or a
+   * gateway call outside the scope is refused with an error result.
+   */
+  context?: {
+    project(opts: ContextProjectionOptions): ContextProjection;
+    call(tool: string, input: Record<string, unknown>, opts?: ContextCallOptions): Promise<ActionResult>;
   };
 
   editors(): EditorStatus[];
@@ -270,6 +300,6 @@ export interface DaemonHealth {
   extensions: Array<{ name: string; version: string }>;
   /** Version of the UI bundle being served, or null. */
   ui: string | null;
-  /** What the HTTP API offers beyond apiVersion, for feature detection ("checkpoints", "skills"). Absent on a daemon older than the field. */
+  /** What the HTTP API offers beyond apiVersion, for feature detection ("checkpoints", "skills", "context.projection"). Absent on a daemon older than the field. */
   features?: readonly string[];
 }

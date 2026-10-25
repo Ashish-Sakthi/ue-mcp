@@ -14,6 +14,7 @@
  *   POST /v1/handoff    exit once no call is in flight (a newer daemon is taking over)
  *   /v1/checkpoints     checkpoints per editor session, see checkpoint-routes.ts
  *   GET  /v1/skills     every skill a client of this project can load, see skills-list.ts
+ *   GET  /v1/context/projection  what a strategy and category scope advertise, see context-projection.ts
  *   WS   /v1/mcp        one MCP session per socket
  */
 import * as fs from "node:fs";
@@ -53,10 +54,10 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "skills"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "skills", "context.projection"];
 
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
-export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills"];
+export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
@@ -71,6 +72,8 @@ import { releaseStartLock, waitForStartTurn } from "./start-lock.js";
 import { checkpointRoute } from "./checkpoint-routes.js";
 import { checkpointsFor, subscribeCheckpointEvents } from "../checkpoints/service.js";
 import { listDaemonSkills } from "../extensions/skills-list.js";
+import { ContextProjectionError, ContextProjector } from "../server/context-projection.js";
+import type { ContextStrategy } from "../surface/context/lean-context.js";
 
 const DEFAULT_IDLE_MS = 30 * 60_000;
 const DEFAULT_WAIT_FOR_EDITOR_SECONDS = 60;
@@ -409,6 +412,9 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // Flow tasks editor.restart and editor.rebuild go through the same announced operations.
   rt.sessions.editorOperation = async (op) => (await editorOp(op)) as { steps: Array<{ step: string; ok: boolean; result: string }> };
 
+  // ── Context projection ──────────────────────────────────────────
+  const projector = new ContextProjector(rt);
+
   // ── UI bundles and extensions ───────────────────────────────────
   const ui = new UiBundleStore(DAEMON_API_VERSION, opts.uiDir);
   const extensions: LoadedExtension[] = await loadExtensions((name, routes, setBusy): DaemonExtensionApi => ({
@@ -442,6 +448,22 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     },
     skills: {
       list: () => listDaemonSkills(projectDir),
+    },
+    context: {
+      project: (o) => projector.project(o),
+      call: async (tool, input, callOpts) => {
+        const r = await projector.call(
+          { strategy: callOpts?.strategy ?? rt.contextStrategy, ...(callOpts?.categories ? { categories: callOpts.categories } : {}) },
+          tool,
+          input ?? {},
+          {
+            ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
+            ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
+            ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
+          },
+        );
+        return { isError: !!r.isError, content: r.content };
+      },
     },
     editors: () => editors(),
     editorOperation: (op) => editorOp(op),
@@ -587,6 +609,17 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         json(res, 200, { skills: listDaemonSkills(projectDir) });
       } catch (e) {
         json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/v1/context/projection") {
+      const strategy = (url.searchParams.get("strategy") ?? rt.contextStrategy) as ContextStrategy;
+      const raw = url.searchParams.get("categories");
+      const categories = raw === null ? undefined : raw.split(",").map((c) => c.trim()).filter(Boolean);
+      try {
+        json(res, 200, projector.project({ strategy, ...(categories ? { categories } : {}) }));
+      } catch (e) {
+        json(res, e instanceof ContextProjectionError ? 400 : 500, { error: e instanceof Error ? e.message : String(e) });
       }
       return;
     }
