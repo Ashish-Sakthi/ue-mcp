@@ -25,17 +25,26 @@ function modified(entries: AssetDiffRecord[], extra: Record<string, unknown> = {
 }
 
 describe("an asset diff's summary", () => {
-  it("leads with the count and the first records, values included", () => {
+  it("leads with the count and the records that carry values", () => {
     const d = modified([
       { displayString: "Two Sided changed value in M", diffType: "PropertyValueChanged", path: "Two Sided", property: "TwoSided", before: "False", after: "True" },
       { displayString: "Added Node Constant", diffType: "NODE_ADDED" },
       { displayString: "Blend Mode changed value in M", diffType: "PropertyValueChanged", path: "Blend Mode", before: "BLEND_Opaque", after: "BLEND_Masked" },
     ]);
-    expect(d.summary).toBe("3 changes: Two Sided False to True; Added Node Constant; and 1 more");
+    expect(d.summary).toBe("3 changes: Two Sided False to True; Blend Mode BLEND_Opaque to BLEND_Masked; and 1 more");
     expect(d.nativeDiff).toEqual({ available: true });
   });
 
-  it("names a group and an added or removed value", () => {
+  it("reads a graph record's values from the property records behind it", () => {
+    const d = modified([
+      { displayString: "Added Node Constant", diffType: "NODE_ADDED" },
+      { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", properties: [{ displayString: "x", diffType: "PropertyValueChanged", path: "Default Value", before: "0.2", after: "0.7" }] },
+    ]);
+    expect(d.summary).toBe("2 changes: Default Value 0.2 to 0.7; Added Node Constant");
+  });
+
+  it("names a group once, and an added or removed value", () => {
+    expect(describeRecord({ displayString: "x", diffType: "PropertyAddedToB", group: "Health", path: "Health", before: null, after: "real" })).toBe("Health added: real");
     expect(describeRecord({ displayString: "x", diffType: "PropertyAddedToB", group: "RowB", path: "Dev Comment", before: null, after: "hi" })).toBe("RowB Dev Comment added: hi");
     expect(describeRecord({ displayString: "x", diffType: "PropertyAddedToA", path: "Speed", before: "1.0", after: null })).toBe("Speed removed: 1.0");
   });

@@ -122,7 +122,7 @@ function plural(n: number, one: string, many = `${one}s`): string {
 
 /** The record's own words, with the values when it has them. */
 export function describeRecord(r: AssetDiffRecord): string {
-  const label = r.path ? (r.group ? `${r.group} ${r.path}` : r.path) : r.displayString;
+  const label = r.path ? (r.group && r.group !== r.path ? `${r.group} ${r.path}` : r.path) : r.displayString;
   if (r.path && (r.before !== undefined || r.after !== undefined)) {
     if (r.diffType === "PropertyAddedToB") return `${label} added: ${short(r.after)}`;
     if (r.diffType === "PropertyAddedToA") return `${label} removed: ${short(r.before)}`;
@@ -151,7 +151,11 @@ export function summarizeAssetDiff(d: AssetDiff): string {
       ? `${cls}: ${plural(hidden, "change")} only in properties the details panel does not show`
       : `${cls}: the file changed, and Unreal's diff finds no difference`;
   }
-  const shown = records.slice(0, 2).map(describeRecord).join("; ");
+  // A graph record's values are in the property records behind it; a record with values says more than one without.
+  const leaves = records.flatMap((r) => (r.properties?.length ? r.properties.map((p) => ({ ...p, group: p.group ?? r.group })) : [r]));
+  const hasValues = (r: AssetDiffRecord) => r.path !== undefined && (r.before !== undefined || r.after !== undefined);
+  const ordered = [...leaves.filter(hasValues), ...leaves.filter((r) => !hasValues(r))];
+  const shown = ordered.slice(0, 2).map(describeRecord).join("; ");
   const total = records.length + (d.recordsDropped ?? 0);
   return `${plural(total, "change")}: ${shown}${total > 2 ? `; and ${total - 2} more` : ""}`;
 }
