@@ -179,7 +179,7 @@ describe.sequential("a turn's asset diffs", () => {
     expect(def?.after).toMatch(/^0\.7/);
     expectPicture(d.before, "material before");
     expectPicture(d.after, "material after");
-    expect(d.summary).toMatch(/change/);
+    expect(d.summary).toMatch(/^\d+ differences?: /);
     expect(d.nativeDiff.available).toBe(true);
   });
 

@@ -31,7 +31,7 @@ describe("an asset diff's summary", () => {
       { displayString: "Added Node Constant", diffType: "NODE_ADDED" },
       { displayString: "Blend Mode changed value in M", diffType: "PropertyValueChanged", path: "Blend Mode", before: "BLEND_Opaque", after: "BLEND_Masked" },
     ]);
-    expect(d.summary).toBe("3 changes: Two Sided False to True; Blend Mode BLEND_Opaque to BLEND_Masked; and 1 more");
+    expect(d.summary).toBe("3 differences: Two Sided False to True; Blend Mode BLEND_Opaque to BLEND_Masked; and 1 more");
     expect(d.nativeDiff).toEqual({ available: true });
   });
 
@@ -40,7 +40,22 @@ describe("an asset diff's summary", () => {
       { displayString: "Added Node Constant", diffType: "NODE_ADDED" },
       { displayString: "Property Changed: Default Value", diffType: "NODE_PROPERTY", properties: [{ displayString: "x", diffType: "PropertyValueChanged", path: "Default Value", before: "0.2", after: "0.7" }] },
     ]);
-    expect(d.summary).toBe("2 changes: Default Value 0.2 to 0.7; Added Node Constant");
+    expect(d.summary).toBe("2 differences: Default Value 0.2 to 0.7; Added Node Constant");
+  });
+
+  it("names the node a graph record's values belong to, leads with removals, and names each change once", () => {
+    const d = modified([
+      { displayString: "Added Node Constant", diffType: "NODE_ADDED", category: "ADDITION" },
+      { displayString: "Property Changed", diffType: "NODE_PROPERTY", node2: { guid: "g", name: "n", class: "MaterialGraphNode", title: "Roughness Param" }, properties: [{ displayString: "x", diffType: "PropertyValueChanged", path: "Default Value", before: "0.2", after: "0.7" }] },
+      { displayString: "Removed actor QA_Doomed (PointLight)", diffType: "OBJECT_REMOVED", group: "QA_Doomed" },
+    ]);
+    expect(d.summary).toBe("3 differences: Removed actor QA_Doomed (PointLight); Roughness Param Default Value 0.2 to 0.7; and 1 more");
+    const bp = modified([
+      { displayString: "Added Variable Health", diffType: "PropertyAddedToB", group: "Health", path: "Health", before: null, after: "real" },
+      { displayString: "Health added to Default__BP", diffType: "PropertyAddedToB", path: "Health", before: null, after: "100.0" },
+      { displayString: "Added Node Lamp", diffType: "NODE_ADDED", group: "Lamp" },
+    ]);
+    expect(bp.summary).toBe("3 differences: Health added: real; Added Node Lamp; and 1 more");
   });
 
   it("names a group once, and an added or removed value", () => {
@@ -51,12 +66,15 @@ describe("an asset diff's summary", () => {
 
   it("counts records past the ceiling", () => {
     const d = modified([{ displayString: "a", diffType: "NODE_ADDED" }], { recordsDropped: 4 });
-    expect(d.summary).toBe("5 changes: a; and 3 more");
+    expect(d.summary).toBe("5 differences: a; and 4 more");
   });
 
   it("says when only hidden properties or the file changed, never nothing", () => {
-    const hidden = assetDiffFromBridge({ status: "modified", assetClass: "StaticMesh", sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [], hiddenChanges: 2 }] }, "Content/S.uasset", noPicture);
-    expect(hidden.summary).toBe("StaticMesh: 2 changes only in properties the details panel does not show");
+    const hiddenRecord = { displayString: "x", diffType: "PropertyValueChanged", path: "Lighting Guid", before: "A", after: "B", hidden: true };
+    const hidden = assetDiffFromBridge({ status: "modified", assetClass: "StaticMesh", sections: [{ category: "Details", kind: "properties", engineSource: "", entries: [hiddenRecord, hiddenRecord], hiddenChanges: 2 }] }, "Content/S.uasset", noPicture);
+    expect(hidden.summary).toBe("StaticMesh: 2 differences, all in properties the details panel does not show");
+    const mixed = modified([{ displayString: "x", diffType: "PropertyValueChanged", path: "sRGB", before: "True", after: "False" }, hiddenRecord]);
+    expect(mixed.summary).toBe("1 difference: sRGB True to False; plus 1 difference in properties the details panel does not show");
     const none = assetDiffFromBridge({ status: "modified", assetClass: "StaticMesh", sections: [] }, "Content/S.uasset", noPicture);
     expect(none.summary).toBe("StaticMesh: the file changed, and Unreal's diff finds no difference");
   });

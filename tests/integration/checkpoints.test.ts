@@ -227,7 +227,7 @@ describe("checkpoints through the daemon", () => {
     expect(diffed.map((x) => [x.original, x.from, x.to]).sort()).toEqual([["BP_Door.uasset", "door v1", "door v2"], ["M_Wall.uasset", "wall v1", "wall v2"]]);
     const door = (changes.body.changes as Json[]).find((c) => c.path === "Content/BP_Door.uasset")!;
     expect(door.assetDiff).toMatchObject({ state: "ready", status: "modified", assetClass: "Blueprint", nativeDiff: { available: true } });
-    expect(door.assetDiff.summary).toBe("1 change: Content door v1 to door v2");
+    expect(door.assetDiff.summary).toBe("1 difference: Content door v1 to door v2");
     const ini = (changes.body.changes as Json[]).find((c) => c.path === "Config/DefaultGame.ini")!;
     expect(ini.assetDiff).toBeUndefined();
 

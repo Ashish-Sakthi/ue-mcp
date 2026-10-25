@@ -31,6 +31,8 @@ export interface AssetDiffRecord {
   toolTip?: string;
   /** The actor, component, variable or row a record belongs to. */
   group?: string;
+  /** A difference under a property the details panel does not show. */
+  hidden?: boolean;
   /** FPropertySoftPath::ToDisplayName of a property record. */
   path?: string;
   property?: string;
@@ -58,7 +60,7 @@ export interface AssetDiffSection {
   /** The engine API the records came from. */
   engineSource: string;
   entries: AssetDiffRecord[];
-  /** Differences under properties the details panel does not show, counted rather than listed. */
+  /** How many of the records are under properties the details panel does not show (marked hidden). */
   hiddenChanges?: number;
 }
 
@@ -131,33 +133,52 @@ export function describeRecord(r: AssetDiffRecord): string {
   return r.displayString;
 }
 
-/** A one-line account of a diff, from its records, for deciding Keep or Revert at a glance. */
+const REMOVALS = new Set(["PropertyAddedToA", "OBJECT_REMOVED", "NODE_REMOVED"]);
+const isRemoval = (r: AssetDiffRecord) => REMOVALS.has(r.diffType) || r.category === "SUBTRACTION";
+const hasValues = (r: AssetDiffRecord) => r.path !== undefined && (r.before !== undefined || r.after !== undefined);
+
+/**
+ * A one-line account of a diff, from its records, for deciding Keep or Revert
+ * at a glance: the count, then removals (the changes a Keep loses least
+ * visibly), then changes with values, then the rest, each named once.
+ */
 export function summarizeAssetDiff(d: AssetDiff): string {
-  if (d.state === "error") return `Could not diff: ${d.error ?? "no reason given"}`;
+  if (d.state === "error") return `Could not diff: ${short(d.error ?? "no reason given", 120)}`;
   if (d.state === "deferred") return "Not diffed yet: over the per-turn limit, diffed when opened.";
   const cls = d.assetClass ?? "asset";
   const sections = d.sections ?? [];
-  const records = sections.flatMap((s) => s.entries);
+  const all = sections.flatMap((s) => s.entries);
+  const records = all.filter((r) => !r.hidden);
+  const hidden = all.length - records.length;
+  const hiddenNote = hidden ? `; plus ${plural(hidden, "difference")} in properties the details panel does not show` : "";
   if (d.status === "added" || d.status === "deleted") {
     const v = d.status === "added" ? d.after : d.before;
     const facts = (v?.facts ?? []).filter((f) => f.value !== "").slice(0, 3).map((f) => `${f.name} ${short(f.value, 40)}`);
     const set = records.length ? `, ${plural(records.length, "property", "properties")} set` : "";
     return `${d.status === "added" ? "New" : "Deleted"} ${cls}${set}${facts.length ? `: ${facts.join("; ")}` : ""}`;
   }
-  const hidden = sections.reduce((n, s) => n + (s.hiddenChanges ?? 0), 0);
   if (records.length === 0) {
     if (d.textDiff?.diff) return `${cls}: the engine's ${d.textDiff.format.toUpperCase()} export changed`;
     return hidden
-      ? `${cls}: ${plural(hidden, "change")} only in properties the details panel does not show`
+      ? `${cls}: ${plural(hidden, "difference")}, all in properties the details panel does not show`
       : `${cls}: the file changed, and Unreal's diff finds no difference`;
   }
-  // A graph record's values are in the property records behind it; a record with values says more than one without.
-  const leaves = records.flatMap((r) => (r.properties?.length ? r.properties.map((p) => ({ ...p, group: p.group ?? r.group })) : [r]));
-  const hasValues = (r: AssetDiffRecord) => r.path !== undefined && (r.before !== undefined || r.after !== undefined);
-  const ordered = [...leaves.filter(hasValues), ...leaves.filter((r) => !hasValues(r))];
-  const shown = ordered.slice(0, 2).map(describeRecord).join("; ");
+  // A graph record's values are in the property records behind it, named by the node they belong to.
+  const leaves = records.flatMap((r) => (r.properties?.length
+    ? r.properties.filter((p) => !p.hidden).map((p) => ({ ...p, group: p.group ?? r.node2?.title ?? r.node1?.title ?? r.group }))
+    : [r]));
+  const ordered = [...leaves.filter(isRemoval), ...leaves.filter((r) => !isRemoval(r) && hasValues(r)), ...leaves.filter((r) => !isRemoval(r) && !hasValues(r))];
+  const shown: string[] = [];
+  for (const r of ordered) {
+    const line = describeRecord(r);
+    const name = r.path ? (r.group && r.group !== r.path ? `${r.group} ${r.path}` : r.path) : line;
+    if (shown.some((x) => x.startsWith(name))) continue;
+    shown.push(line);
+    if (shown.length === 2) break;
+  }
   const total = records.length + (d.recordsDropped ?? 0);
-  return `${plural(total, "change")}: ${shown}${total > 2 ? `; and ${total - 2} more` : ""}`;
+  const rest = total - shown.length;
+  return `${plural(total, "difference")}: ${shown.join("; ")}${rest > 0 ? `; and ${rest} more` : ""}${hiddenNote}`;
 }
 
 /** Whether Unreal's own diff view can open this item, and why not, as the bridge decided it. */
