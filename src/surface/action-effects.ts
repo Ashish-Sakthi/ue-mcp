@@ -82,6 +82,9 @@ export const RAW_BRIDGE_METHODS: Readonly<Record<string, ActionEffect>> = {
   // Arbitrary python inside the editor process. Its effect is the string it
   // was handed, which is what `unknown` is for.
   execute_python: "unknown",
+  // Loads two versions of a package into /Temp for diffing and unloads them,
+  // writing only pictures under Saved. editor(list_changes, diff_checkpoint_asset).
+  checkpoint_diff_asset: "read",
   // Probes the running editor and reports. editor(get_engine_state).
   get_engine_state: "read",
   // Copies assets into another project's Content directory. asset(migrate).
