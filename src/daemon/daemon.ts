@@ -50,12 +50,13 @@ import { openUrl } from "../core/open-url.js";
 import { handleFlowRoute, hostIsAllowed } from "../flow/http-server.js";
 import { userDir } from "../core/user-dir.js";
 import { readRegistryAuth } from "../extensions/registry-auth.js";
-import { getDialogModeScopes, getFeedbackModeScopes, setDialogMode, setFeedbackMode } from "../config/user-state.js";
+import { getDialogModeScopes, getFeedbackModeScopes, setDialogMode, setFeedbackMode, setPlaytestMode } from "../config/user-state.js";
+import { resolvePlaytestMode } from "../editor/playtest-mode.js";
 import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type EditorStatus } from "./extension-api.js";
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "skills", "context.projection", "actions.effects"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "modes.playtest", "skills", "context.projection", "actions.effects"];
 
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
 export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection", "actions.effects"];
@@ -487,10 +488,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           // Unset everywhere, feedback asks, as the tool does; a dialog mode left unset follows the client.
           feedback: { mode: feedback.project ?? feedback.user ?? "interactive", project: feedback.project !== undefined },
           dialog: { mode: dialog.project ?? dialog.user ?? null, project: dialog.project !== undefined },
+          playtest: resolvePlaytestMode(projectDir),
         };
       },
       setFeedback: (mode) => setFeedbackMode(mode, projectDir),
       setDialog: (mode) => setDialogMode(mode, projectDir),
+      setPlaytest: (mode) => setPlaytestMode(mode, projectDir),
     },
     checkpoints: (() => {
       const of = (editor?: string) => {

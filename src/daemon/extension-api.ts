@@ -163,6 +163,7 @@ export interface DaemonExtensionApi {
    *   "callAction.dialogPrompt"  callAction takes `opts.dialogPrompt` and `opts.dialogWaitMs`
    *   "callAction.elicit"        callAction takes `opts.elicit` for every other form
    *   "modes"                    `modes` reads and sets this project's feedback and dialog modes
+   *   "modes.playtest"           `modes.get` carries `playtest` and `modes.setPlaytest` sets it
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
    *   "models.provider"          `models.register` supplies the model flow agent steps run on
@@ -283,9 +284,21 @@ export interface DaemonExtensionApi {
    * sets it; `set` with undefined goes back to the per-user preference.
    */
   modes?: {
-    get(): { feedback: { mode: "interactive" | "auto-approve" | "defer"; project: boolean }; dialog: { mode: "interactive" | "auto" | "defer" | null; project: boolean } };
+    get(): {
+      feedback: { mode: "interactive" | "auto-approve" | "defer"; project: boolean };
+      dialog: { mode: "interactive" | "auto" | "defer" | null; project: boolean };
+      /**
+       * Who starts playtest runs (feature "modes.playtest"), as `ue-mcp playtest
+       * mode` sets it. null is unset: each client decides. Under manual, an MCP
+       * session's pie(script_run) and pie(script_replay) are refused; calls made
+       * through callAction are not, so an extension applies its own rule.
+       */
+      playtest: { mode: "manual" | "automatic" | null; project: boolean };
+    };
     setFeedback(mode: "interactive" | "auto-approve" | "defer" | undefined): void;
     setDialog(mode: "interactive" | "auto" | "defer" | undefined): void;
+    /** Set this project's playtest mode; undefined goes back to the per-user preference (feature "modes.playtest"). */
+    setPlaytest(mode: "manual" | "automatic" | undefined): void;
   };
 
   log: {

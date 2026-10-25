@@ -89,6 +89,7 @@ beforeAll(async () => {
       api.route("POST", "/modes", (req) => {
         if (req.body?.feedback !== undefined) api.modes.setFeedback(req.body.feedback ?? undefined);
         if (req.body?.dialog !== undefined) api.modes.setDialog(req.body.dialog ?? undefined);
+        if (req.body?.playtest !== undefined) api.modes.setPlaytest(req.body.playtest ?? undefined);
         return { body: api.modes.get() };
       });
       api.route("POST", "/status", async () => {
@@ -155,9 +156,17 @@ describe("modes, for an extension", () => {
   const modes = async (body: unknown) =>
     (await fetch(`${base}/v1/ext/sample/modes`, { method: "POST", headers: { ...auth, "content-type": "application/json" }, body: JSON.stringify(body) })).json();
 
-  it("sets this project's feedback and dialog modes and reads them back, then clears them", async () => {
-    expect(await modes({ feedback: "defer", dialog: "auto" })).toEqual({ feedback: { mode: "defer", project: true }, dialog: { mode: "auto", project: true } });
-    expect(await modes({ feedback: null, dialog: null })).toMatchObject({ feedback: { project: false }, dialog: { project: false } });
+  it("sets this project's feedback, dialog and playtest modes and reads them back, then clears them", async () => {
+    expect(await modes({ feedback: "defer", dialog: "auto", playtest: "manual" })).toEqual({
+      feedback: { mode: "defer", project: true },
+      dialog: { mode: "auto", project: true },
+      playtest: { mode: "manual", project: true },
+    });
+    expect(await modes({ feedback: null, dialog: null, playtest: null })).toMatchObject({
+      feedback: { project: false },
+      dialog: { project: false },
+      playtest: { mode: null, project: false },
+    });
   });
 });
 

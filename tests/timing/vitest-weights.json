@@ -26,6 +26,7 @@
     "tests/integration/npx-age-gate.test.ts": 25.5,
     "tests/integration/package-exports.test.ts": 10.8,
     "tests/integration/playtest-flow.test.ts": 15.3,
+    "tests/integration/playtest-mode.test.ts": 27.0,
     "tests/integration/plugin-cli.test.ts": 60.1,
     "tests/integration/plugin-load.test.ts": 0.2,
     "tests/integration/registry.test.ts": 20,

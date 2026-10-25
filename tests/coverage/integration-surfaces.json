@@ -232,6 +232,11 @@
       "summary": "ue-mcp dialog mode reads and sets how blocking editor dialogs are handled"
     },
     {
+      "id": "cli.playtest.mode",
+      "group": "cli",
+      "summary": "ue-mcp playtest mode reads, sets and clears who starts playtest runs, per user or per project"
+    },
+    {
       "id": "cli.context.status",
       "group": "cli",
       "summary": "ue-mcp context prints the project's context strategy"
@@ -310,6 +315,11 @@
       "id": "server.checkpoints",
       "group": "server",
       "summary": "editor(checkpoint, list_checkpoints, list_changes, restore) record and restore files written through the server with no editor running"
+    },
+    {
+      "id": "server.playtest-mode",
+      "group": "server",
+      "summary": "under playtest mode manual an MCP session's pie(script_run) and pie(script_replay) are refused without reaching the editor, directly and through the micro gateway; automatic runs them"
     },
     {
       "id": "server.startup.lean.in-process",
@@ -570,6 +580,11 @@
       "id": "daemon.actions-effects",
       "group": "daemon",
       "summary": "the daemon lists every action's effect and destructive flag over /v1/actions and api.actions.effects"
+    },
+    {
+      "id": "daemon.modes-playtest",
+      "group": "daemon",
+      "summary": "a daemon extension reads and sets the project's playtest mode through api.modes, and its own callAction is not gated by it"
     },
     {
       "id": "package.dist-server",

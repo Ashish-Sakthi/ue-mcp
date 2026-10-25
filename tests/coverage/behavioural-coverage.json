@@ -13096,6 +13096,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_validate answers the checks script_create runs, and saves nothing"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/playtest-mode.test.ts",
+          "test": "leaves the rest of pie answering from the editor"
         }
       ]
     },
@@ -13142,6 +13147,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "script_replay re-evaluates the auto steps on the run's recording and reports what regressed"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/playtest-mode.test.ts",
+          "test": "refuses script_run and script_replay without starting a run"
         }
       ]
     },
@@ -13223,6 +13233,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pie-scripts.test.ts",
           "test": "verdict with source agent needs evidence, honours agent_judgeable, and is counted apart from human verdicts"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/playtest-mode.test.ts",
+          "test": "refuses script_run and script_replay without starting a run"
         }
       ]
     },

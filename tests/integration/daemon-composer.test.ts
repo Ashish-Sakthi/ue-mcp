@@ -35,6 +35,9 @@ beforeAll(async () => {
     activate: `
       api.route("GET", "/features", () => ({ body: { features: api.features } }));
       api.route("GET", "/skills", () => ({ body: { skills: api.skills.list() } }));
+      api.route("GET", "/modes", () => ({ body: api.modes.get() }));
+      api.route("PUT", "/modes/playtest", (req) => { api.modes.setPlaytest(req.body.mode ?? undefined); return { body: api.modes.get().playtest }; });
+      api.route("POST", "/action", async (req) => ({ body: await api.callAction(req.body.category, req.body.action, req.body.args) }));
       api.route("GET", "/actions", () => ({ body: { actions: api.actions.effects(["asset"]) } }));
       api.route("GET", "/projection", () => ({ body: api.context.project({ strategy: "lean", categories: ["level"] }) }));
       api.route("POST", "/call", async (req) => ({ body: await api.context.call(req.body.tool, req.body.input, req.body.opts) }));
@@ -132,5 +135,21 @@ describe("action effects", () => {
     expect(new Set(asset.body.actions.map((a: { category: string }) => a.category))).toEqual(new Set(["asset"]));
     expect((await call(d, "GET", "/v1/ext/composer/actions")).body.actions).toEqual(asset.body.actions);
     expect((await call(d, "GET", "/v1/actions?categories=asset,nope")).status).toBe(400);
+  });
+});
+
+describe("playtest mode", () => {
+  it("is read and set through api.modes, and does not gate an extension's own calls", async () => {
+    covers("daemon.modes-playtest");
+    expect((await call(d, "GET", "/v1/ext/composer/features")).body.features).toContain("modes.playtest");
+    expect((await call(d, "GET", "/v1/ext/composer/modes")).body.playtest).toEqual({ mode: null, project: false });
+    expect((await call(d, "PUT", "/v1/ext/composer/modes/playtest", { mode: "manual" })).body).toEqual({ mode: "manual", project: true });
+
+    // Manual refuses an MCP session's run; an extension's callAction reaches dispatch as before.
+    const r = await call(d, "POST", "/v1/ext/composer/action", { category: "pie", action: "script_run", args: { script: "Scripts/smoke.yaml" } });
+    expect(r.status, r.text).toBe(200);
+    expect(JSON.stringify(r.body.content)).not.toContain("playtestMode");
+
+    expect((await call(d, "PUT", "/v1/ext/composer/modes/playtest", { mode: null })).body).toEqual({ mode: null, project: false });
   });
 });

@@ -34,6 +34,7 @@ const PER_SESSION: Record<string, string> = {
   "bridge/bridge.ts": "One socket, port and lockfile per editor.",
   "editor/dialog-guard.ts": "One guard per editor: the modal blocking IT, and the decision every route defers to.",
   "editor/dialog-mode.ts": "Resolves the dialog handling mode for the project it is handed, from that project's stored preference.",
+  "editor/playtest-mode.ts": "Resolves the playtest mode for the project it is handed, from that project's stored preference.",
   "sessions/session.ts": "The registry of editors itself.",
   "pie/script-watch.ts": "Follows one script run through the ToolContext of the call that started it, so it polls that call's editor.",
   "sessions/session-surface.ts": "One tool graph per editor, and the union advertised from them.",
@@ -103,6 +104,7 @@ const PER_SESSION: Record<string, string> = {
   "cli/plugin-cli.ts": "Installs and inspects plugins for one project, chosen with --editor.",
   "cli/feedback-cli.ts": "Scopes the deferred queue and the feedback mode with --editor.",
   "cli/dialog-cli.ts": "Scopes the dialog handling mode with --editor, one editor at a time.",
+  "cli/playtest-cli.ts": "Scopes the playtest mode with --editor, one editor at a time.",
   "extensions/skills.ts": "Installs, removes and checks agent skills inside one project directory, recording which package owns each.",
   "extensions/skills-list.ts": "Lists the skills one project directory can load, reading that project's ownership record.",
 

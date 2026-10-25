@@ -155,6 +155,17 @@ The form outlives the call that raised it. A blocked call waits a minute for you
 
 A daemon extension that runs actions in process, such as UE-MCP Studio, answers the dialogs its own calls meet: `callAction` takes a `dialogPrompt` with the same form an MCP client is shown, so `interactive` works there too. Its answer may also be `delegate`, which hands that one dialog to the agent with the press calls, as `auto` would. An answer sooner than `UE_MCP_ELICIT_MIN_HUMAN_MS` is not taken as a person's. Every dialog is also published on the daemon's event stream as `dialog.opened`, `dialog.answered`, `dialog.delegated` and `dialog.closed`, whoever met it and under every mode. Nothing changes for an MCP client or the CLI.
 
+### Playtest mode
+
+Who starts playtest runs, `pie(action="script_run")` and `pie(action="script_replay")`: a person or an agent.
+
+| Mode | What happens |
+|---|---|
+| `manual` | A person starts playtests. An MCP client's `script_run` and `script_replay` are refused before anything reaches the editor, directly or through the micro gateway, with `success: false`, `refusedMethod`, and a `reason` that names the setting and the command that changes it. |
+| `automatic` | An agent may start them. |
+| unset | Each client decides. The server changes nothing. |
+
+Set it with `npx ue-mcp playtest mode <manual|automatic>` (add `--editor <name>` to scope it to one project, `clear` to clear it). A project's own setting wins over the per-user one. A daemon extension reads and sets it through `api.modes` (feature `modes.playtest`); calls it makes through `api.callAction` are not refused, so it applies its own rule.
 
 ### User-machine state (`~/.ue-mcp/`)
 
@@ -162,7 +173,7 @@ Machine-specific state that ue-mcp commands write but you wouldn't hand-edit liv
 
 | Path | What |
 |------|------|
-| `~/.ue-mcp/state.json` | Three things: (a) per-project `installedHooks` - absolute paths of every Claude Code `settings.json` where ue-mcp installed the feedback PostToolUse hook, keyed by absolute project root; (b) `preferences.feedback.mode` - your personal default for the feedback approval mode (`interactive` / `auto-approve` / `defer`). (c) `preferences.dialog.mode` and per-project `dialog.mode` - the dialog handling mode (`interactive` / `auto` / `defer`). Maintained by `npx ue-mcp init`, `npx ue-mcp uninstall-hooks`, `npx ue-mcp feedback mode` and `npx ue-mcp dialog mode`. Written by those commands, not by hand. |
+| `~/.ue-mcp/state.json` | Three things: (a) per-project `installedHooks` - absolute paths of every Claude Code `settings.json` where ue-mcp installed the feedback PostToolUse hook, keyed by absolute project root; (b) `preferences.feedback.mode` - your personal default for the feedback approval mode (`interactive` / `auto-approve` / `defer`). (c) `preferences.dialog.mode` and per-project `dialog.mode` - the dialog handling mode (`interactive` / `auto` / `defer`); (d) `preferences.playtest.mode` and per-project `playtest.mode` - the [playtest mode](#playtest-mode) (`manual` / `automatic`). Maintained by `npx ue-mcp init`, `npx ue-mcp uninstall-hooks`, `npx ue-mcp feedback mode`, `npx ue-mcp dialog mode` and `npx ue-mcp playtest mode`. Written by those commands, not by hand. |
 | `~/.ue-mcp/auth.json` | Cached GitHub OAuth token for `feedback(submit)` author=user mode. Mode 600. Written by `npx ue-mcp auth`. |
 | `~/.ue-mcp/pending-feedback/<id>.json` | Submissions captured while `feedback mode` is `defer`. Acted on with `npx ue-mcp feedback list/approve/discard`. |
 
@@ -445,6 +456,7 @@ The C++ bridge plugin enables these UE plugins (adding them to `.uproject` if mi
 | `npx ue-mcp auth` | Run the GitHub device flow standalone so `feedback(submit)` can author issues as your real GitHub user. Same step that lives inside `init`; use this if you skipped it at init time. |
 | `npx ue-mcp uninstall-hooks` | Remove the feedback PostToolUse hook from every Claude Code settings file recorded for this project in `~/.ue-mcp/state.json`. |
 | `npx ue-mcp dialog mode [<mode>]` | Read or set how a modal dialog blocking the editor is handled (`interactive`, `auto`, or `defer`). `--editor <name>` scopes it to one project; `default` clears it. Stored in `~/.ue-mcp/state.json`. See [Dialog handling mode](#dialog-handling-mode). |
+| `npx ue-mcp playtest mode [<mode>]` | Read or set who starts playtest runs (`manual` or `automatic`). `--editor <name>` scopes it to one project; `clear` clears it. Stored in `~/.ue-mcp/state.json`. See [Playtest mode](#playtest-mode). |
 | `npx ue-mcp feedback mode [<mode>]` | Read or set your personal feedback approval mode (`interactive`, `auto-approve`, or `defer`). Stored in `~/.ue-mcp/state.json`. See [Feedback → modes](feedback.md#feedback-modes). |
 | `npx ue-mcp feedback list \| show \| approve \| discard \| review` | Manage submissions queued while feedback mode is `defer`. `review` (experimental) walks the queue interactively (approve/discard/skip per item). See [Feedback → Reviewing deferred submissions](feedback.md#reviewing-deferred-submissions). |
 | `npx ue-mcp resolve <issue>` | Fetch a feedback issue, branch, hand it to Claude Code to implement, open a PR. See [Feedback](feedback.md#resolving-feedback-issues). |
