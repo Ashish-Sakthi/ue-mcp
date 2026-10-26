@@ -232,6 +232,11 @@
       "summary": "ue-mcp dialog mode reads and sets how blocking editor dialogs are handled"
     },
     {
+      "id": "cli.playtest.mode",
+      "group": "cli",
+      "summary": "ue-mcp playtest mode reads, sets and clears who starts playtest runs, per user or per project"
+    },
+    {
       "id": "cli.context.status",
       "group": "cli",
       "summary": "ue-mcp context prints the project's context strategy"
@@ -310,6 +315,11 @@
       "id": "server.checkpoints",
       "group": "server",
       "summary": "editor(checkpoint, list_checkpoints, list_changes, restore) record and restore files written through the server with no editor running"
+    },
+    {
+      "id": "server.playtest-mode",
+      "group": "server",
+      "summary": "under playtest mode manual an MCP session's pie(script_run) and pie(script_replay) are refused without reaching the editor, directly and through the micro gateway; automatic runs them"
     },
     {
       "id": "server.startup.lean.in-process",
@@ -552,6 +562,31 @@
       "summary": "the daemon's /v1/checkpoints routes create, list, diff, restore and clear checkpoints, arm the editor's save recording and publish checkpoint events, without touching the project's .git"
     },
     {
+      "id": "daemon.skills",
+      "group": "daemon",
+      "summary": "the daemon lists ue-mcp's packaged skills and the project's own, with owner and location, over /v1/skills and api.skills"
+    },
+    {
+      "id": "daemon.checkpoints.asset-diff",
+      "group": "daemon",
+      "summary": "each changed package gets an asset diff from the editor on the versions the shadow history exports, cached per pair of versions, its pictures served by blob id, the first 25 diffed and the rest named and diffed on request, and Unreal's own diff opened with both versions"
+    },
+    {
+      "id": "daemon.context-projection",
+      "group": "daemon",
+      "summary": "the daemon reports the instructions and tools a context strategy and category scope advertise over /v1/context/projection and api.context.project, and api.context.call runs a call against that surface"
+    },
+    {
+      "id": "daemon.actions-effects",
+      "group": "daemon",
+      "summary": "the daemon lists every action's effect and destructive flag over /v1/actions and api.actions.effects"
+    },
+    {
+      "id": "daemon.modes-playtest",
+      "group": "daemon",
+      "summary": "a daemon extension reads and sets the project's playtest mode through api.modes, and its own callAction is not gated by it"
+    },
+    {
       "id": "package.dist-server",
       "group": "daemon",
       "summary": "the compiled package, laid out as npm installs it, starts from dist/index.js and serves what the source does"
@@ -570,6 +605,11 @@
       "id": "exports.daemon",
       "group": "daemon",
       "summary": "the ue-mcp/daemon export resolves for daemon extensions"
+    },
+    {
+      "id": "exports.context-measurement",
+      "group": "daemon",
+      "summary": "the built package exports parseContextMeasurement and scopeBucket from ue-mcp/daemon and ships schemas/context-measurement.schema.json"
     },
     {
       "id": "plugin.load.inject",

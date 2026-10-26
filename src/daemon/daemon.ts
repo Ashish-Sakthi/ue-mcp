@@ -13,6 +13,9 @@
  *   POST /v1/shutdown   exit now
  *   POST /v1/handoff    exit once no call is in flight (a newer daemon is taking over)
  *   /v1/checkpoints     checkpoints per editor session, see checkpoint-routes.ts
+ *   GET  /v1/skills     every skill a client of this project can load, see skills-list.ts
+ *   GET  /v1/context/projection  what a strategy and category scope advertise, see context-projection.ts
+ *   GET  /v1/actions    each action's effect and destructive flag, see action-effects.ts
  *   WS   /v1/mcp        one MCP session per socket
  */
 import * as fs from "node:fs";
@@ -47,15 +50,16 @@ import { openUrl } from "../core/open-url.js";
 import { handleFlowRoute, hostIsAllowed } from "../flow/http-server.js";
 import { userDir } from "../core/user-dir.js";
 import { readRegistryAuth } from "../extensions/registry-auth.js";
-import { getDialogModeScopes, getFeedbackModeScopes, setDialogMode, setFeedbackMode } from "../config/user-state.js";
+import { getDialogModeScopes, getFeedbackModeScopes, setDialogMode, setFeedbackMode, setPlaytestMode } from "../config/user-state.js";
+import { resolvePlaytestMode } from "../editor/playtest-mode.js";
 import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type EditorStatus } from "./extension-api.js";
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "events.dialog", "events.script", "models.provider", "modes"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "modes.playtest", "skills", "context.projection", "actions.effects"];
 
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
-export const DAEMON_FEATURES: readonly string[] = ["checkpoints"];
+export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection", "actions.effects"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
@@ -69,6 +73,10 @@ import { pluginRoutes } from "./plugin-routes.js";
 import { releaseStartLock, waitForStartTurn } from "./start-lock.js";
 import { checkpointRoute } from "./checkpoint-routes.js";
 import { checkpointsFor, subscribeCheckpointEvents } from "../checkpoints/service.js";
+import { listDaemonSkills } from "../extensions/skills-list.js";
+import { ContextProjectionError, ContextProjector, enabledGraph } from "../server/context-projection.js";
+import { actionEffectInfo } from "../surface/action-effects.js";
+import type { ContextStrategy } from "../surface/context/lean-context.js";
 
 const DEFAULT_IDLE_MS = 30 * 60_000;
 const DEFAULT_WAIT_FOR_EDITOR_SECONDS = 60;
@@ -407,6 +415,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // Flow tasks editor.restart and editor.rebuild go through the same announced operations.
   rt.sessions.editorOperation = async (op) => (await editorOp(op)) as { steps: Array<{ step: string; ok: boolean; result: string }> };
 
+  // ── Context projection ──────────────────────────────────────────
+  const projector = new ContextProjector(rt);
+  const actionEffects = (categories?: string[]) => actionEffectInfo(enabledGraph(rt), rt.loads.dispatchUnion.tools, categories);
+
   // ── UI bundles and extensions ───────────────────────────────────
   const ui = new UiBundleStore(DAEMON_API_VERSION, opts.uiDir);
   const extensions: LoadedExtension[] = await loadExtensions((name, routes, setBusy): DaemonExtensionApi => ({
@@ -438,6 +450,28 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     models: {
       register: (provider) => registerModelProvider(provider),
     },
+    skills: {
+      list: () => listDaemonSkills(projectDir),
+    },
+    actions: {
+      effects: (categories) => actionEffects(categories),
+    },
+    context: {
+      project: (o) => projector.project(o),
+      call: async (tool, input, callOpts) => {
+        const r = await projector.call(
+          { strategy: callOpts?.strategy ?? rt.contextStrategy, ...(callOpts?.categories ? { categories: callOpts.categories } : {}) },
+          tool,
+          input ?? {},
+          {
+            ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
+            ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
+            ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
+          },
+        );
+        return { isError: !!r.isError, content: r.content };
+      },
+    },
     editors: () => editors(),
     editorOperation: (op) => editorOp(op),
     setBusy,
@@ -454,10 +488,12 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           // Unset everywhere, feedback asks, as the tool does; a dialog mode left unset follows the client.
           feedback: { mode: feedback.project ?? feedback.user ?? "interactive", project: feedback.project !== undefined },
           dialog: { mode: dialog.project ?? dialog.user ?? null, project: dialog.project !== undefined },
+          playtest: resolvePlaytestMode(projectDir),
         };
       },
       setFeedback: (mode) => setFeedbackMode(mode, projectDir),
       setDialog: (mode) => setDialogMode(mode, projectDir),
+      setPlaytest: (mode) => setPlaytestMode(mode, projectDir),
     },
     checkpoints: (() => {
       const of = (editor?: string) => {
@@ -469,7 +505,10 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         state: (o) => of(o?.editor).state(o?.limit),
         setEnabled: (enabled, o) => of(o?.editor).setEnabled(enabled),
         create: (label, o) => of(o?.editor).create(label),
-        changes: (from, to, o) => of(o?.editor).changes(from, to ?? null),
+        changes: (from, to, o) => of(o?.editor).changes(from, to ?? null, { assetDiffs: o?.assetDiffs }),
+        assetDiff: (from, to, file, o) => of(o?.editor).assetDiff(from, to ?? null, file),
+        thumbnail: (id, o) => of(o?.editor).thumbnail(id),
+        openNativeDiff: (file, from, to, o) => of(o?.editor).openNativeDiff(file, from, to ?? null),
         restore: (checkpoint, o) => of(o?.editor).restore(checkpoint, { paths: o?.paths, force: o?.force }),
         clear: (o) => of(o?.editor).clear(),
       };
@@ -574,6 +613,34 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       }
       return;
     }
+    if (req.method === "GET" && url.pathname === "/v1/skills") {
+      try {
+        json(res, 200, { skills: listDaemonSkills(projectDir) });
+      } catch (e) {
+        json(res, 500, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/v1/actions") {
+      const raw = url.searchParams.get("categories");
+      try {
+        json(res, 200, { actions: actionEffects(raw === null ? undefined : raw.split(",").map((c) => c.trim()).filter(Boolean)) });
+      } catch (e) {
+        json(res, e instanceof RangeError ? 400 : 500, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
+    if (req.method === "GET" && url.pathname === "/v1/context/projection") {
+      const strategy = (url.searchParams.get("strategy") ?? rt.contextStrategy) as ContextStrategy;
+      const raw = url.searchParams.get("categories");
+      const categories = raw === null ? undefined : raw.split(",").map((c) => c.trim()).filter(Boolean);
+      try {
+        json(res, 200, projector.project({ strategy, ...(categories ? { categories } : {}) }));
+      } catch (e) {
+        json(res, e instanceof ContextProjectionError ? 400 : 500, { error: e instanceof Error ? e.message : String(e) });
+      }
+      return;
+    }
     if (req.method === "POST" && url.pathname === "/v1/shutdown") {
       res.writeHead(202).end();
       void shutdown("shutdown requested");
@@ -639,7 +706,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       const sub = url.pathname.slice("/v1/checkpoints".length).replace(/\/+$/, "");
       readBody(req)
         .then((body) => checkpointRoute(rt.sessions, req.method ?? "GET", sub, url.searchParams, body))
-        .then((r) => (r ? json(res, r.status, r.body) : void res.writeHead(404).end()), (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
+        .then((r) => {
+          if (!r) return void res.writeHead(404).end();
+          if (!r.file) return json(res, r.status, r.body);
+          // A picture is named by the blob id of the version it shows, so it never changes.
+          res.writeHead(200, { "content-type": r.file.type, "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" });
+          fs.createReadStream(r.file.path).pipe(res);
+        }, (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
       return;
     }
     if (url.pathname === "/v1/flows" || url.pathname.startsWith("/v1/flows/")) {

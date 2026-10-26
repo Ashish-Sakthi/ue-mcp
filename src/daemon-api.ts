@@ -42,7 +42,25 @@ export {
   type CheckpointState,
   type RestoreRefusal,
   type RestoreResult,
+  type DaemonSkill,
+  type DaemonSkillOwner,
+  type ShadowedSkill,
+  type ProjectSkillFolder,
+  type ContextCallOptions,
+  type ContextProjection,
+  type ContextProjectionOptions,
+  type ProjectedTool,
+  type ActionEffectInfo,
 } from "./daemon/extension-api.js";
+export {
+  parseContextMeasurement,
+  scopeBucket,
+  type ContextMeasurement,
+  type ContextMeasurementParse,
+  type ContextMeasurementRun,
+  type ContextMeasurementTask,
+  type ContextScopeBucket,
+} from "./daemon/context-measurement.js";
 export type { DaemonEvent } from "./daemon/events.js";
 export type { DialogPromptFn, DialogPromptRequest, DialogPromptResult } from "./core/types.js";
 export type { DisconnectCause } from "./daemon/disconnect.js";

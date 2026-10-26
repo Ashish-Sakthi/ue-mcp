@@ -39,6 +39,18 @@ private:
 	// Answers isBlueprint=false for any other package.
 	static TSharedPtr<FJsonValue> DiffCheckpointBlueprint(const TSharedPtr<FJsonObject>& Params);
 
+	// editor(diff_checkpoint_asset): any package's versions (fromFile, toFile; a missing
+	// one did not exist) loaded with DiffUtils::LoadPackageForDiff, with the engine's diff
+	// records for the class serialized, facts about each version, and a thumbnail of each
+	// written to fromThumbnail and toThumbnail. Params: originalFile, fromFile?, toFile?,
+	// fromThumbnail?, toThumbnail?, maxRecords?. In DiffHandlers_Checkpoint.cpp.
+	static TSharedPtr<FJsonValue> DiffCheckpointAsset(const TSharedPtr<FJsonObject>& Params);
+
+	// editor(open_checkpoint_diff): Unreal's own diff window for two versions, or the
+	// asset editor on the one version of an added or deleted asset. Params: originalFile,
+	// fromFile?, toFile?, current? (the loaded asset as the after side), fromLabel?, toLabel?.
+	static TSharedPtr<FJsonValue> OpenCheckpointNativeDiff(const TSharedPtr<FJsonObject>& Params);
+
 	// Diff two exact USkeleton or USkeletalMesh assets without emitting full
 	// bone dumps. Compares raw bone names, parent names, raw indices, and
 	// declared virtual-bone records. Reference-pose transforms, export names,

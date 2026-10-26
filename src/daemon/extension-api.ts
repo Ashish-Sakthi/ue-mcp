@@ -8,9 +8,36 @@ import type { DisconnectCause } from "./disconnect.js";
 import type { DaemonEvent } from "./events.js";
 import type { UiManifest } from "./ui-bundles.js";
 import type { ModelProvider } from "../flow/model-provider.js";
-import type { ChangesResult, CheckpointResult, CheckpointState, RestoreResult } from "../checkpoints/service.js";
+import type { AssetDiff, ChangesResult, CheckpointResult, CheckpointState, NativeDiffResult, RestoreResult } from "../checkpoints/service.js";
+import type { DaemonSkill } from "../extensions/skills-list.js";
+import type { ContextProjection, ContextProjectionOptions } from "../server/context-projection.js";
+import type { ActionEffectInfo } from "../surface/action-effects.js";
 
-export type { ChangeEntry, CheckpointInfo, ChangesResult, CheckpointResult, CheckpointState, RestoreRefusal, RestoreResult } from "../checkpoints/service.js";
+export type { ActionEffectInfo } from "../surface/action-effects.js";
+
+export type { ContextProjection, ContextProjectionOptions, ProjectedTool } from "../server/context-projection.js";
+
+export type { DaemonSkill, DaemonSkillOwner, ShadowedSkill, ProjectSkillFolder } from "../extensions/skills-list.js";
+
+export type {
+  AssetDiff,
+  AssetDiffNode,
+  AssetDiffNodePin,
+  AssetDiffNodeProperty,
+  AssetDiffRecord,
+  AssetDiffSection,
+  AssetFact,
+  AssetThumbnail,
+  AssetVersion,
+  ChangeEntry,
+  CheckpointInfo,
+  ChangesResult,
+  CheckpointResult,
+  CheckpointState,
+  NativeDiffResult,
+  RestoreRefusal,
+  RestoreResult,
+} from "../checkpoints/service.js";
 
 export type { ModelProvider, ModelRequest, ModelResponse } from "../flow/model-provider.js";
 
@@ -91,6 +118,16 @@ export interface DialogEventData {
   via?: "prompt" | "action";
 }
 
+/**
+ * Options for one api.context.call: the projection the call runs against, plus
+ * the callAction prompts. `strategy` defaults to the one the server runs;
+ * `categories` to every category.
+ */
+export interface ContextCallOptions extends CallActionOptions {
+  strategy?: "micro" | "lean" | "full";
+  categories?: string[];
+}
+
 /** The text and error flag of an action's result. */
 export interface ActionResult {
   isError: boolean;
@@ -129,6 +166,7 @@ export interface DaemonExtensionApi {
    *   "callAction.dialogPrompt"  callAction takes `opts.dialogPrompt` and `opts.dialogWaitMs`
    *   "callAction.elicit"        callAction takes `opts.elicit` for every other form
    *   "modes"                    `modes` reads and sets this project's feedback and dialog modes
+   *   "modes.playtest"           `modes.get` carries `playtest` and `modes.setPlaytest` sets it
    *   "events.dialog"            dialog.opened, dialog.answered, dialog.delegated and
    *                              dialog.closed on the event stream (see DialogEventData)
    *   "models.provider"          `models.register` supplies the model flow agent steps run on
@@ -138,6 +176,14 @@ export interface DaemonExtensionApi {
    *   "checkpoints"              `checkpoints` drives each session's shadow history, and
    *                              checkpoint.created, checkpoint.restored, checkpoints.toggled and
    *                              checkpoints.cleared are on the event stream (API 3)
+   *   "checkpoints.assetDiff"    `checkpoints.changes` gives each package an assetDiff built on
+   *                              Unreal's diff code, and `assetDiff`, `thumbnail` and
+   *                              `openNativeDiff` are on `checkpoints`
+   *   "skills"                   `skills.list` lists ue-mcp's packaged skills and the project's own
+   *   "context.projection"       `context.project` gives the instructions and tools a strategy and
+   *                              category scope would advertise, and `context.call` runs one call
+   *                              against that surface
+   *   "actions.effects"          `actions.effects` lists each action's effect and whether it is destructive
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
@@ -164,9 +210,52 @@ export interface DaemonExtensionApi {
     state(opts?: { editor?: string; limit?: number }): Promise<CheckpointState>;
     setEnabled(enabled: boolean | null, opts?: { editor?: string }): Promise<CheckpointState>;
     create(label?: string, opts?: { editor?: string }): Promise<CheckpointResult>;
-    changes(from: string, to?: string, opts?: { editor?: string }): Promise<ChangesResult>;
+    changes(from: string, to?: string, opts?: { editor?: string; assetDiffs?: boolean }): Promise<ChangesResult>;
+    /** One package's asset diff, for a path `changes` deferred (feature "checkpoints.assetDiff"). */
+    assetDiff?(from: string, to: string | undefined, path: string, opts?: { editor?: string }): Promise<AssetDiff>;
+    /** The PNG an asset diff's thumbnail id names, or null (feature "checkpoints.assetDiff"). */
+    thumbnail?(id: string, opts?: { editor?: string }): { file: string; type: string } | null;
+    /** Unreal's own diff of a package, brought to the front (feature "checkpoints.assetDiff"). */
+    openNativeDiff?(path: string, from: string, to?: string, opts?: { editor?: string }): Promise<NativeDiffResult>;
     restore(checkpoint: string, opts?: { paths?: string[]; force?: boolean; editor?: string }): Promise<RestoreResult>;
     clear(opts?: { editor?: string }): Promise<{ editor: string; cleared: true }>;
+  };
+
+  /**
+   * Every skill a client of this project can load (feature "skills"), the
+   * same list as GET /v1/skills: ue-mcp's packaged skills and every skill
+   * directory under the project's .claude/skills and .agents/skills, one
+   * entry per id, with owner and location. A project copy hides the packaged
+   * one of the same id and names it in `shadows`.
+   */
+  skills?: {
+    list(): DaemonSkill[];
+  };
+
+  /**
+   * The surface a client would be handed under a context strategy and a set
+   * of categories (feature "context.projection"), the same answer as GET
+   * /v1/context/projection. `project` throws on an unknown strategy or
+   * category. `call` runs one call to a projected tool (a category, lean's
+   * catalog or a category's describe, micro's tools gateway, or flow) exactly
+   * as the MCP server would, through the dispatch callAction uses; a tool or a
+   * gateway call outside the scope is refused with an error result.
+   */
+  context?: {
+    project(opts: ContextProjectionOptions): ContextProjection;
+    call(tool: string, input: Record<string, unknown>, opts?: ContextCallOptions): Promise<ActionResult>;
+  };
+
+  /**
+   * Every enabled action's effect and destructive flag (feature
+   * "actions.effects"), the same list as GET /v1/actions. The effect is read
+   * from the graph the server dispatches, plugin actions included.
+   * `destructive` is what the action declares, else (for mutate and unknown)
+   * whether its name leads with a destructive verb; the verb list is a
+   * fallback. `categories` narrows the list; an unknown name throws.
+   */
+  actions?: {
+    effects(categories?: string[]): ActionEffectInfo[];
   };
 
   editors(): EditorStatus[];
@@ -198,9 +287,21 @@ export interface DaemonExtensionApi {
    * sets it; `set` with undefined goes back to the per-user preference.
    */
   modes?: {
-    get(): { feedback: { mode: "interactive" | "auto-approve" | "defer"; project: boolean }; dialog: { mode: "interactive" | "auto" | "defer" | null; project: boolean } };
+    get(): {
+      feedback: { mode: "interactive" | "auto-approve" | "defer"; project: boolean };
+      dialog: { mode: "interactive" | "auto" | "defer" | null; project: boolean };
+      /**
+       * Who starts playtest runs (feature "modes.playtest"), as `ue-mcp playtest
+       * mode` sets it. null is unset: each client decides. Under manual, an MCP
+       * session's pie(script_run) and pie(script_replay) are refused; calls made
+       * through callAction are not, so an extension applies its own rule.
+       */
+      playtest: { mode: "manual" | "automatic" | null; project: boolean };
+    };
     setFeedback(mode: "interactive" | "auto-approve" | "defer" | undefined): void;
     setDialog(mode: "interactive" | "auto" | "defer" | undefined): void;
+    /** Set this project's playtest mode; undefined goes back to the per-user preference (feature "modes.playtest"). */
+    setPlaytest(mode: "manual" | "automatic" | undefined): void;
   };
 
   log: {
@@ -231,6 +332,6 @@ export interface DaemonHealth {
   extensions: Array<{ name: string; version: string }>;
   /** Version of the UI bundle being served, or null. */
   ui: string | null;
-  /** What the HTTP API offers beyond apiVersion, for feature detection ("checkpoints"). Absent on a daemon older than the field. */
+  /** What the HTTP API offers beyond apiVersion, for feature detection ("checkpoints", "skills", "context.projection", "actions.effects"). Absent on a daemon older than the field. */
   features?: readonly string[];
 }

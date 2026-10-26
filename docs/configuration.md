@@ -155,6 +155,17 @@ The form outlives the call that raised it. A blocked call waits a minute for you
 
 A daemon extension that runs actions in process, such as UE-MCP Studio, answers the dialogs its own calls meet: `callAction` takes a `dialogPrompt` with the same form an MCP client is shown, so `interactive` works there too. Its answer may also be `delegate`, which hands that one dialog to the agent with the press calls, as `auto` would. An answer sooner than `UE_MCP_ELICIT_MIN_HUMAN_MS` is not taken as a person's. Every dialog is also published on the daemon's event stream as `dialog.opened`, `dialog.answered`, `dialog.delegated` and `dialog.closed`, whoever met it and under every mode. Nothing changes for an MCP client or the CLI.
 
+### Playtest mode
+
+Who starts playtest runs, `pie(action="script_run")` and `pie(action="script_replay")`: a person or an agent.
+
+| Mode | What happens |
+|---|---|
+| `manual` | A person starts playtests. An MCP client's `script_run` and `script_replay` are refused before anything reaches the editor, directly or through the micro gateway, with `success: false`, `refusedMethod`, and a `reason` that names the setting and the command that changes it. |
+| `automatic` | An agent may start them. |
+| unset | Each client decides. The server changes nothing. |
+
+Set it with `npx ue-mcp playtest mode <manual|automatic>` (add `--editor <name>` to scope it to one project, `clear` to clear it). A project's own setting wins over the per-user one. A daemon extension reads and sets it through `api.modes` (feature `modes.playtest`); calls it makes through `api.callAction` are not refused, so it applies its own rule.
 
 ### User-machine state (`~/.ue-mcp/`)
 
@@ -162,7 +173,7 @@ Machine-specific state that ue-mcp commands write but you wouldn't hand-edit liv
 
 | Path | What |
 |------|------|
-| `~/.ue-mcp/state.json` | Three things: (a) per-project `installedHooks` - absolute paths of every Claude Code `settings.json` where ue-mcp installed the feedback PostToolUse hook, keyed by absolute project root; (b) `preferences.feedback.mode` - your personal default for the feedback approval mode (`interactive` / `auto-approve` / `defer`). (c) `preferences.dialog.mode` and per-project `dialog.mode` - the dialog handling mode (`interactive` / `auto` / `defer`). Maintained by `npx ue-mcp init`, `npx ue-mcp uninstall-hooks`, `npx ue-mcp feedback mode` and `npx ue-mcp dialog mode`. Written by those commands, not by hand. |
+| `~/.ue-mcp/state.json` | Three things: (a) per-project `installedHooks` - absolute paths of every Claude Code `settings.json` where ue-mcp installed the feedback PostToolUse hook, keyed by absolute project root; (b) `preferences.feedback.mode` - your personal default for the feedback approval mode (`interactive` / `auto-approve` / `defer`). (c) `preferences.dialog.mode` and per-project `dialog.mode` - the dialog handling mode (`interactive` / `auto` / `defer`); (d) `preferences.playtest.mode` and per-project `playtest.mode` - the [playtest mode](#playtest-mode) (`manual` / `automatic`). Maintained by `npx ue-mcp init`, `npx ue-mcp uninstall-hooks`, `npx ue-mcp feedback mode`, `npx ue-mcp dialog mode` and `npx ue-mcp playtest mode`. Written by those commands, not by hand. |
 | `~/.ue-mcp/auth.json` | Cached GitHub OAuth token for `feedback(submit)` author=user mode. Mode 600. Written by `npx ue-mcp auth`. |
 | `~/.ue-mcp/pending-feedback/<id>.json` | Submissions captured while `feedback mode` is `defer`. Acted on with `npx ue-mcp feedback list/approve/discard`. |
 
@@ -268,6 +279,56 @@ ue-mcp:
 A call that still cannot reach the editor says why it last went away. The daemon's event stream (`GET /v1/events`) carries `call.started` and `call.finished` for every MCP call from every client, named by the client, with the category, action, duration and outcome. It also carries `dialog.opened`, `dialog.answered`, `dialog.delegated` and `dialog.closed` for editor dialogs, and the progress of every PIE test script run: `script.run_started`, `script.step_started`, `script.step_passed`, `script.step_failed`, `script.verdict_requested`, `script.verdict` and `script.run_finished`. [Test scripts](pie-scripts.md#daemon-events) lists their payloads.
 
 The daemon also manages the project's plugins over HTTP, for clients such as an in-editor panel. `GET /v1/plugins` lists the plugins `ue-mcp.yml` declares with their version, status and categories, and `GET /v1/plugins/catalog` lists the registry's published plugins. `POST /v1/plugins/install` (`{ name, version? }`), `POST /v1/plugins/update` (`{ name? }`) and `POST /v1/plugins/uninstall` (`{ name }`) run the same `ue-mcp plugin` commands, one at a time, and publish `plugins.changed` on the event stream. A change takes effect when the server restarts.
+
+### What a client can read from the daemon
+
+These routes serve a client that builds its own agent context, such as an in-editor panel. Each is also on the extension API, and `/v1/health` lists its feature name under `features` (an extension reads `api.features`).
+
+| Route | Extension API | Feature | Answers |
+|---|---|---|---|
+| `GET /v1/skills` | `api.skills.list()` | `skills` | Every skill a client of this project can load |
+| `GET /v1/context/projection?strategy=&categories=` | `api.context.project(opts)`, `api.context.call(tool, input, opts?)` | `context.projection` | What a context strategy and category scope advertise, and a call against that surface |
+| `GET /v1/actions?categories=` | `api.actions.effects(categories?)` | `actions.effects` | Each action's effect and whether it is destructive |
+
+**Skills.** `GET /v1/skills` returns `{ skills }`: ue-mcp's packaged skills and every skill directory under the project's `.claude/skills` and `.agents/skills`. Each entry has its `id` (the directory name; a plugin's skills are installed as `<namespace>-<skill>`), `name` and `description` from the frontmatter, the absolute `dir`, the other `files` in it, the `body` without frontmatter, the parsed `frontmatter`, `tokens` (SKILL.md characters / 4, rounded up), `location` (`packaged` or `project`) with the project `folder`, and `owner`:
+
+- `{ kind: "ue-mcp", version }` for a packaged skill, or a project copy `.ue-mcp/skills.json` records as ue-mcp's own.
+- `{ kind: "plugin", package, version }` for a copy recorded under a plugin package. `version` is the installed package's, or `null` when it cannot be found.
+- `{ kind: "project" }` for anything else, and for everything in `.agents/skills`.
+
+One id is listed once. A project copy wins over the packaged one, and `.claude/skills` over `.agents/skills`; the winner lists what it hides in `shadows`. A SKILL.md whose frontmatter does not parse is still listed, with the reason in `problems`.
+
+**Context projection.** `GET /v1/context/projection?strategy=micro|lean|full&categories=a,b` returns what the server would hand a client under that [context strategy](#context-strategy-full-lean-micro), narrowed to those categories: `strategy`, `categories` (the scope after resolving; omitted means every enabled category), `instructions` (the initialize text, quoting the scope's counts and categories), `tools` (each tool's `name`, `description`, `inputSchema` as `tools/list` sends it, and `category`, null for micro's `tools` gateway, lean's `catalog` and `flow`), and `seedTokens`, the characters of the instructions and tools JSON divided by 4, the estimate `scripts/context-tax.mjs` makes without an API key (`estimator: "chars/4"`). Over every category it is exactly what the server sends for that strategy. Lean's `catalog` and micro's gateway search and describe only the scope. `strategy` defaults to the server's own; an unknown strategy or category answers 400.
+
+`api.context.call(tool, input, { strategy?, categories?, dialogPrompt?, dialogWaitMs?, elicit? })` runs one call to a projected tool as the MCP server would: a category, its lean `describe`, `catalog`, micro's `tools` gateway, or `flow`, through the same dispatch as `api.callAction`, so dialogs, forms, effect gates and checkpoints apply the same way. A tool or gateway call to a category outside the scope is refused with an error result and nothing runs.
+
+**Action effects.** `GET /v1/actions?categories=a,b` returns `{ actions }`, one entry per enabled action: `category`, `action`, `effect` (`read`, `mutate` or `unknown`) and `effectSource` (`declared` on the action, `inferred` from the name for a plugin action whose manifest gave none, `undeclared` when nothing claims it), read from the graph the server dispatches, plugin actions included. `destructive` says the action destroys or overwrites something it cannot give back. An action can declare it; otherwise a `mutate` or `unknown` action is destructive when its name leads with `delete`, `remove`, `clear`, `discard`, `revert`, `reset`, `purge`, `wipe`, `destroy`, `drop`, `overwrite`, `replace`, `restore` or `uninstall` (after an `epic_`, `bulk_` or `batch_` prefix), and a read never is. `destructiveSource` says which: `declared`, `lexicon` or `none`. The verb list is a fallback, so an action it misjudges declares the answer instead. An unknown category answers 400.
+
+### Context measurements
+
+A client that measures which context strategy costs least writes the result in one shared format, so measurements from different clients and models can be compared. `ue-mcp/daemon` exports the `ContextMeasurement` type, `parseContextMeasurement(value)` (returns `{ ok: true, value }` or `{ ok: false, errors }`, every problem named by its path) and `scopeBucket(categoryCount)`. The package ships the same shape as a JSON Schema at `ue-mcp/schemas/context-measurement.schema.json` for tools that are not TypeScript.
+
+```json
+{
+  "version": 1,
+  "measuredAt": "2026-10-25T12:30:00Z",
+  "ueMcpVersion": "1.4.11",
+  "client": { "name": "my-client", "version": "0.2.0" },
+  "runs": [
+    {
+      "model": { "vendor": "anthropic", "model": "claude-opus-5-5" },
+      "scope": "1-3",
+      "strategy": "micro",
+      "seedTokens": 2207,
+      "tasks": [
+        { "id": "place-light", "totalTokens": 18000, "modelCalls": 6, "discoveryCalls": 2, "passed": true }
+      ]
+    }
+  ]
+}
+```
+
+One run is one model, one strategy and one scope over a set of tasks. `scope` buckets how many categories the context was narrowed to: `1-3`, `4-8` or `9+`, as `scopeBucket` computes it. `seedTokens` is the projection's estimate for that strategy and scope (`GET /v1/context/projection`). Per task, `totalTokens` counts everything the task spent, `modelCalls` the model requests, `discoveryCalls` the tool calls that only searched or described the surface, and `passed` whether it did what it was asked. A task keeps its `id` across runs so runs can be compared. Keys outside the format are refused.
 
 ### Updates through the daemon
 
@@ -395,6 +456,7 @@ The C++ bridge plugin enables these UE plugins (adding them to `.uproject` if mi
 | `npx ue-mcp auth` | Run the GitHub device flow standalone so `feedback(submit)` can author issues as your real GitHub user. Same step that lives inside `init`; use this if you skipped it at init time. |
 | `npx ue-mcp uninstall-hooks` | Remove the feedback PostToolUse hook from every Claude Code settings file recorded for this project in `~/.ue-mcp/state.json`. |
 | `npx ue-mcp dialog mode [<mode>]` | Read or set how a modal dialog blocking the editor is handled (`interactive`, `auto`, or `defer`). `--editor <name>` scopes it to one project; `default` clears it. Stored in `~/.ue-mcp/state.json`. See [Dialog handling mode](#dialog-handling-mode). |
+| `npx ue-mcp playtest mode [<mode>]` | Read or set who starts playtest runs (`manual` or `automatic`). `--editor <name>` scopes it to one project; `clear` clears it. Stored in `~/.ue-mcp/state.json`. See [Playtest mode](#playtest-mode). |
 | `npx ue-mcp feedback mode [<mode>]` | Read or set your personal feedback approval mode (`interactive`, `auto-approve`, or `defer`). Stored in `~/.ue-mcp/state.json`. See [Feedback → modes](feedback.md#feedback-modes). |
 | `npx ue-mcp feedback list \| show \| approve \| discard \| review` | Manage submissions queued while feedback mode is `defer`. `review` (experimental) walks the queue interactively (approve/discard/skip per item). See [Feedback → Reviewing deferred submissions](feedback.md#reviewing-deferred-submissions). |
 | `npx ue-mcp resolve <issue>` | Fetch a feedback issue, branch, hand it to Claude Code to implement, open a PR. See [Feedback](feedback.md#resolving-feedback-issues). |
