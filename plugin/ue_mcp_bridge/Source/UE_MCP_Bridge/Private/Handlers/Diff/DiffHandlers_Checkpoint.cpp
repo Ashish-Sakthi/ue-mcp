@@ -6,6 +6,7 @@
 #include "HandlerUtils.h"
 #include "HandlerLogCapture.h"
 #include "Runtime/Launch/Resources/Version.h"
+#include "UObject/ObjectVersion.h"
 
 #include "Algo/Sort.h"
 #include "AssetCompilingManager.h"
@@ -759,6 +760,18 @@ namespace
 		{
 			Side.Error = FString::Printf(TEXT("the package could not be loaded for diff: %s does not exist"), *File);
 			return Side;
+		}
+		// A file that is not a package can come back from the loader as an empty package, which keeps the
+		// file open; read the package tag first.
+		{
+			uint32 Tag = 0;
+			TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*File));
+			if (Reader && Reader->TotalSize() >= (int64)sizeof(Tag)) *Reader << Tag;
+			if (Tag != PACKAGE_FILE_TAG && Tag != PACKAGE_FILE_TAG_SWAPPED)
+			{
+				Side.Error = FString::Printf(TEXT("the package could not be loaded for diff: %s is not a package file"), *File);
+				return Side;
+			}
 		}
 		FMCPScopedLogCapture Capture({});
 		Side.Package = DiffUtils::LoadPackageForDiff(FPackagePath::FromLocalPath(File), OriginalPath);
