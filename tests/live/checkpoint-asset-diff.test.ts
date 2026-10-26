@@ -81,6 +81,10 @@ beforeAll(async () => {
   bridge = await getBridge();
   projectDir = (await liveTarget()).projectDir;
   localYml = path.join(projectDir, "ue-mcp.local.yml");
+  // Off any map under DIR so the folder can be deleted. MCP_Home is not checked in; demo_go_home creates and loads it.
+  await call("demo_go_home");
+  // delete_asset also removes a map file the asset registry no longer lists; delete_folder only sees what it lists.
+  await callBridge(bridge, "delete_asset", { assetPath: LEVEL, force: true });
   await callBridge(bridge, "delete_folder", { path: DIR, force: true });
 
   localYmlBefore = fs.existsSync(localYml) ? fs.readFileSync(localYml, "utf8") : null;
@@ -96,6 +100,10 @@ beforeAll(async () => {
   await call("create_material_instance", { parentPath: MAT, name: "MI_CkA", packagePath: DIR });
   await call("save_asset", { assetPath: MI });
   await call("create_blueprint", { assetPath: BP, parentClass: "Actor" });
+  // A visible mesh, so the Blueprint has a picture: the engine only renders Blueprints that show something.
+  await call("add_component", { assetPath: BP, componentClass: "StaticMeshComponent", componentName: "CkBody" });
+  await call("set_blueprint_component_property", { assetPath: BP, componentName: "CkBody", propertyName: "StaticMesh", value: "/Engine/BasicShapes/Cube.Cube" });
+  await call("compile_blueprint", { assetPath: BP });
   await call("save_asset", { assetPath: BP });
   await call("duplicate_asset", { sourcePath: "/Engine/BasicShapes/Cube", destinationPath: SM });
   await call("save_asset", { assetPath: SM });
@@ -107,6 +115,7 @@ beforeAll(async () => {
   await call("create_material", { name: "M_CkDoomed", packagePath: DIR });
   await call("save_asset", { assetPath: DOOMED });
   await call("create_new_level", { levelPath: LEVEL });
+  expect((await call("get_current_level")).mapPackagePath).toBe(LEVEL);
   await call("place_actor", { actorClass: "PointLight", label: "CkMover", location: { x: 0, y: 0, z: 100 } });
   await call("place_actor", { actorClass: "PointLight", label: "CkDoomed", location: { x: 300, y: 0, z: 100 } });
   await call("save_level", {});
@@ -119,7 +128,8 @@ afterAll(async () => {
   await server?.close();
   if (bridge) {
     await callBridge(bridge, "checkpoint_arm", { enabled: false });
-    await callBridge(bridge, "load_level", { levelPath: "/Game/MCP_Home", discardUnsaved: true });
+    await callBridge(bridge, "demo_go_home", {});
+    await callBridge(bridge, "delete_asset", { assetPath: LEVEL, force: true });
     await callBridge(bridge, "delete_folder", { path: DIR, force: true });
     disconnectBridge();
   }
@@ -186,7 +196,7 @@ describe.sequential("a turn's asset diffs", () => {
   it("a material instance carries its overridden parameter", () => {
     const d = diffOf(MI);
     expect(d.engine.tool).toBe("SMaterialInstanceDiff");
-    const scalar = records(d).find((r) => /Scalar Parameter Values/i.test(String(r.path)));
+    const scalar = records(d).find((r) => /Scalar\s*Parameter\s*Values/i.test(String(r.path)));
     expect(scalar, JSON.stringify(records(d))).toBeTruthy();
     expect(JSON.stringify(records(d))).toContain("0.4");
     expect(d.after.facts.some((f: Json) => f.name === "Scalar parameter Roughness" && f.value.startsWith("0.4"))).toBe(true);
@@ -235,7 +245,7 @@ describe.sequential("a turn's asset diffs", () => {
     const actors = records(d, "Actors");
     expect(actors.some((r) => r.diffType === "OBJECT_ADDED" && r.group === "CkNew")).toBe(true);
     expect(actors.some((r) => r.diffType === "OBJECT_REMOVED" && r.group === "CkDoomed")).toBe(true);
-    expect(actors.some((r) => String(r.group).startsWith("CkMover") && /Relative Location/i.test(String(r.path)))).toBe(true);
+    expect(actors.some((r) => String(r.group).startsWith("CkMover") && /Relative\s*Location/i.test(String(r.path)))).toBe(true);
   });
 
   it("an added asset has no before and says what it is; a deleted one has no after", () => {
