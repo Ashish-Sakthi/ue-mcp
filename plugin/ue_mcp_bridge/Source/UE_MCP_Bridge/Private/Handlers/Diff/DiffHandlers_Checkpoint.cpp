@@ -832,6 +832,13 @@ namespace
 		if (OutFile.IsEmpty()) return nullptr;
 		FString Error;
 		const bool bLevel = Asset && Asset->IsA<UWorld>();
+		// A texture loaded for diff can still be building, with no resource for the renderer to draw.
+		if (UTexture* Texture = Cast<UTexture>(Asset))
+		{
+			Texture->BlockOnAnyAsyncBuild();
+			if (!Texture->GetResource()) Texture->UpdateResource();
+			Texture->BlockOnAnyAsyncBuild();
+		}
 		FThumbnailRenderingInfo* Info = (Asset && !bLevel) ? UThumbnailManager::Get().GetRenderingInfo(Asset) : nullptr;
 		if (Info && Info->Renderer)
 		{
