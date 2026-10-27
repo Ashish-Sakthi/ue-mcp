@@ -201,12 +201,59 @@ describe("init --dry-run", () => {
     expect(plan.disable).toEqual(["niagara"]);
     expect(plan.clients.find((c: { id: string }) => c.id === "cursor").selected).toBe(true);
     expect(plan.blockers).toEqual([]);
+    // What a setup page needs to offer every choice the interactive wizard does.
+    expect(plan.categories.map((c: { name: string }) => c.name)).toEqual(
+      ["level", "blueprint", "material", "asset", "animation", "niagara", "landscape", "pcg", "foliage", "audio", "widget", "gameplay", "gas", "networking", "demo"],
+    );
+    expect(plan.categories.find((c: { name: string }) => c.name === "niagara")).toEqual(
+      { name: "niagara", label: "vfx (niagara)", description: "VFX systems, emitters, modules", requiredPlugins: ["Niagara"] },
+    );
+    expect(plan.nativeCategories.length).toBeGreaterThan(0);
+    expect(plan.bridge).toEqual({ port: expect.any(Number), derivedPort: plan.bridge.port, pinnedBy: null });
+    expect(plan.feedbackAuth).toEqual({ login: null });
 
     expect(blocked.code).toBe(1);
     expect(JSON.parse(blocked.stdout).blockers).toEqual([expect.stringContaining("unknown client 'vim'")]);
 
     expect(snapshotTree(dir)).toEqual(before.project);
     expect(snapshotTree(sb.home)).toEqual(before.home);
+  });
+});
+
+describe("init --feedback-mode", () => {
+  it("stores the project's feedback mode as feedback mode --editor does, and the plan reports it", async () => {
+    covers("cli.init.feedback-mode");
+    const uproject = sb.makeProject("ModeGame");
+    const dryRun = (extra: string[] = []) => cli(["init", uproject, "--json", "--dry-run", "--install", "source", "--clients", "cursor", ...extra]);
+
+    const fresh = await dryRun();
+    expect(fresh.code, fresh.stderr).toBe(0);
+    expect(JSON.parse(fresh.stdout).plan.feedbackMode).toEqual({ mode: "interactive", scope: "default", set: null });
+    const previewed = JSON.parse((await dryRun(["--feedback-mode", "defer"])).stdout).plan.feedbackMode;
+    expect(previewed).toEqual({ mode: "defer", scope: "project", set: "defer" });
+    const stored = () => fs.existsSync(path.join(sb.home, ".ue-mcp", "state.json"))
+      ? Object.values((state().projects ?? {}) as Record<string, { feedback?: { mode?: string } }>).map((p) => p.feedback?.mode).filter(Boolean)
+      : [];
+    expect(stored()).toEqual([]);
+
+    const applied = await cli(["init", uproject, "--json", "--install", "source", "--clients", "cursor", "--feedback-mode", "defer"]);
+    expect(applied.code, applied.stdout + applied.stderr).toBe(0);
+    const result = JSON.parse(applied.stdout);
+    expect(result.steps.find((s: { id: string }) => s.id === "feedback-mode")).toMatchObject({ status: "changed", detail: "feedback mode defer" });
+
+    const shown = await runCli(sb, ["feedback", "mode", "--editor", uproject]);
+    expect(shown.code, shown.stderr).toBe(0);
+    expect(plain(shown.stdout)).toMatch(/effective: defer/);
+    expect(plain(shown.stdout)).toContain("editor 'ModeGame': defer");
+    expect(stored()).toEqual(["defer"]);
+    expect(JSON.parse((await dryRun()).stdout).plan.feedbackMode).toEqual({ mode: "defer", scope: "project", set: null });
+
+    const overridden = await cli(["init", uproject, "--json", "--dry-run", "--install", "source", "--clients", "cursor"], { env: { UE_MCP_FEEDBACK_MODE: "auto-approve" } });
+    expect(JSON.parse(overridden.stdout).plan.feedbackMode).toEqual({ mode: "auto-approve", scope: "env", set: null });
+
+    const bad = await cli(["init", uproject, "--json", "--feedback-mode", "sometimes"]);
+    expect(bad.code).toBe(2);
+    expect(JSON.parse(bad.stdout)).toEqual({ ok: false, error: "--feedback-mode must be interactive, auto-approve or defer, not 'sometimes'" });
   });
 });
 
