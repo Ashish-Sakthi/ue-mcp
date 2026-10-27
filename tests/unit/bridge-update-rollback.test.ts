@@ -142,3 +142,16 @@ describe("applies for one project", () => {
     expect(verifyBridgeTree(pluginDir, { version: "1.4.11", platform: "Win64", asideFiles: readPendingUpdate(pluginDir)?.oldFiles ?? [] })).toEqual([]);
   });
 });
+
+describe("the engine binaries are chosen for", () => {
+  it("is the project's engine, not the one the old marker recorded", async () => {
+    const { uproject, pluginDir } = project("1.4.10", "5.7");
+    const descriptor = JSON.parse(fs.readFileSync(uproject, "utf-8"));
+    fs.writeFileSync(uproject, JSON.stringify({ ...descriptor, EngineAssociation: "5.8" }));
+
+    const result = await applyUpdate(uproject, { version: "1.4.11", binaries: release("1.4.11"), editorRunning: false });
+
+    expect(result, result.error).toMatchObject({ ok: true, state: "applied" });
+    expect(readInstallMarker(pluginDir)).toMatchObject({ engine: "5.8", version: "1.4.11" });
+  });
+});

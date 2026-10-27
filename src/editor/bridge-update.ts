@@ -369,6 +369,18 @@ export function newerBridgeMessage(bridge: string, server: string): string {
     `Run \`npx ue-mcp@${distTagForVersion(bridge)} update\` to update it on its own channel.`;
 }
 
+/** The engine a project opens with, major.minor, when that can be told; else null. */
+function projectEngine(uprojectPath: string): string | null {
+  try {
+    const project = new ProjectContext();
+    project.setProject(uprojectPath);
+    const engine = projectEngineVersion(project);
+    return engine && /^\d+\.\d+$/.test(engine) ? engine : null;
+  } catch {
+    return null;
+  }
+}
+
 /** One apply per project at a time: two at once would swap over each other's files. */
 const applying = new Map<string, Promise<ApplyResult>>();
 
@@ -424,12 +436,8 @@ async function applyUpdateNow(uprojectPath: string, options: ApplyOptions): Prom
       if (current === version && settled) {
         result.state = "unchanged";
       } else {
-        let engine = marker?.engine ?? null;
-        if (!engine) {
-          const project = new ProjectContext();
-          project.setProject(uprojectPath);
-          engine = projectEngineVersion(project);
-        }
+        // The project's engine first: a project moved to a new engine needs binaries for that one, not the marker's.
+        const engine = projectEngine(uprojectPath) ?? marker?.engine ?? null;
         if (!engine) throw new Error("cannot tell which engine the binaries are for");
         const t: BinaryTarget = { version, engine, platform: marker?.platform ?? unrealPlatform() };
         const staged = await stageBinaryPlugin(pluginDir, t, resolveBinarySource(t, options.binaries));
