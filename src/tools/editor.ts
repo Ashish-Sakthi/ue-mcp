@@ -11,7 +11,7 @@ import { readEngineState, withBridgeSnapshot, type EngineSnapshot } from "../edi
 import { progressRenderingNote } from "../dispatch/client-quirks.js";
 import { pushWorkaround, workaroundCount } from "../dispatch/workaround-tracker.js";
 import { searchToolGraph } from "../surface/context/tool-search.js";
-import { evaluateGate, gateRefusalMessage, type GateCandidate } from "../dispatch/python-gate.js";
+import { evaluateGate, gateRefusalMessage, relevantCandidates, type GateCandidate } from "../dispatch/python-gate.js";
 import { checkBridgeParity } from "../bridge/bridge-parity.js";
 import { absentToolset, registeredMethodsOf } from "../surface/registered-surface.js";
 import { PLUGIN_UPGRADE_POINTER } from "../bridge/bridge.js";
@@ -130,7 +130,7 @@ export const editorTool: ToolDef = categoryTool(
     execute_python: {
       kind: "handler",
       effect: "unknown",
-      description: "GATED LAST RESORT. execute_python is unreachable until a semantic tool search over your taskSummary has been run AND every candidate it returns is EXPLICITLY ruled out with a stated reason. Flow: (1) call with taskSummary (+code) - it returns the candidate actions AND the exact ruledOut array to send back; (2) re-call with the same taskSummary/code PLUS that ruledOut=[{action, reason}], each reason at least 12 characters saying why that candidate does not fit. The action field accepts the bare name, tool(action) or tool.action, and rulings are remembered for the session so rewording the taskSummary never asks you to justify the same action twice. A candidate the running plugin does not register cannot do the task, so it needs no ruling: it is listed under notInRunningPlugin with the upgrade command instead. Python runs only once every candidate is ruled out. Params: code, taskSummary (required), ruledOut?, resultVariable? (name of a top-level variable to return as `result`, separate from print()/log; #732) (#704, #938, #960, #1167)",
+      description: "GATED LAST RESORT. execute_python is unreachable until a semantic tool search over your taskSummary has been run AND every candidate it returns is EXPLICITLY ruled out with a stated reason. Flow: (1) call with taskSummary (+code) - it returns the candidate actions AND the exact ruledOut array to send back; (2) re-call with the same taskSummary/code PLUS that ruledOut=[{action, reason}], each reason at least 12 characters saying why that candidate does not fit. The action field accepts the bare name, tool(action) or tool.action, and rulings are remembered for the session so rewording the taskSummary never asks you to justify the same action twice. A candidate the running plugin does not register cannot do the task, so it needs no ruling: it is listed under notInRunningPlugin with the upgrade command instead. Python runs only once every candidate is ruled out. Candidates are the search hits that bear on the summary: when it names a subsystem (PCG, Niagara, MetaSound), another subsystem's actions that only share a word are not candidates, nor is a hit scoring under half the best one. Params: code, taskSummary (required), ruledOut?, resultVariable? (name of a top-level variable to return as `result`, separate from print()/log; #732) (#704, #938, #960, #1167)",
       handler: async (ctx: ToolContext, params: Record<string, unknown>) => {
         const code = (params.code as string) ?? "";
         const taskSummary = ((params.taskSummary as string) ?? "").trim();
@@ -149,8 +149,14 @@ export const editorTool: ToolDef = categoryTool(
           };
         }
 
-        // Candidates = meaningful matches (a name/phrase hit), capped at 5.
-        const candidates = searchToolGraph(toolGraphOf(ctx), taskSummary, 5).filter((h) => h.score >= 4);
+        // Candidates = meaningful matches (a name/phrase hit) that bear on the summary, capped at 5. A summary
+        // naming a subsystem is not asked to rule out another subsystem's actions that share a word.
+        const graph = toolGraphOf(ctx);
+        const candidates = relevantCandidates(
+          searchToolGraph(graph, taskSummary, 20).filter((h) => h.score >= 4),
+          taskSummary,
+          graph.map((t) => t.name),
+        ).slice(0, 5);
         if (candidates.length > 0) {
           // #938 / #960: matching is spelling-insensitive and rulings persist
           // for the session, so the strings this refusal prints are exactly the
