@@ -57,7 +57,7 @@ With an editor connected, `list_changes` gives each changed `.uasset` and `.umap
 | Asset | Engine diff | Records |
 |---|---|---|
 | Blueprint | `SBlueprintDiff` | each graph through `FGraphDiffControl::DiffGraphs`, components through `DiffUtils::CompareUnrelatedSCS`, My Blueprint variables, Defaults on the class default object and Class Settings through `DiffUtils::CompareUnrelatedStructs`, plus the structural `blueprint(diff)` summary |
-| Material, material function | `SMaterialDiff` | the material graph, rebuilt as the material editor shows it, through `FGraphDiffControl::DiffGraphs`, and the details through `DiffUtils::CompareUnrelatedObjects` |
+| Material, material function | `SMaterialDiff` | the material graph, rebuilt as the material editor shows it, through `FGraphDiffControl::DiffGraphs` with each node matched across versions by its expression's GUID, a `NODE_PROPERTY` record for each matched expression whose editable properties changed, and the details through `DiffUtils::CompareUnrelatedObjects` |
 | Material instance | `SMaterialInstanceDiff` | the details, overridden parameters included, through `DiffUtils::CompareUnrelatedObjects` |
 | DataTable | the CSV export (`UDataTable::GetTableAsCSV`) | the CSV text diff, and each row present in both versions through `DiffUtils::CompareUnrelatedStructs` |
 | Level, World Partition actor package | the details diff per actor | actors matched by name, added and removed with class and transform, and each matched actor and component through `DiffUtils::CompareUnrelatedObjects` |
@@ -67,7 +67,7 @@ Each record is the engine's own: a property record has its `FPropertySoftPath`, 
 
 Each version also lists facts about it (LOD vertex and triangle counts, material slots, texture size and format, parameter values) as context beside the records, and a picture rendered with `ThumbnailTools::RenderThumbnail` on the object loaded for diff. A level, which has no scene when loaded for diff, and a class with no thumbnail renderer use the thumbnail saved in that version's package. Pictures are kept per blob id, so a version always shows the same one.
 
-An added asset has `before: null` and a description of what it is: its properties that differ from its class defaults (for a Blueprint, its defaults against its parent class). A deleted one has `after: null`. A package that cannot be diffed carries `state: "error"` and the reason, such as `the package could not be loaded for diff: ...` or that the editor is not connected. `summary` is one line to decide on.
+An added asset has `before: null` and a description of what it is: its properties that differ from its class defaults (for a Blueprint, its defaults against its parent class). A deleted one has `after: null`. A package that cannot be diffed carries `state: "error"` and the reason, such as `the package could not be loaded for diff: ...` (also given for a file that is not a package) or that the editor is not connected. `summary` is one line to decide on.
 
 The first 25 packages are diffed up front. The rest are listed in `assetDiffs.deferred`, carry `state: "deferred"`, and are diffed one at a time with `diff_checkpoint_asset` or `GET /v1/checkpoints/asset-diff`. Diffs are cached per path and pair of versions.
 
