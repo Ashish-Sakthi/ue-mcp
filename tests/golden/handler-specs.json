@@ -1,5 +1,5 @@
 {
-  "handlerCount": 1207,
+  "handlerCount": 1210,
   "handlers": {
     "add_ability_system_component": {
       "category": "gas",
@@ -17530,6 +17530,51 @@
         {
           "mode": "exactlyOne",
           "branches": [
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
+    },
+    "get_pcg_component_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "blueprintPath",
+          "type": "string",
+          "required": false,
+          "description": "Blueprint whose PCG component template is written; every placed instance rebuilds from it"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "PCG component: the Blueprint's component variable name or the placed actor's component name (default: the only PCG component)"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "blueprintPath"
+            ],
             [
               "actorLabel"
             ],
@@ -37953,6 +37998,108 @@
         }
       ]
     },
+    "set_pcg_component_graph": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "blueprintPath",
+          "type": "string",
+          "required": false,
+          "description": "Blueprint whose PCG component template is written; every placed instance rebuilds from it"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "PCG component: the Blueprint's component variable name or the placed actor's component name (default: the only PCG component)"
+        },
+        {
+          "name": "graphPath",
+          "type": "string",
+          "required": true,
+          "description": "PCGGraph or PCGGraphInstance assigned through UPCGComponent::SetGraph; \"\" clears it"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "blueprintPath"
+            ],
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
+    },
+    "set_pcg_component_parameters": {
+      "category": "pcg",
+      "params": [
+        {
+          "name": "blueprintPath",
+          "type": "string",
+          "required": false,
+          "description": "Blueprint whose PCG component template is written; every placed instance rebuilds from it"
+        },
+        {
+          "name": "actorLabel",
+          "type": "string",
+          "required": false,
+          "description": "Editor label of the actor holding the PCG component; a label naming several actors is refused"
+        },
+        {
+          "name": "actorPath",
+          "type": "string",
+          "required": false,
+          "description": "Full actor object path; the unambiguous selector"
+        },
+        {
+          "name": "componentName",
+          "type": "string",
+          "required": false,
+          "description": "PCG component: the Blueprint's component variable name or the placed actor's component name (default: the only PCG component)"
+        },
+        {
+          "name": "overrides",
+          "type": "object",
+          "required": true,
+          "description": "{parameterName: value}; null clears that override"
+        }
+      ],
+      "choices": [
+        {
+          "mode": "exactlyOne",
+          "branches": [
+            [
+              "blueprintPath"
+            ],
+            [
+              "actorLabel"
+            ],
+            [
+              "actorPath"
+            ]
+          ]
+        }
+      ]
+    },
     "set_pcg_graph_instance_overrides": {
       "category": "pcg",
       "params": [
@@ -39685,6 +39832,12 @@
           "type": "boolean",
           "required": false,
           "description": "Close at loopPosition rather than after the last key"
+        },
+        {
+          "name": "markEdited",
+          "type": "boolean",
+          "required": false,
+          "description": "Value for bSplineHasBeenEdited (default true), which keeps these points when the owner's construction script reruns; false clears it"
         }
       ],
       "choices": [
