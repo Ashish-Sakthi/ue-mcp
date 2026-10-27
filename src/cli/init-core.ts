@@ -39,6 +39,9 @@ import {
 } from "../integrations/claude-code/mcp-client-config.js";
 import { packageVersion } from "../core/package-root.js";
 import { warn as logWarn } from "../core/log.js";
+import { readEnv } from "../core/env.js";
+import { deriveProjectPort } from "../bridge/port.js";
+import { readUserAuthSync } from "../feedback/github-auth.js";
 
 /* ------------------------------------------------------------------ */
 /*  Tool categories                                                    */
@@ -124,6 +127,24 @@ export interface InitChoices {
   command?: string | null;
 }
 
+/** The bridge port a project uses, and what decided it. */
+export interface BridgePort {
+  port: number;
+  /** What the project path derives, which is the port when nothing pins one. */
+  derivedPort: number;
+  /** "env" for UE_MCP_PORT, "config" for ue-mcp.bridge.port, null when derived. */
+  pinnedBy: "env" | "config" | null;
+}
+
+export function bridgePort(project: ProjectContext): BridgePort {
+  const derivedPort = deriveProjectPort(project.projectDir!);
+  const envPort = Number.parseInt(readEnv("port") ?? "", 10);
+  if (Number.isFinite(envPort) && envPort > 0) return { port: envPort, derivedPort, pinnedBy: "env" };
+  const configPort = project.config.bridge?.port;
+  if (configPort) return { port: configPort, derivedPort, pinnedBy: "config" };
+  return { port: derivedPort, derivedPort, pinnedBy: null };
+}
+
 export interface PlannedClient {
   id: string;
   name: string;
@@ -163,6 +184,13 @@ export interface InitPlan {
   skills: boolean;
   /** Reasons apply() would refuse to run. */
   blockers: string[];
+  /** The optional tool categories, in the order init offers them. */
+  categories: Array<Pick<ToolCategory, "name" | "label" | "description" | "requiredPlugins">>;
+  /** Categories that can carry native Unreal tools (engine 5.8 and later). */
+  nativeCategories: string[];
+  bridge: BridgePort;
+  /** The GitHub account feedback issues author as, from `ue-mcp auth`; null when not signed in. */
+  feedbackAuth: { login: string | null };
 }
 
 function readUpluginVersion(pluginDir: string): string | null {
@@ -303,6 +331,10 @@ export function plan(choices: InitChoices, hooks: ProbeHooks = DEFAULT_PROBE_HOO
     promptHook,
     skills,
     blockers,
+    categories: CATEGORIES.filter((c) => !c.alwaysOn).map(({ name, label, description, requiredPlugins }) => ({ name, label, description, requiredPlugins })),
+    nativeCategories: ENRICHABLE_CATEGORIES,
+    bridge: bridgePort(project),
+    feedbackAuth: { login: readUserAuthSync()?.login ?? null },
   };
 }
 
