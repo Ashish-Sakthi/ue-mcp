@@ -6,6 +6,7 @@
 #include "HandlerUtils.h"
 #include "HandlerLogCapture.h"
 #include "Runtime/Launch/Resources/Version.h"
+#include "UObject/ObjectVersion.h"
 
 #include "Algo/Sort.h"
 #include "AssetCompilingManager.h"
@@ -44,6 +45,7 @@
 #include "MaterialGraph/MaterialGraphNode.h"
 #include "MaterialGraph/MaterialGraphSchema.h"
 #include "Materials/Material.h"
+#include "Materials/MaterialExpression.h"
 #include "Materials/MaterialFunction.h"
 #include "Materials/MaterialInstance.h"
 #include "Materials/MaterialInstanceConstant.h"
@@ -366,6 +368,60 @@ namespace
 		return O;
 	}
 
+	/** What a node's properties live on: a material node's expression, otherwise the node. */
+	const UObject* CkDiffNodeSubject(const UObject* Node)
+	{
+		const UMaterialGraphNode* MatNode = Cast<UMaterialGraphNode>(Node);
+		return MatNode && MatNode->MaterialExpression ? MatNode->MaterialExpression.Get() : Node;
+	}
+
+	/**
+	 * A material node's settings are on its expression, which UEdGraphNode::FindDiffs does not compare.
+	 * Every matched pair whose expressions differ in an editable property gets a NODE_PROPERTY result.
+	 */
+	void CkDiffMaterialExpressionResults(UEdGraph* OldGraph, UEdGraph* NewGraph, TArray<FDiffSingleResult>& Results)
+	{
+		if (!OldGraph || !NewGraph) return;
+		for (UEdGraphNode* NewNode : NewGraph->Nodes)
+		{
+			UMaterialGraphNode* NewMat = Cast<UMaterialGraphNode>(NewNode);
+			if (!NewMat || !NewMat->MaterialExpression) continue;
+			UMaterialGraphNode* OldMat = nullptr;
+			for (UEdGraphNode* OldNode : OldGraph->Nodes)
+			{
+				if (OldNode && OldNode->NodeGuid == NewNode->NodeGuid) { OldMat = Cast<UMaterialGraphNode>(OldNode); break; }
+			}
+			if (!OldMat || !OldMat->MaterialExpression || OldMat->MaterialExpression->GetClass() != NewMat->MaterialExpression->GetClass()) continue;
+			const bool bReported = Results.ContainsByPredicate([&](const FDiffSingleResult& R)
+			{
+				return (R.Diff == EDiffType::NODE_PROPERTY || R.Diff == EDiffType::OBJECT_PROPERTY)
+					&& ((R.Node1 == OldMat && R.Node2 == NewMat) || (R.Node1 == NewMat && R.Node2 == OldMat));
+			});
+			if (bReported) continue;
+			const UMaterialExpression* A = OldMat->MaterialExpression;
+			const UMaterialExpression* B = NewMat->MaterialExpression;
+			TArray<FSingleObjectDiffEntry> Entries;
+			DiffUtils::CompareUnrelatedObjects(A, B, Entries);
+			const bool bEditable = Entries.ContainsByPredicate([&](const FSingleObjectDiffEntry& E)
+			{
+				const FProperty* Root = CkDiffRootProperty(E, A->GetClass(), A, B->GetClass(), B);
+				return Root && Root->HasAnyPropertyFlags(CPF_Edit);
+			});
+			if (!bEditable) continue;
+			FDiffSingleResult R;
+			R.Diff = EDiffType::NODE_PROPERTY;
+			R.Category = EDiffType::MODIFICATION;
+			R.Node1 = OldMat;
+			R.Node2 = NewMat;
+			R.Object1 = A;
+			R.Object2 = B;
+			R.DisplayString = FText::Format(NSLOCTEXT("UEMCPCheckpointDiff", "MaterialNodeChanged", "Changed Node '{0}'"), NewMat->GetNodeTitle(ENodeTitleType::ListView));
+			R.ToolTip = FText::Format(NSLOCTEXT("UEMCPCheckpointDiff", "MaterialNodeChangedTip", "Properties of '{0}' changed"), NewMat->GetNodeTitle(ENodeTitleType::ListView));
+			R.OwningObjectPath = NewGraph->GetPathName();
+			Results.Add(R);
+		}
+	}
+
 	/**
 	 * FGraphDiffControl::DiffGraphs, serialized: every FDiffSingleResult with its
 	 * type, category, the engine's DisplayString and ToolTip, and the nodes and pins
@@ -377,6 +433,7 @@ namespace
 	{
 		TArray<FDiffSingleResult> Results;
 		FGraphDiffControl::DiffGraphs(OldGraph, NewGraph, Results);
+		CkDiffMaterialExpressionResults(OldGraph, NewGraph, Results);
 		Algo::SortBy(Results, &FDiffSingleResult::Diff);
 		for (const FDiffSingleResult& R : Results)
 		{
@@ -398,8 +455,8 @@ namespace
 			if (R.Pin2) Rec->SetObjectField(TEXT("pin2"), CkDiffPinJson(R.Pin2, Names));
 			if (R.Diff == EDiffType::NODE_PROPERTY || R.Diff == EDiffType::OBJECT_PROPERTY)
 			{
-				const UObject* A = R.Object1 ? R.Object1 : R.Node1;
-				const UObject* B = R.Object2 ? R.Object2 : R.Node2;
+				const UObject* A = R.Object1 ? R.Object1 : CkDiffNodeSubject(R.Node1);
+				const UObject* B = R.Object2 ? R.Object2 : CkDiffNodeSubject(R.Node2);
 				if (A && B)
 				{
 					TArray<TSharedPtr<FJsonValue>> Props;
@@ -494,6 +551,16 @@ namespace
 			Graph->Material->AssignExpressionCollection(Function->GetExpressionCollection());
 		}
 		Graph->RebuildGraph();
+		// RebuildGraph gives every node a fresh GUID, so DiffGraphs would match a node across versions by
+		// title alone, and a parameter's title shows its value. The expression's own GUID is saved with it.
+		for (UEdGraphNode* Node : Graph->Nodes)
+		{
+			UMaterialGraphNode* MatNode = Cast<UMaterialGraphNode>(Node);
+			if (MatNode && MatNode->MaterialExpression && MatNode->MaterialExpression->MaterialExpressionGuid.IsValid())
+			{
+				MatNode->NodeGuid = MatNode->MaterialExpression->MaterialExpressionGuid;
+			}
+		}
 		return Graph;
 	}
 
@@ -755,6 +822,18 @@ namespace
 			Side.Error = FString::Printf(TEXT("the package could not be loaded for diff: %s does not exist"), *File);
 			return Side;
 		}
+		// A file that is not a package can come back from the loader as an empty package, which keeps the
+		// file open; read the package tag first.
+		{
+			uint32 Tag = 0;
+			TUniquePtr<FArchive> Reader(IFileManager::Get().CreateFileReader(*File));
+			if (Reader && Reader->TotalSize() >= (int64)sizeof(Tag)) *Reader << Tag;
+			if (Tag != PACKAGE_FILE_TAG && Tag != PACKAGE_FILE_TAG_SWAPPED)
+			{
+				Side.Error = FString::Printf(TEXT("the package could not be loaded for diff: %s is not a package file"), *File);
+				return Side;
+			}
+		}
 		FMCPScopedLogCapture Capture({});
 		Side.Package = DiffUtils::LoadPackageForDiff(FPackagePath::FromLocalPath(File), OriginalPath);
 		if (!Side.Package)
@@ -814,6 +893,13 @@ namespace
 		if (OutFile.IsEmpty()) return nullptr;
 		FString Error;
 		const bool bLevel = Asset && Asset->IsA<UWorld>();
+		// A texture loaded for diff can still be building, with no resource for the renderer to draw.
+		if (UTexture* Texture = Cast<UTexture>(Asset))
+		{
+			Texture->BlockOnAnyAsyncBuild();
+			if (!Texture->GetResource()) Texture->UpdateResource();
+			Texture->BlockOnAnyAsyncBuild();
+		}
 		FThumbnailRenderingInfo* Info = (Asset && !bLevel) ? UThumbnailManager::Get().GetRenderingInfo(Asset) : nullptr;
 		if (Info && Info->Renderer)
 		{
