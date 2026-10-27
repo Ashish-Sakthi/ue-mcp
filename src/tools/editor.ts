@@ -2,7 +2,8 @@ import { z } from "zod";
 import type { ToolDef, ToolContext } from "../core/types.js";
 import { categoryTool } from "../surface/category-tool.js";
 import { toolGraphOf } from "../surface/target-params.js";
-import { directive } from "../core/directive.js";
+import { directive, type DirectiveResponse } from "../core/directive.js";
+import { CORE_ISSUES_URL } from "../extensions/registry-catalog.js";
 import { startEditor, stopEditor, restartEditor, resolveOwnedEditor, connectedEditorOf } from "../editor/editor-control.js";
 import { buildProjectAction } from "./project/install.js";
 import { startProgress } from "../cli/ui/progress.js";
@@ -18,6 +19,86 @@ import { PLUGIN_UPGRADE_POINTER } from "../bridge/bridge.js";
 import { actions as epicActions, schema as epicSchema } from "./epic/editor.generated.js";
 import { specBp, schema as specSchema } from "./specs/editor.generated.js";
 import { checkpointActions, checkpointSchema } from "./checkpoints.js";
+
+/** Whether the addressed editor can run feedback(submit): its category is not disabled. */
+export function feedbackEnabled(ctx: ToolContext): boolean {
+  return ctx.getToolGraph ? ctx.getToolGraph().some((t) => t.name === "feedback") : true;
+}
+
+/**
+ * What the agent is told after a Python workaround. With the feedback category
+ * disabled it never names feedback(submit), which would only fail: the gap is
+ * reported to the user with the issue tracker to file it at.
+ */
+export function workaroundDirective(n: number, result: unknown, canSubmit: boolean): DirectiveResponse {
+  const head = [
+    `[AGENT DIRECTIVE - MANDATORY]`,
+    `execute_python was used as a workaround (${n} time(s) this session).`,
+    `This means a native ue-mcp tool could not handle the task.`,
+    ``,
+  ];
+  const fields = [
+    `  title  - short description of the gap`,
+    `  summary - what was attempted and why the native tool fell short`,
+    `  pythonWorkaround - the Python code above`,
+    `  idealTool - what tool/action should handle this natively`,
+  ];
+  if (!canSubmit) {
+    return directive(
+      [
+        ...head,
+        `YOUR NEXT MESSAGE TO THE USER must include:`,
+        `"I had to use execute_python to <describe what you did and why>.`,
+        ` A native tool for this can be requested at ${CORE_ISSUES_URL}."`,
+        ``,
+        `The feedback category is disabled in this project, so do not call it.`,
+        `Keep a record of the gap for the user with:`,
+        ...fields,
+        ``,
+        `Do NOT skip this step. Do NOT defer it to "later."`,
+      ].join("\n"),
+      result,
+      {
+        kind: "workaround.feedback",
+        requiredActions: ["surface_workaround_to_user", "point_user_to_issue_tracker"],
+        context: {
+          workaroundCount: n,
+          feedbackDisabled: true,
+          issueTracker: CORE_ISSUES_URL,
+          expectedFields: ["title", "summary", "pythonWorkaround", "idealTool"],
+        },
+      },
+    );
+  }
+  return directive(
+    [
+      ...head,
+      `YOUR NEXT MESSAGE TO THE USER must include:`,
+      `"I had to use execute_python to <describe what you did and why>.`,
+      ` Would you like to submit feedback so this can become a native tool?"`,
+      ``,
+      `If the user agrees, call feedback(action="submit") with:`,
+      ...fields,
+      ``,
+      `Do NOT skip this step. Do NOT defer it to "later."`,
+    ].join("\n"),
+    result,
+    {
+      kind: "workaround.feedback",
+      requiredActions: [
+        "surface_workaround_to_user",
+        "ask_if_user_wants_to_submit_feedback",
+        "on_agreement_call_feedback_submit",
+      ],
+      context: {
+        workaroundCount: n,
+        feedbackTool: "feedback",
+        feedbackAction: "submit",
+        expectedFields: ["title", "summary", "pythonWorkaround", "idealTool"],
+      },
+    },
+  );
+}
 
 /**
  * Which gate candidates dispatch to a bridge method the connected plugin does
@@ -214,40 +295,7 @@ export const editorTool: ToolDef = categoryTool(
         }
 
         const n = workaroundCount(ctx);
-        return directive(
-          [
-            `[AGENT DIRECTIVE - MANDATORY]`,
-            `execute_python was used as a workaround (${n} time(s) this session).`,
-            `This means a native ue-mcp tool could not handle the task.`,
-            ``,
-            `YOUR NEXT MESSAGE TO THE USER must include:`,
-            `"I had to use execute_python to <describe what you did and why>.`,
-            ` Would you like to submit feedback so this can become a native tool?"`,
-            ``,
-            `If the user agrees, call feedback(action="submit") with:`,
-            `  title  - short description of the gap`,
-            `  summary - what was attempted and why the native tool fell short`,
-            `  pythonWorkaround - the Python code above`,
-            `  idealTool - what tool/action should handle this natively`,
-            ``,
-            `Do NOT skip this step. Do NOT defer it to "later."`,
-          ].join("\n"),
-          result,
-          {
-            kind: "workaround.feedback",
-            requiredActions: [
-              "surface_workaround_to_user",
-              "ask_if_user_wants_to_submit_feedback",
-              "on_agreement_call_feedback_submit",
-            ],
-            context: {
-              workaroundCount: n,
-              feedbackTool: "feedback",
-              feedbackAction: "submit",
-              expectedFields: ["title", "summary", "pythonWorkaround", "idealTool"],
-            },
-          },
-        );
+        return workaroundDirective(n, result, feedbackEnabled(ctx));
       },
     },
     run_python_file: specBp("mutate", "Run a Python file from disk with __file__/__name__ populated (#142). Pass entryPoint to load the file WITHOUT firing its `if __name__ == \"__main__\"` guard and then call one named function in it, which is how a Tools/ script holding several stages behind a main() is driven a stage at a time; `args` are then that call's positional arguments rather than sys.argv, `kwargs` its keyword arguments, and its return value comes back as `result` with no resultVariable needed. Pass asMain=true (or runName=\"__main__\") to run the file through runpy as __main__ with sys.argv set to the file plus args, so a main guard that starts a tick callback does fire; runName also sets the module name an entryPoint load uses. captureLog=false drops everything the script logged except its errors, and maxLogChars keeps only the tail: a script that prints a few hundred lines otherwise returns tens of KB to a caller that wanted one value. A script that needs a line trace against the PIE world calls unreal.MCPTraceLibrary.line_trace(start, end, 'pie', pie_instance, 'WorldStatic', trace_complex), which returns hit, impact_point, impact_normal, distance, actor_path, component_name and physical_material without a round trip; the engine's SystemLibrary traces take a TraceTypeQuery, not a CollisionChannel (#1283). (#142/#732/#995)", "run_python_file"),
