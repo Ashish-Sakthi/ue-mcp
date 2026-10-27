@@ -6,7 +6,7 @@ import { BOLD, CYAN, DIM, GREEN, RED, RESET, fail, info, ok, warn } from "./ui/a
 import { checkboxSelect, singleSelect, type CheckboxItem } from "./ui/select.js";
 import { runFeedbackAuthStep } from "./auth-cli.js";
 import type { CliUsage } from "./cli-main.js";
-import { getInstalledHooks } from "../config/user-state.js";
+import { getInstalledHooks, type FeedbackMode } from "../config/user-state.js";
 import { coreSkillsInstalled } from "../extensions/skills.js";
 import { detectMcpClients, isProjectScopedClient, ueMcpServerArgs } from "../integrations/claude-code/mcp-client-config.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
@@ -14,6 +14,7 @@ import { findUProject } from "../config/uproject-path.js";
 import {
   CATEGORIES,
   ENRICHABLE_CATEGORIES,
+  FEEDBACK_MODES,
   apply,
   bridgePort,
   plan,
@@ -80,6 +81,10 @@ export function choicesFromFlags(argv: string[], projectPath: string): InitChoic
   if (context !== undefined && context !== "micro" && context !== "lean" && context !== "full") {
     throw new Error(`--context must be micro, lean or full, not '${context}'`);
   }
+  const feedbackMode = flagValue(argv, "--feedback-mode");
+  if (feedbackMode !== undefined && !(FEEDBACK_MODES as readonly string[]).includes(feedbackMode)) {
+    throw new Error(`--feedback-mode must be interactive, auto-approve or defer, not '${feedbackMode}'`);
+  }
   const native = flagBool(argv, "native-tools");
   const exclude = list(flagValue(argv, "--native-exclude"));
   return {
@@ -89,6 +94,7 @@ export function choicesFromFlags(argv: string[], projectPath: string): InitChoic
     contextStrategy: context as ContextStrategy | undefined,
     clients: list(flagValue(argv, "--clients")),
     feedback: flagBool(argv, "feedback"),
+    feedbackMode: feedbackMode as FeedbackMode | undefined,
     promptHook: flagBool(argv, "hook"),
     skills: flagBool(argv, "skills"),
     install: install as InitChoices["install"],
@@ -393,6 +399,7 @@ export const usage: CliUsage = {
     { name: "--native-exclude", value: "<categories>", description: "Categories that skip native Epic tools" },
     { name: "--command", value: "<cmd>", description: "Launcher the client config uses instead of npx" },
     ...toggle("feedback", "Enable the feedback(submit) tool"),
+    { name: "--feedback-mode", value: "<interactive|auto-approve|defer>", description: "Feedback approval mode for this project" },
     ...toggle("hook", "Install the feedback nudge hook"),
     ...toggle("skills", "Install the bundled Claude Code skills"),
     ...toggle("native-tools", "Wrap native Epic tools"),

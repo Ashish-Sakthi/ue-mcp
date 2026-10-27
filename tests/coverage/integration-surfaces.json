@@ -47,6 +47,11 @@
       "summary": "ue-mcp init --install binary --binaries <local> installs prebuilt bridge binaries"
     },
     {
+      "id": "cli.init.feedback-mode",
+      "group": "cli",
+      "summary": "ue-mcp init --feedback-mode <mode> stores the project's feedback approval mode, and the plan reports the mode in effect and its scope"
+    },
+    {
       "id": "cli.init.rerun",
       "group": "cli",
       "summary": "running ue-mcp init a second time is idempotent"
