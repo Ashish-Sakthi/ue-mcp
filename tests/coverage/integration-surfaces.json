@@ -187,6 +187,11 @@
       "summary": "ue-mcp auth signs in to GitHub with the device flow and caches the token"
     },
     {
+      "id": "cli.auth.json",
+      "group": "cli",
+      "summary": "ue-mcp auth --json prints the device code and the outcome as JSON lines"
+    },
+    {
       "id": "cli.login",
       "group": "cli",
       "summary": "ue-mcp login exchanges a GitHub token for a registry publish token"
