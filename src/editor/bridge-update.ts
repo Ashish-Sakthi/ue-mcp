@@ -41,7 +41,7 @@ import {
 import { deploy, projectEngineVersion } from "./deployer.js";
 import { detectMcpClients, liftsAgeGate, readUeMcpEntry, writeMcpConfig } from "../integrations/claude-code/mcp-client-config.js";
 import { readEnv } from "../core/env.js";
-import { removeLegacyPythonContent } from "./legacy-python.js";
+import { ASIDE_FILE, UPDATER_FILES, treeFiles } from "./bridge-tree.js";
 
 /** Minimal fetch, injected so the release lookups can be tested without a network. */
 export type ReleaseFetcher = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -188,38 +188,36 @@ function writePendingUpdate(pluginDir: string, p: PendingUpdate): void {
   fs.writeFileSync(pendingUpdatePath(pluginDir), JSON.stringify(p, null, 2));
 }
 
-function listFiles(dir: string, base = dir): string[] {
-  const out: string[] = [];
-  for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
-    const full = path.join(dir, e.name);
-    if (e.isDirectory()) out.push(...listFiles(full, base));
-    else out.push(path.relative(base, full));
-  }
-  return out;
-}
-
 /**
  * Move every file of `staging` into `target` while the editor holds some of
  * them. An existing file is renamed to `<name>.old-<stamp>` first, which a
  * loaded DLL allows where an overwrite does not; the new file then takes its
- * name. Returns the renamed files. On a failure midway, the files already moved
- * are put back.
+ * name. A file the old release had and the new one does not is renamed aside
+ * too, so the result is exactly the new release. Returns the renamed files. On
+ * a failure midway, the files already moved are put back.
  */
 export function swapInPlace(staging: string, target: string, stamp: string = String(Date.now())): string[] {
   const renamed: Array<{ from: string; to: string }> = [];
   const placed: string[] = [];
+  const asideOf = (dest: string): void => {
+    const aside = `${dest}.old-${stamp}`;
+    fs.renameSync(dest, aside);
+    renamed.push({ from: dest, to: aside });
+  };
+  const incoming = treeFiles(staging);
+  const shipped = new Set(incoming.map((f) => f.toLowerCase()));
+  const dropped = treeFiles(target).filter(
+    (f) => !ASIDE_FILE.test(f) && !UPDATER_FILES.has(f) && !shipped.has(f.toLowerCase()),
+  );
   try {
-    for (const rel of listFiles(staging)) {
+    for (const rel of incoming) {
       const dest = path.join(target, rel);
       fs.mkdirSync(path.dirname(dest), { recursive: true });
-      if (fs.existsSync(dest)) {
-        const aside = `${dest}.old-${stamp}`;
-        fs.renameSync(dest, aside);
-        renamed.push({ from: dest, to: aside });
-      }
+      if (fs.existsSync(dest)) asideOf(dest);
       fs.renameSync(path.join(staging, rel), dest);
       placed.push(dest);
     }
+    for (const rel of dropped) asideOf(path.join(target, rel));
   } catch (e) {
     for (const f of placed) fs.rmSync(f, { force: true });
     for (const r of renamed.reverse()) {
@@ -233,6 +231,23 @@ export function swapInPlace(staging: string, target: string, stamp: string = Str
   }
   fs.rmSync(staging, { recursive: true, force: true });
   return renamed.map((r) => r.to);
+}
+
+/** Remove the directories under `root` that deleting `files` left empty. */
+function pruneEmptyDirs(root: string, files: string[]): void {
+  const top = path.resolve(root);
+  for (const f of files) {
+    let dir = path.dirname(path.resolve(f));
+    while (dir.length > top.length && dir.toLowerCase().startsWith(top.toLowerCase())) {
+      try {
+        if (fs.readdirSync(dir).length > 0) break;
+        fs.rmdirSync(dir);
+      } catch {
+        break;
+      }
+      dir = path.dirname(dir);
+    }
+  }
 }
 
 /**
@@ -264,6 +279,7 @@ export function settlePendingUpdate(pluginDir: string, editorRunning: boolean): 
       return true; // still loaded
     }
   });
+  pruneEmptyDirs(pluginDir, pending.oldFiles.filter((f) => !left.includes(f)));
   sweepUpdateWork(pluginDir);
   if (left.length === 0) {
     fs.rmSync(pendingUpdatePath(pluginDir), { force: true });
@@ -369,9 +385,8 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
           swapIn(staged.staging, pluginDir);
           result.state = "applied";
         } else if ((options.platform ?? process.platform) === "win32") {
+          // Files the new release dropped, the retired Python bridge's among them (#1273), go aside with the rest.
           const oldFiles = swapInPlace(staged.staging, pluginDir);
-          // An in-place swap merges, so the retired Python bridge's files survive it (#1273).
-          removeLegacyPythonContent(pluginDir);
           writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles, at: new Date().toISOString() });
           result.state = "applied";
         } else {

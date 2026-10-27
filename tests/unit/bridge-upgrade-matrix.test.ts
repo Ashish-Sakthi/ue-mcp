@@ -272,3 +272,29 @@ describe("copies earlier releases left under Plugins/", () => {
     120_000,
   );
 });
+
+describe("a release that drops files", () => {
+  it("retires every file the old release had and the new one does not, with the editor running", async () => {
+    const { uproject, pluginDir } = installed(newest);
+    // An older layout's leftovers: a retired module and the Python bridge's content (#1273).
+    const retired = path.join(pluginDir, "Binaries", PLATFORM, "UnrealEditor-UE_MCP_Retired.dll");
+    fs.writeFileSync(retired, stubModule("retired"));
+    fs.mkdirSync(path.join(pluginDir, "Content", "Python"), { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, "Content", "Python", "init_unreal.py"), "print()");
+    if (HOLD) {
+      holder = new DllHolder();
+      await holder.hold([retired]);
+    }
+    const to = targets[1];
+
+    const result = await applyUpdate(uproject, { version: to.version, editorRunning: true, platform: "win32", binaries: binariesFor(to) });
+
+    expect(result, result.error).toMatchObject({ ok: true, state: "applied" });
+    const pending = readPendingUpdate(pluginDir)!;
+    expect(verifyBridgeTree(pluginDir, { version: to.version, platform: PLATFORM, files: targetFiles(to), asideFiles: pending.oldFiles })).toEqual([]);
+    await releaseHeld();
+    expect(settlePendingUpdate(pluginDir, false)).toBe(true);
+    expect(fs.existsSync(path.join(pluginDir, "Content"))).toBe(false);
+    expect(fs.existsSync(retired)).toBe(false);
+  }, 120_000);
+});
