@@ -7,7 +7,7 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { describe, expect, it } from "vitest";
 import {
-  balance, buildOutputFilter, editorFits, headlessShardCount, liveFiles, mirror, overBudget, planShards, readKind,
+  balance, buildOutputFilter, editorFits, headlessShardCount, launchOrder, liveFiles, mirror, overBudget, planShards, readKind,
   splitAtDeath, timingFromReports, undeployedSources,
 } from "../../scripts/live-shards.mjs";
 import { liveShardProjectDir, LIVE_SHARD_ROOT } from "../../scripts/bridge-target.mjs";
@@ -123,6 +123,18 @@ describe("memory decides the editor count", () => {
   it("holds an editor back until it fits beside the headroom", () => {
     expect(editorFits("headless", 8000, 32768)).toBe(true);
     expect(editorFits("render", 8000, 32768)).toBe(false);
+    // The 13.8 GB a 32 GB desktop has free with its usual apps open, less one render editor:
+    // an interactive editor fits beside it.
+    expect(editorFits("interactive", 13_800 - 4_600, 32679)).toBe(true);
+  });
+
+  it("launches the longest shard first, so the run's last editor is not the last to find room", () => {
+    const plan = [
+      { name: "h1", kind: "headless", weightMs: 215_000 }, { name: "h2", kind: "headless", weightMs: 214_000 },
+      { name: "b1", kind: "base", weightMs: 15_000 }, { name: "r1", kind: "render", weightMs: 103_000 },
+      { name: "i1", kind: "interactive", weightMs: 35_000 }, { name: "s1", kind: "scm", weightMs: 4_000 },
+    ];
+    expect(launchOrder(plan).map((s) => s.name)).toEqual(["h1", "h2", "r1", "i1", "b1", "s1"]);
   });
 
   it("gives the base shard only the files that need it", () => {

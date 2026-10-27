@@ -18,7 +18,7 @@ import { resolveTestEngine } from "./build-utils.js";
 import { TEST_EDITOR_ARGS } from "./test-editor-args.mjs";
 import {
   KIND_FLAGS, EDITOR_PEAK_MB, KEEP_IN_SHARD, liveFiles, planShards, mirror, buildOutputFilter, timingFromReports, overBudget, slowest,
-  headlessShardCount, headroomMB, editorFits, splitAtDeath, undeployedSources,
+  headlessShardCount, headroomMB, editorFits, launchOrder, splitAtDeath, undeployedSources,
 } from "./live-shards.mjs";
 
 const READY_TIMEOUT_S = 300;
@@ -357,7 +357,7 @@ export async function runSharded(opts) {
   for (const s of plan) say(`  ${s.name.padEnd(4)} ${s.kind.padEnd(11)} ${String(s.files.length).padStart(3)} files, ~${Math.round(s.weightMs / 1000)}s measured`);
 
   const trackedDir = stageTrackedProject(repoRoot);
-  const queue = plan.map((s) => ({ ...s, dir: s.kind === "base" ? baseDir : path.join(LIVE_SHARD_ROOT, s.name, "ue_mcp") }));
+  const queue = launchOrder(plan).map((s) => ({ ...s, dir: s.kind === "base" ? baseDir : path.join(LIVE_SHARD_ROOT, s.name, "ue_mcp") }));
   const jobs = [];
   const results = new Map();
   const fileTimes = {};
