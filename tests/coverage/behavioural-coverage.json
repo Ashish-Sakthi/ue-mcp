@@ -200,6 +200,11 @@
       "tests": [
         {
           "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/EditorRuntimeValuesComponentTests.cpp",
+          "test": "UE.MCP.Editor.RuntimeValues.EveryMatchingComponent"
+        },
+        {
+          "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/LevelComponentTreeInstanceCountTests.cpp",
           "test": "UE.MCP.Level.ComponentTree.ReportsInstanceCounts"
         },
@@ -5579,6 +5584,11 @@
         },
         {
           "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/EditorRuntimeValuesComponentTests.cpp",
+          "test": "UE.MCP.Editor.RuntimeValues.EveryMatchingComponent"
+        },
+        {
+          "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/LevelComponentTreeInstanceCountTests.cpp",
           "test": "UE.MCP.Level.ComponentTree.ReportsInstanceCounts"
         },
@@ -8697,6 +8707,11 @@
       "status": "covered",
       "tests": [
         {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/EditorRuntimeValuesComponentTests.cpp",
+          "test": "UE.MCP.Editor.RuntimeValues.EveryMatchingComponent"
+        },
+        {
           "suite": "live",
           "file": "tests/live/bcov-editor-pie.test.ts",
           "test": "get_runtime_value and get_runtime_values read a live property the session wrote"
@@ -8705,6 +8720,16 @@
           "suite": "live",
           "file": "tests/live/bcov-editor-pie.test.ts",
           "test": "set_movement_mode makes the Character fly and teleport_runtime_actor moves it where get_runtime_values reads it"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/editor-runtime-values-components.test.ts",
+          "test": "an actor class filter still answers once per actor"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/editor-runtime-values-components.test.ts",
+          "test": "returns a row for each InstancedStaticMeshComponent on the actor"
         }
       ]
     },
@@ -21446,6 +21471,11 @@
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/ActorSelectorTests.cpp",
           "test": "UE.MCP.Level.ActorSelector.DuplicateLabelIsRefused"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/EditorRuntimeValuesComponentTests.cpp",
+          "test": "UE.MCP.Editor.RuntimeValues.EveryMatchingComponent"
         },
         {
           "suite": "automation",
