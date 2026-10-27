@@ -57,6 +57,7 @@ const PER_SESSION: Record<string, string> = {
   "editor/install-marker.ts": "Reads and writes one project's plugin install marker and resolves where that project's plugin lives.",
   "editor/bridge-binaries.ts": "Installs prebuilt binaries into one project's plugin directory.",
   "editor/bridge-update.ts": "Checks for and applies an update to the bridge installed in one project.",
+  "editor/bridge-tree.ts": "Checks that one project's installed binary bridge is a tree the editor loads without a rebuild.",
   "editor/legacy-python.ts": "Removes the retired Python bridge from one project's deployed plugin directory.",
   "cli/init-core.ts": "Plans and applies setup for the one project it is handed.",
   "cli/status.ts": "Reports the install and editor state of the one project it is handed.",
