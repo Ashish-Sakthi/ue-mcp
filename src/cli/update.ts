@@ -7,11 +7,11 @@ import { collectDoctor, formatDoctor } from "./doctor.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { editorOwnsProject, listEditorProcesses } from "../editor/engine-observer.js";
 import { UE_MCP_LAUNCH } from "../integrations/claude-code/mcp-client-config.js";
-import { distTagForVersion, isPrereleaseVersion, resolveUpdateTarget } from "../core/version-check.js";
+import { distTagForVersion, isNewer, isPrereleaseVersion, resolveUpdateTarget } from "../core/version-check.js";
 import { packageModulePath, packageRoot, packageVersion } from "../core/package-root.js";
 import { findUProject, isUProjectPath } from "../config/uproject-path.js";
-import { installKindOf, resolvePluginDir } from "../editor/install-marker.js";
-import { applyUpdate, repinClientConfigs } from "../editor/bridge-update.js";
+import { installKindOf, installedBridge, resolvePluginDir } from "../editor/install-marker.js";
+import { applyUpdate, newerBridgeMessage, repinClientConfigs } from "../editor/bridge-update.js";
 import { RESET, BOLD, RED, DIM, CYAN, YELLOW, ok, fail, info as step } from "./ui/ansi.js";
 import type { CliUsage } from "./cli-main.js";
 
@@ -131,6 +131,16 @@ async function update(argv: string[]) {
   console.log("");
 
   const installed = packageVersion();
+  // A bare `npx ue-mcp update` runs the stable line. A binary bridge from a newer
+  // release (a beta) is not this package's to replace, and neither are its pins.
+  const bridge = uproject ? installedBridge(path.dirname(uproject)) : null;
+  if (bridge?.kind === "binary" && isNewer(bridge.version, installed)) {
+    console.log(`  Installed: ${BOLD}${installed}${RESET}`);
+    console.log(`  Bridge:    ${BOLD}${bridge.version}${RESET}`);
+    console.log("");
+    fail(newerBridgeMessage(bridge.version, installed));
+    process.exit(1);
+  }
   console.log(`  Installed: ${BOLD}${installed}${RESET}`);
 
   const latest = getLatestVersion();

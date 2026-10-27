@@ -304,6 +304,15 @@ export function repinClientConfigs(uprojectPath: string, version: string): strin
   return moved;
 }
 
+/**
+ * Why an older ue-mcp leaves a newer bridge alone: `npx ue-mcp` resolves to the
+ * stable line, which must not move a beta bridge or its pinned clients back.
+ */
+export function newerBridgeMessage(bridge: string, server: string): string {
+  return `the bridge is ${bridge}, newer than this ue-mcp ${server}, so it is left as is. ` +
+    `Run \`npx ue-mcp@${distTagForVersion(bridge)} update\` to update it on its own channel.`;
+}
+
 /** Install `options.version` of the bridge into this project. Never throws; failures come back in the result. */
 export async function applyUpdate(uprojectPath: string, options: ApplyOptions): Promise<ApplyResult> {
   const version = options.version ?? packageVersion();
@@ -315,6 +324,10 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
   try {
     if (!located || !kind) throw new Error("the bridge is not installed in this project; run ue-mcp init");
     const pluginDir = located.dir;
+    const installedVersion = readInstallMarker(pluginDir)?.version ?? readDescriptorVersion(pluginDir);
+    if (!options.version && kind === "binary" && installedVersion && isNewer(installedVersion, version)) {
+      throw new Error(newerBridgeMessage(installedVersion, version));
+    }
     settlePendingUpdate(pluginDir, options.editorRunning);
 
     if (kind === "source") {
