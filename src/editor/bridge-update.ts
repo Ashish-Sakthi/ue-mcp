@@ -385,9 +385,12 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
           swapIn(staged.staging, pluginDir);
           result.state = "applied";
         } else if ((options.platform ?? process.platform) === "win32") {
+          // Aside files an earlier swap left, still mapped by the running editor, stay tracked for cleanup.
+          const earlier = readPendingUpdate(pluginDir);
+          const held = (earlier?.state === "swapped" ? earlier.oldFiles : []).filter((f) => fs.existsSync(f));
           // Files the new release dropped, the retired Python bridge's among them (#1273), go aside with the rest.
           const oldFiles = swapInPlace(staged.staging, pluginDir);
-          writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles, at: new Date().toISOString() });
+          writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles: [...held, ...oldFiles], at: new Date().toISOString() });
           result.state = "applied";
         } else {
           const earlier = readPendingUpdate(pluginDir);

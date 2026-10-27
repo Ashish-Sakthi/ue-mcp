@@ -273,6 +273,26 @@ describe("copies earlier releases left under Plugins/", () => {
   );
 });
 
+describe("two updates while one editor stays up", () => {
+  it("keeps tracking the first update's aside files, so the second leaves none behind", async () => {
+    const from = releases.find((r) => r.version === "1.4.10") ?? releases[0];
+    const mid = releases[releases.length - 2];
+    const { uproject, pluginDir } = installed(from);
+    if (HOLD) await holdDlls(pluginDir);
+
+    const first = await applyUpdate(uproject, { version: mid.version, editorRunning: true, platform: "win32", binaries: binariesFor(mid) });
+    expect(first, first.error).toMatchObject({ ok: true, state: "applied" });
+    const second = await applyUpdate(uproject, { version: newest.version, editorRunning: true, platform: "win32", binaries: binariesFor(newest) });
+    expect(second, second.error).toMatchObject({ ok: true, state: "applied" });
+
+    const pending = readPendingUpdate(pluginDir)!;
+    expect(verifyBridgeTree(pluginDir, { version: newest.version, platform: PLATFORM, files: targetFiles(newest), asideFiles: pending.oldFiles })).toEqual([]);
+    await releaseHeld();
+    expect(settlePendingUpdate(pluginDir, false)).toBe(true);
+    expect(treeFiles(pluginDir).filter((f) => ASIDE_FILE.test(f))).toEqual([]);
+  }, 120_000);
+});
+
 describe("a release that drops files", () => {
   it("retires every file the old release had and the new one does not, with the editor running", async () => {
     const { uproject, pluginDir } = installed(newest);
