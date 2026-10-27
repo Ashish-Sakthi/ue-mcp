@@ -39685,6 +39685,12 @@
           "type": "boolean",
           "required": false,
           "description": "Close at loopPosition rather than after the last key"
+        },
+        {
+          "name": "markEdited",
+          "type": "boolean",
+          "required": false,
+          "description": "Value for bSplineHasBeenEdited (default true), which keeps these points when the owner's construction script reruns; false clears it"
         }
       ],
       "choices": [

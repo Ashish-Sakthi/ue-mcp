@@ -8889,6 +8889,21 @@
           "suite": "live",
           "file": "tests/live/bcov-level-actors.test.ts",
           "test": "get_spline_info reads the points set_spline_points wrote"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "keeps the written points through a construction script rerun"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "the rollback restores the flag it found"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "with markEdited false, the rerun restores the Blueprint's default points"
         }
       ]
     },
@@ -17297,6 +17312,16 @@
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/LevelRefreshTests.cpp",
           "test": "UE.MCP.Level.Refresh.RefusesAnUnboundedRequest"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "keeps the written points through a construction script rerun"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "with markEdited false, the rerun restores the Blueprint's default points"
         }
       ]
     },
@@ -20402,6 +20427,21 @@
           "suite": "live",
           "file": "tests/live/bcov-level-actors.test.ts",
           "test": "get_spline_info reads the points set_spline_points wrote"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "keeps the written points through a construction script rerun"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "the rollback restores the flag it found"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/spline-mark-edited.test.ts",
+          "test": "with markEdited false, the rerun restores the Blueprint's default points"
         }
       ]
     },
