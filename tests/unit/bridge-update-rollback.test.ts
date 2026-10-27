@@ -8,7 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { applyUpdate, readPendingUpdate } from "../../src/editor/bridge-update.js";
+import { applyUpdate, prepareBridgeForLaunch, readPendingUpdate } from "../../src/editor/bridge-update.js";
 import { treeFiles, verifyBridgeTree } from "../../src/editor/bridge-tree.js";
 import { readInstallMarker, writeInstallMarker } from "../../src/editor/install-marker.js";
 import { ProjectFixture } from "../helpers/project-fixture.js";
@@ -153,5 +153,54 @@ describe("the engine binaries are chosen for", () => {
 
     expect(result, result.error).toMatchObject({ ok: true, state: "applied" });
     expect(readInstallMarker(pluginDir)).toMatchObject({ engine: "5.8", version: "1.4.11" });
+  });
+});
+
+describe("before the editor launches", () => {
+  it("reinstalls a binary bridge that would not load, at its own version", async () => {
+    const { uproject, pluginDir } = project("1.4.11");
+    // A mixed tree: the new descriptor, one module's DLL missing.
+    tree(pluginDir, "1.4.11", ["UE_MCP_BridgeStatus", "UE_MCP_BridgeRuntime", "UE_MCP_Bridge"], ["UE_MCP_BridgeRuntime"]);
+    fs.rmSync(path.join(pluginDir, "Binaries", "Win64", "UnrealEditor-UE_MCP_BridgeRuntime.dll"), { force: true });
+
+    const prepared = await prepareBridgeForLaunch(uproject, { binaries: release("1.4.11") });
+
+    expect(prepared.ok, prepared.message).toBe(true);
+    expect(prepared.repaired?.join(" ")).toContain("UE_MCP_BridgeRuntime has no");
+    expect(verifyBridgeTree(pluginDir, { version: "1.4.11", platform: "Win64" })).toEqual([]);
+  });
+
+  it("refuses the launch, naming what is wrong, when the reinstall fails too", async () => {
+    const { uproject, pluginDir } = project("1.4.11");
+    fs.rmSync(path.join(pluginDir, "Binaries", "Win64", "UnrealEditor-UE_MCP_Bridge.dll"));
+
+    const prepared = await prepareBridgeForLaunch(uproject, { binaries: path.join(fixture.root, "nowhere") });
+
+    expect(prepared.ok).toBe(false);
+    expect(prepared.message).toContain("module UE_MCP_Bridge has no Binaries/Win64/UnrealEditor-UE_MCP_Bridge.dll");
+    expect(prepared.message).toContain("npx ue-mcp@1.4.11 update --apply-only");
+  });
+
+  it("leaves a sound install alone and clears spare copies under Plugins/", async () => {
+    const { uproject, pluginDir } = project("1.4.10");
+    const spare = path.join(path.dirname(pluginDir), "UE_MCP_Bridge.old-777");
+    tree(spare, "1.4.9", ["UE_MCP_Bridge"]);
+    const before = snapshot(pluginDir);
+
+    const prepared = await prepareBridgeForLaunch(uproject, { binaries: path.join(fixture.root, "nowhere") });
+
+    expect(prepared).toEqual({ ok: true });
+    expect(snapshot(pluginDir)).toEqual(before);
+    expect(fs.readdirSync(path.dirname(pluginDir))).toEqual(["UE_MCP_Bridge"]);
+  });
+
+  it("does not touch a source install", async () => {
+    const uproject = fixture.makeProject("Src", { engine: "5.8" });
+    const pluginDir = path.join(path.dirname(uproject), "Plugins", "UE_MCP_Bridge");
+    fs.mkdirSync(path.join(pluginDir, "Source"), { recursive: true });
+    fs.writeFileSync(path.join(pluginDir, "UE_MCP_Bridge.uplugin"), "{}");
+    writeInstallMarker(pluginDir, { kind: "source", engine: "5.8", platform: "Win64", version: "1.4.11" });
+
+    expect(await prepareBridgeForLaunch(uproject)).toEqual({ ok: true });
   });
 });

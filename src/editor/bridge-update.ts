@@ -433,7 +433,11 @@ async function applyUpdateNow(uprojectPath: string, options: ApplyOptions): Prom
       const current = marker?.version ?? readDescriptorVersion(pluginDir);
       const pending = readPendingUpdate(pluginDir);
       const settled = !pending || (pending.state === "swapped" && pending.version === version);
-      if (current === version && settled) {
+      // Already at this version still reinstalls when the tree would not load, which is how a broken install is repaired.
+      const loads = () => verify(pluginDir, {
+        version, platform: marker?.platform ?? unrealPlatform(), asideFiles: pending?.oldFiles ?? [], checkMarker: !!marker,
+      }).length === 0;
+      if (current === version && settled && loads()) {
         result.state = "unchanged";
       } else {
         // The project's engine first: a project moved to a new engine needs binaries for that one, not the marker's.
@@ -470,4 +474,57 @@ async function applyUpdateNow(uprojectPath: string, options: ApplyOptions): Prom
     emit("update.failed", { version, error: result.error });
   }
   return result;
+}
+
+export interface LaunchPreparation {
+  ok: boolean;
+  /** Set when the bridge would not have loaded and was reinstalled first. */
+  repaired?: string[];
+  /** Why the launch should not go ahead. */
+  message?: string;
+}
+
+/**
+ * Make the installed bridge one the editor will load, just before launching
+ * it: finish a pending update (the editor is down), clear spare copies under
+ * Plugins/, and for a binary install check the tree. A tree that would not
+ * load (a module without its DLL, a manifest out of step, Source over
+ * binaries) is reinstalled at its own version; when that fails too the launch
+ * is refused with the reasons, instead of the editor offering a rebuild that
+ * a binary install cannot do. Never throws.
+ */
+export async function prepareBridgeForLaunch(
+  uprojectPath: string,
+  options: Pick<ApplyOptions, "binaries" | "verifyTree"> = {},
+): Promise<LaunchPreparation> {
+  const projectDir = path.dirname(path.resolve(uprojectPath));
+  const located = resolvePluginDir(projectDir);
+  if (!located) return { ok: true };
+  const pluginDir = located.dir;
+  try {
+    settlePendingUpdate(pluginDir, false);
+  } catch (e) {
+    return { ok: false, message: `finishing the pending bridge update failed: ${e instanceof Error ? e.message : String(e)}` };
+  }
+  if (installKindOf(pluginDir) !== "binary") return { ok: true };
+  const verify = options.verifyTree ?? verifyBridgeTree;
+  const marker = readInstallMarker(pluginDir);
+  const version = marker?.version ?? readDescriptorVersion(pluginDir);
+  const problems = verify(pluginDir, {
+    version: version ?? "",
+    platform: marker?.platform ?? unrealPlatform(),
+    asideFiles: readPendingUpdate(pluginDir)?.oldFiles ?? [],
+    checkMarker: !!marker,
+  });
+  if (problems.length === 0) return { ok: true };
+  if (!version) return { ok: false, message: `the bridge in ${pluginDir} would not load (${problems.join("; ")}) and names no version to reinstall` };
+  const repaired = await applyUpdate(uprojectPath, { version, editorRunning: false, binaries: options.binaries, verifyTree: options.verifyTree });
+  if (!repaired.ok) {
+    return {
+      ok: false,
+      message: `the bridge in ${pluginDir} would not load (${problems.join("; ")}), and reinstalling ${version} failed: ${repaired.error}. ` +
+        `Run \`npx ue-mcp@${version} update --apply-only\` from the project directory.`,
+    };
+  }
+  return { ok: true, repaired: problems };
 }
