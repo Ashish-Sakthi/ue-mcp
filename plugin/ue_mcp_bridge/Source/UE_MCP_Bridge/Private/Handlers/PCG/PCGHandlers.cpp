@@ -942,6 +942,22 @@ void FPCGHandlers::RegisterHandlers(FMCPHandlerRegistry& Registry)
 		MCPParam::Optional(TEXT("graphPath"), EType::String, TEXT("Graph holding nodeName, for a node in a subgraph (default: the component's graph)")),
 		MCPParam::Optional(TEXT("includeLocalComponents"), EType::Boolean, TEXT("Also read a partitioned component's local components (default true)")),
 	}, ActorChoice);
+	// A component's graph and its parameter overrides, on a placed actor or on a Blueprint's component template,
+	// which is the write a construction script rerun keeps.
+	const FMCPParamSpec SpecBlueprintPath = MCPParam::Optional(TEXT("blueprintPath"), EType::String, TEXT("Blueprint whose PCG component template is written; every placed instance rebuilds from it"));
+	const FMCPParamSpec SpecComponentName = MCPParam::Optional(TEXT("componentName"), EType::String, TEXT("PCG component: the Blueprint's component variable name or the placed actor's component name (default: the only PCG component)"));
+	const FMCPSpecRules ComponentTargetChoice = MCPSpec::ExactlyOne({ { TEXT("blueprintPath") }, { TEXT("actorLabel") }, { TEXT("actorPath") } });
+	Registry.RegisterHandler(TEXT("get_pcg_component_parameters"), &GetComponentParameters, {
+		SpecBlueprintPath, SpecActorLabel, SpecActorPath, SpecComponentName,
+	}, ComponentTargetChoice);
+	Registry.RegisterHandler(TEXT("set_pcg_component_parameters"), &SetComponentParameters, {
+		SpecBlueprintPath, SpecActorLabel, SpecActorPath, SpecComponentName,
+		MCPParam::Required(TEXT("overrides"), EType::Object, TEXT("{parameterName: value}; null clears that override")),
+	}, ComponentTargetChoice);
+	Registry.RegisterHandler(TEXT("set_pcg_component_graph"), &SetComponentGraph, {
+		SpecBlueprintPath, SpecActorLabel, SpecActorPath, SpecComponentName,
+		MCPParam::Required(TEXT("graphPath"), EType::String, TEXT("PCGGraph or PCGGraphInstance assigned through UPCGComponent::SetGraph; \"\" clears it")),
+	}, ComponentTargetChoice);
 	// #1318: the graph's own pins, on its input or output node.
 	Registry.RegisterHandler(TEXT("set_pcg_graph_pins"), &SetGraphPins, {
 		GraphPath(),
@@ -2318,6 +2334,14 @@ TSharedPtr<FJsonValue> FPCGHandlers::GetPCGComponentDetails(const TSharedPtr<FJs
 		CompObj->SetStringField(TEXT("componentName"), PCGComp->GetName());
 		CompObj->SetNumberField(TEXT("seed"), PCGComp->Seed);
 		CompObj->SetBoolField(TEXT("activated"), PCGComp->bActivated);
+		// A component the Blueprint's construction script builds is rebuilt from its template on every rerun.
+		const bool bBlueprintOwned = PCGComp->CreationMethod == EComponentCreationMethod::SimpleConstructionScript
+			|| PCGComp->CreationMethod == EComponentCreationMethod::UserConstructionScript;
+		CompObj->SetBoolField(TEXT("blueprintOwned"), bBlueprintOwned);
+		if (bBlueprintOwned)
+		{
+			CompObj->SetStringField(TEXT("warning"), TEXT("Built by the Blueprint's construction script: graph or parameter edits on this placed actor can be discarded on reconstruction. Write them to the Blueprint with set_component_graph or set_component_parameters and blueprintPath."));
+		}
 
 		// Completion status. bGenerated is always false on a partitioned
 		// component; there the local component counts carry the state.
