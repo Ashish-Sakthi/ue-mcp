@@ -4,8 +4,8 @@
  * A machine with no C++ toolchain cannot compile the bridge, so it gets the
  * plugin prebuilt for its engine and platform instead of source. The archive is
  * a plugin directory with no Source tree. It is staged in the update work
- * directory and swapped in by rename, so a failed download never leaves half
- * a plugin.
+ * directory, checked, and swapped in by rename, so a failed download or a
+ * broken archive never leaves half a plugin.
  */
 import * as crypto from "node:crypto";
 import * as fs from "node:fs";
@@ -14,6 +14,7 @@ import * as path from "node:path";
 import { execFileSync } from "node:child_process";
 import { readEnv } from "../core/env.js";
 import { BRIDGE_PLUGIN_NAME, writeInstallMarker, type InstallMarker } from "./install-marker.js";
+import { treeFiles, verifyBridgeTree } from "./bridge-tree.js";
 import { isPidAlive } from "../bridge/editor-target.js";
 
 export interface BinaryTarget {
@@ -134,6 +135,8 @@ export interface StagedBinaries {
   staging: string;
   from: string;
   marker: InstallMarker;
+  /** Every file the release ships, relative to the plugin root, marker included. */
+  files: string[];
 }
 
 /**
@@ -184,7 +187,8 @@ function uniqueName(prefix: string): string {
 /**
  * Fetch, verify and unpack the binaries for `t` into a fresh directory in the
  * update work directory, so the swap that follows is a rename. Throws with the
- * source named when they cannot be fetched or hold no plugin for this platform.
+ * source named when they cannot be fetched, hold no plugin for this platform,
+ * or are not a tree the editor would load.
  */
 export async function stageBinaryPlugin(
   targetPluginDir: string,
@@ -222,7 +226,11 @@ export async function stageBinaryPlugin(
       fs.rmSync(path.join(staging, "Intermediate"), { recursive: true, force: true });
       const marker: InstallMarker = { kind: "binary", engine: t.engine, platform: t.platform, version: t.version };
       writeInstallMarker(staging, marker);
-      return { staging, from: describeBinarySource(source), marker };
+      const problems = verifyBridgeTree(staging, { version: t.version, platform: t.platform });
+      if (problems.length) {
+        throw new Error(`the bridge in ${describeBinarySource(source)} would not load: ${problems.join("; ")}`);
+      }
+      return { staging, from: describeBinarySource(source), marker, files: treeFiles(staging) };
     } catch (e) {
       fs.rmSync(staging, { recursive: true, force: true });
       dropEmptyWorkDir(updateDir);
@@ -243,7 +251,9 @@ export async function installBinaryPlugin(
   source: BinarySource = resolveBinarySource(t),
 ): Promise<BinaryInstallResult> {
   const staged = await stageBinaryPlugin(targetPluginDir, t, source);
-  swapIn(staged.staging, targetPluginDir);
+  swapIn(staged.staging, targetPluginDir, {
+    verify: () => verifyBridgeTree(targetPluginDir, { version: t.version, platform: t.platform, files: staged.files }),
+  });
   return { pluginDir: targetPluginDir, from: staged.from, marker: staged.marker };
 }
 
@@ -256,12 +266,18 @@ function removeQuietly(dir: string): boolean {
   }
 }
 
+export interface SwapOptions {
+  /** Checks the installed tree once it is in place; any problem puts the old tree back and throws. */
+  verify?: () => string[];
+}
+
 /**
  * Replace `target` with `staging`. The old tree is moved into the update work
- * directory first. An old tree that cannot be deleted yet (an editor still maps its DLLs) stays in the
+ * directory first; if the new one then fails `verify`, it is put back. An old
+ * tree that cannot be deleted yet (an editor still maps its DLLs) stays in the
  * work directory, out of the editor's sight, for sweepUpdateWork to take later.
  */
-export function swapIn(staging: string, target: string): void {
+export function swapIn(staging: string, target: string, opts: SwapOptions = {}): void {
   fs.mkdirSync(path.dirname(target), { recursive: true });
   const updateDir = updateWorkDir(target);
   fs.mkdirSync(updateDir, { recursive: true });
@@ -283,6 +299,14 @@ export function swapIn(staging: string, target: string): void {
     if (hadTarget) fs.renameSync(old, target);
     removeQuietly(staging);
     throw e;
+  }
+  const problems = opts.verify?.() ?? [];
+  if (problems.length) {
+    const failed = path.join(updateDir, uniqueName("failed"));
+    fs.renameSync(target, failed);
+    if (hadTarget) fs.renameSync(old, target);
+    removeQuietly(failed);
+    throw new Error(`the new bridge did not install cleanly, so the previous one was put back: ${problems.join("; ")}`);
   }
   if (hadTarget) removeQuietly(old);
   dropEmptyWorkDir(updateDir);

@@ -4,12 +4,12 @@
  *
  * A binary install is fetched and verified against the release manifest and
  * staged in the update work directory, outside Plugins/. With the editor down
- * it is swapped in at once.
- * With it running on Windows, each existing file is renamed aside (a loaded DLL
- * can be renamed, not overwritten) and the new one moved into place, so the
- * next launch loads it; a pending marker names the renamed files for cleanup.
- * Elsewhere the staged tree waits until the editor exits. Source is never
- * written over binaries.
+ * it is swapped in at once. With it running on Windows, each existing file is
+ * renamed aside (a loaded DLL can be renamed, not overwritten) and the new one
+ * moved into place, so the next launch loads it; a pending marker names the
+ * renamed files for cleanup. Elsewhere the staged tree waits until the editor
+ * exits. Either way the result is checked (verifyBridgeTree) and put back when
+ * it would not load. Source is never written over binaries.
  *
  * A source install gets the new source from the running package; it builds on
  * the next restart.
@@ -41,7 +41,7 @@ import {
 import { deploy, projectEngineVersion } from "./deployer.js";
 import { detectMcpClients, liftsAgeGate, readUeMcpEntry, writeMcpConfig } from "../integrations/claude-code/mcp-client-config.js";
 import { readEnv } from "../core/env.js";
-import { ASIDE_FILE, UPDATER_FILES, treeFiles } from "./bridge-tree.js";
+import { ASIDE_FILE, UPDATER_FILES, treeFiles, verifyBridgeTree } from "./bridge-tree.js";
 
 /** Minimal fetch, injected so the release lookups can be tested without a network. */
 export type ReleaseFetcher = (url: string) => Promise<{ ok: boolean; status: number; json(): Promise<unknown> }>;
@@ -188,21 +188,30 @@ function writePendingUpdate(pluginDir: string, p: PendingUpdate): void {
   fs.writeFileSync(pendingUpdatePath(pluginDir), JSON.stringify(p, null, 2));
 }
 
+export interface InPlaceOptions {
+  /** Suffix for the aside names; defaults to the current time. */
+  stamp?: string;
+  /** Checks the merged tree, given the files renamed aside; any problem undoes the swap and throws. */
+  verify?: (aside: string[]) => string[];
+}
+
 /**
  * Move every file of `staging` into `target` while the editor holds some of
  * them. An existing file is renamed to `<name>.old-<stamp>` first, which a
  * loaded DLL allows where an overwrite does not; the new file then takes its
  * name. A file the old release had and the new one does not is renamed aside
  * too, so the result is exactly the new release. Returns the renamed files. On
- * a failure midway, the files already moved are put back.
+ * a failure midway, or a tree `verify` rejects, everything is put back.
  */
-export function swapInPlace(staging: string, target: string, stamp: string = String(Date.now())): string[] {
+export function swapInPlace(staging: string, target: string, opts: InPlaceOptions = {}): string[] {
+  const stamp = opts.stamp ?? String(Date.now());
   const renamed: Array<{ from: string; to: string }> = [];
   const placed: string[] = [];
-  const asideOf = (dest: string): void => {
+  const asideOf = (dest: string): string => {
     const aside = `${dest}.old-${stamp}`;
     fs.renameSync(dest, aside);
     renamed.push({ from: dest, to: aside });
+    return aside;
   };
   const incoming = treeFiles(staging);
   const shipped = new Set(incoming.map((f) => f.toLowerCase()));
@@ -218,16 +227,30 @@ export function swapInPlace(staging: string, target: string, stamp: string = Str
       placed.push(dest);
     }
     for (const rel of dropped) asideOf(path.join(target, rel));
+    const problems = opts.verify?.(renamed.map((r) => r.to)) ?? [];
+    if (problems.length) {
+      throw new Error(`the new bridge did not install cleanly, so the previous one was put back: ${problems.join("; ")}`);
+    }
   } catch (e) {
-    for (const f of placed) fs.rmSync(f, { force: true });
+    const stuck: string[] = [];
+    for (const f of placed) {
+      try {
+        fs.rmSync(f, { force: true });
+      } catch {
+        stuck.push(f);
+      }
+    }
     for (const r of renamed.reverse()) {
       try {
         fs.renameSync(r.to, r.from);
       } catch {
-        // Leave it renamed rather than lose it; the pending marker is not written, so nothing claims success.
+        stuck.push(r.from);
       }
     }
-    throw e;
+    fs.rmSync(staging, { recursive: true, force: true });
+    const message = e instanceof Error ? e.message : String(e);
+    if (stuck.length) throw new Error(`${message}. Restoring the previous bridge failed for ${stuck.join(", ")}; close the editor and run ue-mcp update again.`);
+    throw e instanceof Error ? e : new Error(message);
   }
   fs.rmSync(staging, { recursive: true, force: true });
   return renamed.map((r) => r.to);
@@ -267,7 +290,11 @@ export function settlePendingUpdate(pluginDir: string, editorRunning: boolean): 
       sweepUpdateWork(pluginDir, pending.staging ? [pending.staging] : []);
       return false;
     }
-    swapIn(pending.staging, pluginDir);
+    const marker = readInstallMarker(pending.staging);
+    const files = treeFiles(pending.staging);
+    swapIn(pending.staging, pluginDir, {
+      verify: () => verifyBridgeTree(pluginDir, { version: pending.version, platform: marker?.platform ?? unrealPlatform(), files }),
+    });
     sweepUpdateWork(pluginDir);
     return true; // swapIn replaced the whole tree, marker included
   }
@@ -299,6 +326,8 @@ export interface ApplyOptions {
   binaries?: string | null;
   platform?: NodeJS.Platform;
   onEvent?: UpdateEvent;
+  /** The post-swap check; verifyBridgeTree unless a test supplies another. */
+  verifyTree?: typeof verifyBridgeTree;
 }
 
 export interface ApplyResult {
@@ -340,13 +369,19 @@ export function newerBridgeMessage(bridge: string, server: string): string {
     `Run \`npx ue-mcp@${distTagForVersion(bridge)} update\` to update it on its own channel.`;
 }
 
-/** Install `options.version` of the bridge into this project. Never throws; failures come back in the result. */
+/**
+ * Install `options.version` of the bridge into this project. Never throws;
+ * failures come back in the result. A binary install is checked after the
+ * swap (verifyBridgeTree) and put back as it was when the check fails, so a
+ * success means the editor will load the new bridge without a rebuild.
+ */
 export async function applyUpdate(uprojectPath: string, options: ApplyOptions): Promise<ApplyResult> {
   const version = options.version ?? packageVersion();
   const projectDir = path.dirname(path.resolve(uprojectPath));
   const located = resolvePluginDir(projectDir);
   const kind = located ? installKindOf(located.dir) : null;
   const emit = options.onEvent ?? (() => {});
+  const verify = options.verifyTree ?? verifyBridgeTree;
   const result: ApplyResult = { ok: false, kind, version, state: "unchanged", repinned: [] };
   try {
     if (!located || !kind) throw new Error("the bridge is not installed in this project; run ue-mcp init");
@@ -369,7 +404,8 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
     } else {
       const marker = readInstallMarker(pluginDir);
       const current = marker?.version ?? readDescriptorVersion(pluginDir);
-      if (current === version && !readPendingUpdate(pluginDir)) {
+      const pending = readPendingUpdate(pluginDir);
+      if (current === version && !pending) {
         result.state = "unchanged";
       } else {
         let engine = marker?.engine ?? null;
@@ -381,20 +417,19 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
         if (!engine) throw new Error("cannot tell which engine the binaries are for");
         const t: BinaryTarget = { version, engine, platform: marker?.platform ?? unrealPlatform() };
         const staged = await stageBinaryPlugin(pluginDir, t, resolveBinarySource(t, options.binaries));
+        const expect = (asideFiles: string[]) => verify(pluginDir, { version, platform: t.platform, files: staged.files, asideFiles });
         if (!options.editorRunning) {
-          swapIn(staged.staging, pluginDir);
+          swapIn(staged.staging, pluginDir, { verify: () => expect([]) });
           result.state = "applied";
         } else if ((options.platform ?? process.platform) === "win32") {
           // Aside files an earlier swap left, still mapped by the running editor, stay tracked for cleanup.
-          const earlier = readPendingUpdate(pluginDir);
-          const held = (earlier?.state === "swapped" ? earlier.oldFiles : []).filter((f) => fs.existsSync(f));
+          const earlier = (pending?.state === "swapped" ? pending.oldFiles : []).filter((f) => fs.existsSync(f));
           // Files the new release dropped, the retired Python bridge's among them (#1273), go aside with the rest.
-          const oldFiles = swapInPlace(staged.staging, pluginDir);
-          writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles: [...held, ...oldFiles], at: new Date().toISOString() });
+          const oldFiles = swapInPlace(staged.staging, pluginDir, { verify: (aside) => expect([...earlier, ...aside]) });
+          writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles: [...earlier, ...oldFiles], at: new Date().toISOString() });
           result.state = "applied";
         } else {
-          const earlier = readPendingUpdate(pluginDir);
-          if (earlier?.state === "staged" && earlier.staging) fs.rmSync(earlier.staging, { recursive: true, force: true });
+          if (pending?.state === "staged" && pending.staging) fs.rmSync(pending.staging, { recursive: true, force: true });
           writePendingUpdate(pluginDir, { version, state: "staged", staging: staged.staging, oldFiles: [], at: new Date().toISOString() });
           result.state = "staged";
           emit("update.staged", { version, waitingFor: "editor exit" });
