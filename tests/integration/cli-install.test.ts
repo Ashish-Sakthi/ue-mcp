@@ -201,6 +201,16 @@ describe("init --dry-run", () => {
     expect(plan.disable).toEqual(["niagara"]);
     expect(plan.clients.find((c: { id: string }) => c.id === "cursor").selected).toBe(true);
     expect(plan.blockers).toEqual([]);
+    // What a setup page needs to offer every choice the interactive wizard does.
+    expect(plan.categories.map((c: { name: string }) => c.name)).toEqual(
+      ["level", "blueprint", "material", "asset", "animation", "niagara", "landscape", "pcg", "foliage", "audio", "widget", "gameplay", "gas", "networking", "demo"],
+    );
+    expect(plan.categories.find((c: { name: string }) => c.name === "niagara")).toEqual(
+      { name: "niagara", label: "vfx (niagara)", description: "VFX systems, emitters, modules", requiredPlugins: ["Niagara"] },
+    );
+    expect(plan.nativeCategories.length).toBeGreaterThan(0);
+    expect(plan.bridge).toEqual({ port: expect.any(Number), derivedPort: plan.bridge.port, pinnedBy: null });
+    expect(plan.feedbackAuth).toEqual({ login: null });
 
     expect(blocked.code).toBe(1);
     expect(JSON.parse(blocked.stdout).blockers).toEqual([expect.stringContaining("unknown client 'vim'")]);

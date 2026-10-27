@@ -9,14 +9,13 @@ import type { CliUsage } from "./cli-main.js";
 import { getInstalledHooks } from "../config/user-state.js";
 import { coreSkillsInstalled } from "../extensions/skills.js";
 import { detectMcpClients, isProjectScopedClient, ueMcpServerArgs } from "../integrations/claude-code/mcp-client-config.js";
-import { deriveProjectPort } from "../bridge/port.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
 import { findUProject } from "../config/uproject-path.js";
-import { readEnv } from "../core/env.js";
 import {
   CATEGORIES,
   ENRICHABLE_CATEGORIES,
   apply,
+  bridgePort,
   plan,
   type ContextStrategy,
   type InitChoices,
@@ -214,14 +213,11 @@ async function init(argv: string[]): Promise<number | void> {
 
   ok(`Found UE ${project.engineAssociation ?? "?"} project "${project.projectName}"`);
   // The port this worktree will use, so checkouts on one machine are visibly distinct.
-  const derivedPort = deriveProjectPort(path.dirname(project.projectPath!));
-  const envPort = Number.parseInt(readEnv("port") ?? "", 10);
-  const pinnedPort = Number.isFinite(envPort) && envPort > 0 ? envPort : project.config.bridge?.port;
-  const portOrigin = Number.isFinite(envPort) && envPort > 0 ? "pinned by UE_MCP_PORT" : "pinned by ue-mcp.bridge.port";
+  const port = bridgePort(project);
   info(
-    pinnedPort
-      ? `Bridge port for this worktree: ${DIM}${pinnedPort}${RESET} (${portOrigin}; ${derivedPort} is what the project path derives)`
-      : `Bridge port for this worktree: ${DIM}${derivedPort}${RESET} (derived from the project path; pin with ue-mcp.bridge.port if needed)`,
+    port.pinnedBy
+      ? `Bridge port for this worktree: ${DIM}${port.port}${RESET} (${port.pinnedBy === "env" ? "pinned by UE_MCP_PORT" : "pinned by ue-mcp.bridge.port"}; ${port.derivedPort} is what the project path derives)`
+      : `Bridge port for this worktree: ${DIM}${port.port}${RESET} (derived from the project path; pin with ue-mcp.bridge.port if needed)`,
   );
   console.log("");
 
