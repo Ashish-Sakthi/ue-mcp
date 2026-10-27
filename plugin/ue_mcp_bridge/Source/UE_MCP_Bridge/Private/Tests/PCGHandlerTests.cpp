@@ -16,6 +16,8 @@
 #include "HandlerPackageSave.h"
 #include "Elements/PCGStaticMeshSpawner.h"
 #include "Engine/World.h"
+#include "Engine/StaticMesh.h"
+#include "Components/InstancedStaticMeshComponent.h"
 #include "MeshSelectors/PCGMeshSelectorByAttribute.h"
 #include "MeshSelectors/PCGMeshSelectorWeighted.h"
 #include "Misc/AutomationTest.h"
@@ -459,6 +461,58 @@ bool FMCPPCGPinLabelsTest::RunTest(const FString& Parameters)
 	UPCGGraph* Graph = LoadObject<UPCGGraph>(nullptr, *GraphPath);
 	TestTrue(TEXT("nothing was wired"), Graph && Graph->GetInputNode() && Graph->GetInputNode()->GetOutputPins().Num() > 0
 		&& Graph->GetInputNode()->GetOutputPins()[0]->Edges.Num() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGSpawnedOutputTest,
+	"UE.MCP.PCG.Volume.SpawnedComponentsInOutput",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGSpawnedOutputTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGHandlerTests;
+	FWorldScope Scope;
+	if (!TestNotNull(TEXT("disposable editor world exists"), Scope.World)) return false;
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+
+	auto Params = MakeShared<FJsonObject>();
+	Params->SetStringField(TEXT("label"), TEXT("UEMCP_PCGSpawned"));
+	if (!TestTrue(TEXT("add_pcg_volume succeeds"), Succeeded(Call(Registry, TEXT("add_pcg_volume"), Params)))) return false;
+	TSharedPtr<FJsonValue> LookupError;
+	APCGVolume* Volume = Cast<APCGVolume>(MCPResolveActorToken(Scope.World, TEXT("UEMCP_PCGSpawned"), LookupError));
+	if (!TestNotNull(TEXT("the volume is in the disposable world"), Volume)) return false;
+
+	// Two managed ISMs, as a spawner with two meshes leaves them: one with three instances, one with two.
+	UStaticMesh* Cube = LoadObject<UStaticMesh>(nullptr, TEXT("/Engine/BasicShapes/Cube.Cube"));
+	TArray<UActorComponent*> Spawned;
+	for (int32 Count : { 3, 2 })
+	{
+		UInstancedStaticMeshComponent* ISM = NewObject<UInstancedStaticMeshComponent>(Volume);
+		ISM->ComponentTags.Add(FName(TEXT("PCG Generated Component")));
+		ISM->SetStaticMesh(Cube);
+		for (int32 i = 0; i < Count; ++i) ISM->AddInstance(FTransform(FVector(i * 100.0, 0.0, 0.0)));
+		Volume->AddInstanceComponent(ISM);
+		Spawned.Add(ISM);
+	}
+	Volume->PCGComponent->AddComponentsToManagedResources(Spawned);
+
+	auto ReadParams = MakeShared<FJsonObject>();
+	ReadParams->SetStringField(TEXT("actorLabel"), TEXT("UEMCP_PCGSpawned"));
+	const TSharedPtr<FJsonObject> Out = Call(Registry, TEXT("read_pcg_generated_output"), ReadParams);
+	if (!TestTrue(TEXT("read_pcg_generated_output succeeds"), Succeeded(Out))) return false;
+	const TSharedPtr<FJsonObject> Row = Out->GetArrayField(TEXT("components"))[0]->AsObject();
+	TestEqual(TEXT("both spawned components are listed"), Row->GetArrayField(TEXT("spawnedComponents")).Num(), 2);
+	TestEqual(TEXT("the instance counts add up"), Row->GetNumberField(TEXT("spawnedInstanceCount")), 5.0);
+	TestEqual(TEXT("the total is reported at the top"), Out->GetNumberField(TEXT("spawnedInstanceCount")), 5.0);
+	bool bMesh = false;
+	for (const TSharedPtr<FJsonValue>& Entry : Row->GetArrayField(TEXT("spawnedComponents")))
+	{
+		bMesh |= Entry->AsObject()->GetStringField(TEXT("mesh")) == Cube->GetPathName();
+	}
+	TestTrue(TEXT("each spawned ISM names its mesh"), bMesh);
+	TestTrue(TEXT("an empty data list beside spawned content carries a note"), Row->HasField(TEXT("note")));
 	return true;
 }
 

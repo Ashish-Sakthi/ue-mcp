@@ -876,6 +876,11 @@
         {
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
+          "test": "UE.MCP.PCG.Volume.SpawnedComponentsInOutput"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
           "test": "UE.MCP.PCG.Volume.TransformAndRunRecord"
         }
       ]
@@ -2931,6 +2936,11 @@
           "suite": "live",
           "file": "tests/live/bcov-pcg.test.ts",
           "test": "cleanup_pcg clears what a generation produced"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-spawned-output.test.ts",
+          "test": "reports nothing spawned once the component is cleaned up"
         }
       ]
     },
@@ -15186,9 +15196,29 @@
       "status": "covered",
       "tests": [
         {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
+          "test": "UE.MCP.PCG.Volume.SpawnedComponentsInOutput"
+        },
+        {
           "suite": "live",
           "file": "tests/live/pcg-generated-output.test.ts",
           "test": "read_pcg_generated_output pages the sampled points with their positions (#1309)"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-spawned-output.test.ts",
+          "test": "lists the spawned ISM components with their meshes and instance counts"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-spawned-output.test.ts",
+          "test": "reports nothing spawned once the component is cleaned up"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-spawned-output.test.ts",
+          "test": "says why the data list is empty when the spawner feeds nothing to the output node"
         }
       ]
     },
