@@ -65,6 +65,7 @@ import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } f
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
+import { editorOwnsProject, probeEditorProcessList } from "../editor/engine-observer.js";
 import { applyUpdate, checkForUpdate, readPendingUpdate, repinClientConfigs, settlePendingUpdate } from "../editor/bridge-update.js";
 import { subscribeFlowEvents } from "../flow/events.js";
 import { registerModelProvider } from "../flow/model-provider.js";
@@ -209,7 +210,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           openUrl(`http://127.0.0.1:${port}/ui/?token=${token}`);
         }
         // The editor is gone: renamed-aside DLLs can go, and a staged update can swap in.
-        if ((cause === "closed" || cause === "crashed") && dir) settleUpdate(dir);
+        if ((cause === "closed" || cause === "crashed") && dir) settleUpdate(dir, false);
       });
     });
 
@@ -233,21 +234,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   // ── Updates ─────────────────────────────────────────────────────
-  const settleUpdate = (dir: string): void => {
+  const editorProcessHolds = async (uproject: string): Promise<boolean> => {
+    try {
+      const probe = await probeEditorProcessList();
+      return probe.failed || probe.processes.some((p) => editorOwnsProject(p, uproject));
+    } catch {
+      return true;
+    }
+  };
+  // Without a pending update this still clears the spare plugin copies earlier releases left under Plugins/.
+  const settleUpdate = (dir: string, editorRunning: boolean): void => {
     const pluginDir = resolvePluginDir(dir)?.dir;
     if (!pluginDir) return;
     const pending = readPendingUpdate(pluginDir);
-    if (!pending) return;
     try {
-      if (settlePendingUpdate(pluginDir, false) && pending.state === "staged") {
+      if (settlePendingUpdate(pluginDir, editorRunning) && pending?.state === "staged") {
         const repinned = repinClientConfigs(rt.project.projectPath ?? opts.projects[0], pending.version);
         events.publish("update.applied", { version: pending.version, state: "applied", repinned });
       }
     } catch (e) {
-      events.publish("update.failed", { version: pending.version, error: e instanceof Error ? e.message : String(e) });
+      if (pending) events.publish("update.failed", { version: pending.version, error: e instanceof Error ? e.message : String(e) });
     }
   };
-  settleUpdate(projectDir);
+  // A daemon restarted under a running editor (Studio updating itself) must not swap a staged tree in beneath it.
+  settleUpdate(projectDir, findLiveInstanceRecord(projectDir) !== null);
 
   // Look for a newer release now and then, never in the first minute (tests and short runs finish first).
   let announced: string | null = null;
@@ -600,10 +610,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     }
     if (req.method === "POST" && url.pathname === "/v1/update/apply") {
       readBody(req)
-        .then((body) => {
+        .then(async (body) => {
           const b = (body ?? {}) as { version?: unknown; binaries?: unknown };
-          const editorRunning = editors().some((e) => e.connected) || findLiveInstanceRecord(projectDir) !== null;
-          return applyUpdate(rt.project.projectPath ?? opts.projects[0], {
+          const uproject = rt.project.projectPath ?? opts.projects[0];
+          // A bridge that has not written its instance record yet (starting, or an older build) still
+          // maps its DLLs, so the process table is asked too. A probe that cannot run counts as running:
+          // the in-place swap is safe with the editor down, the whole-tree one is not with it up.
+          const editorRunning = editors().some((e) => e.connected) || findLiveInstanceRecord(projectDir) !== null
+            || (await editorProcessHolds(uproject));
+          return applyUpdate(uproject, {
             version: typeof b.version === "string" ? b.version : undefined,
             binaries: typeof b.binaries === "string" ? b.binaries : null,
             editorRunning,

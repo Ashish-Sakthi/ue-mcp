@@ -5,7 +5,7 @@ import * as path from "node:path";
 
 import { collectDoctor, formatDoctor } from "./doctor.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
-import { editorOwnsProject, listEditorProcesses } from "../editor/engine-observer.js";
+import { editorOwnsProject, probeEditorProcessList } from "../editor/engine-observer.js";
 import { UE_MCP_LAUNCH } from "../integrations/claude-code/mcp-client-config.js";
 import { distTagForVersion, isNewer, isPrereleaseVersion, resolveUpdateTarget } from "../core/version-check.js";
 import { packageModulePath, packageRoot, packageVersion } from "../core/package-root.js";
@@ -41,11 +41,17 @@ function targetUProject(arg: string | undefined): string | null {
   return findUProject(isDir ? arg : process.cwd());
 }
 
+/**
+ * Whether an editor holds this project. A process table that cannot be read
+ * counts as yes: the in-place swap is safe with the editor down, and the
+ * whole-tree swap is not with it up.
+ */
 async function editorRunningFor(uproject: string): Promise<boolean> {
   try {
-    return (await listEditorProcesses()).some((p) => editorOwnsProject(p, uproject));
+    const probe = await probeEditorProcessList();
+    return probe.failed || probe.processes.some((p) => editorOwnsProject(p, uproject));
   } catch {
-    return false;
+    return true;
   }
 }
 
