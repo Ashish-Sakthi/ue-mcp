@@ -45,6 +45,7 @@ import {
 import { EventLog } from "./events.js";
 import { ExpectedDisconnect, settleAndClassify } from "./disconnect.js";
 import { WebSocketServerTransport } from "./ws-transport.js";
+import { watchDir, type DirWatch, type WatchFn } from "./dir-watch.js";
 import { describeToolCall, resultError, type CallLabel } from "./activity.js";
 import { openUrl } from "../core/open-url.js";
 import { handleFlowRoute, hostIsAllowed } from "../flow/http-server.js";
@@ -115,11 +116,23 @@ export interface DaemonOptions {
   extensionsDir?: string;
   /** Where UI bundles are kept. Defaults to uiStoreDir(). */
   uiDir?: string;
+  /** Replaces fs.watch for the bridge instances folder, for tests. */
+  watch?: WatchFn;
 }
 
 /** How often the daemon checks that it can still answer, and how long a hold is worth a warning. */
 const STALL_BEAT_MS = 1000;
 const STALL_REPORT_MS = 3000;
+
+/** Pipe a file to a response; a file gone mid-read ends the response instead of the daemon. */
+function streamFile(file: string, res: http.ServerResponse): void {
+  fs.createReadStream(file)
+    .on("error", (e) => {
+      warn("daemon", `could not read ${file}`, e);
+      res.destroy();
+    })
+    .pipe(res);
+}
 
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   const rt = await createRuntime(opts.projects);
@@ -153,7 +166,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // ── Editor attachment ───────────────────────────────────────────
   const states = new Map<EditorSession, EditorState>();
   const records = new Map<EditorSession, BridgeInstanceRecord | null>();
-  const watchers: fs.FSWatcher[] = [];
+  const watchers: DirWatch[] = [];
 
   const follow = (session: EditorSession): void => {
     if (states.has(session)) return;
@@ -202,19 +215,13 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
 
     // Reattach as soon as an editor publishes its record, not at the next tick.
     if (dir) {
-      const instances = bridgeInstancesDir(dir);
-      try {
-        fs.mkdirSync(instances, { recursive: true });
-        let timer: NodeJS.Timeout | null = null;
-        const watcher = fs.watch(instances, () => {
-          if (session.bridge.isConnected) return;
-          if (timer) clearTimeout(timer);
-          timer = setTimeout(() => void pokeWithBackoff(session), 250);
-        });
-        watchers.push(watcher);
-      } catch (e) {
-        warn("daemon", `cannot watch ${instances}; reattach falls back to the reconnect interval`, e);
-      }
+      let timer: NodeJS.Timeout | null = null;
+      const watcher = watchDir(bridgeInstancesDir(dir), () => {
+        if (session.bridge.isConnected) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => void pokeWithBackoff(session), 250);
+      }, { watch: opts.watch });
+      watchers.push(watcher);
     }
   };
 
@@ -674,7 +681,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         "cache-control": "no-cache",
         "x-content-type-options": "nosniff",
       });
-      fs.createReadStream(file).pipe(res);
+      streamFile(file, res);
       return;
     }
     if (url.pathname.startsWith("/v1/ext/")) {
@@ -713,7 +720,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           if (!r.file) return json(res, r.status, r.body);
           // A picture is named by the blob id of the version it shows, so it never changes.
           res.writeHead(200, { "content-type": r.file.type, "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" });
-          fs.createReadStream(r.file.path).pipe(res);
+          streamFile(r.file.path, res);
         }, (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
       return;
     }
@@ -742,6 +749,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     httpServer.once("error", reject);
     httpServer.listen(opts.port ?? 0, "127.0.0.1", () => resolve());
   });
+  // A server error after listening is logged; without a listener it would end the daemon.
+  httpServer.on("error", (e) => warn("daemon", "HTTP server error", e));
   const port = (httpServer.address() as { port: number }).port;
 
   // ── Idle exit and lifecycle ─────────────────────────────────────
