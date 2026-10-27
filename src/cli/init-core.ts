@@ -28,7 +28,7 @@ import {
   syncPluginSkills,
 } from "../extensions/skills.js";
 import { installClaudeHooks, uninstallClaudeHooks } from "../integrations/claude-code/hook-installer.js";
-import { getInstalledHooks } from "../config/user-state.js";
+import { getFeedbackModeScopes, getInstalledHooks, setFeedbackMode, type FeedbackMode } from "../config/user-state.js";
 import {
   detectMcpClients,
   isProjectScopedClient,
@@ -115,6 +115,8 @@ export interface InitChoices {
    */
   clients?: string[];
   feedback?: boolean;
+  /** Feedback approval mode to store for this project, as `feedback mode <mode> --editor` does. Unset keeps it. */
+  feedbackMode?: FeedbackMode;
   promptHook?: boolean;
   skills?: boolean;
   /** auto picks binary when there is no toolchain and keeps whatever is installed. */
@@ -143,6 +145,28 @@ export function bridgePort(project: ProjectContext): BridgePort {
   const configPort = project.config.bridge?.port;
   if (configPort) return { port: configPort, derivedPort, pinnedBy: "config" };
   return { port: derivedPort, derivedPort, pinnedBy: null };
+}
+
+export const FEEDBACK_MODES: readonly FeedbackMode[] = ["interactive", "auto-approve", "defer"];
+
+/** The feedback approval mode in effect, and which setting decided it. */
+export interface PlannedFeedbackMode {
+  mode: FeedbackMode;
+  /** env is UE_MCP_FEEDBACK_MODE, project the per-project setting, user the per-user one, default when nothing is set. */
+  scope: "env" | "project" | "user" | "default";
+  /** The project-scoped mode apply() stores, or null when it leaves it alone. */
+  set: FeedbackMode | null;
+}
+
+/** The effective feedback mode for a project, counting a mode about to be stored for it. */
+export function feedbackModeOf(projectDir: string, set: FeedbackMode | null = null): PlannedFeedbackMode {
+  const env = (readEnv("feedbackMode") ?? "").trim().toLowerCase() as FeedbackMode;
+  if (FEEDBACK_MODES.includes(env)) return { mode: env, scope: "env", set };
+  const scopes = getFeedbackModeScopes(projectDir);
+  const project = set ?? scopes.project;
+  if (project) return { mode: project, scope: "project", set };
+  if (scopes.user) return { mode: scopes.user, scope: "user", set };
+  return { mode: "interactive", scope: "default", set };
 }
 
 export interface PlannedClient {
@@ -180,6 +204,7 @@ export interface InitPlan {
   clients: PlannedClient[];
   launch: ServerLaunch;
   feedback: boolean;
+  feedbackMode: PlannedFeedbackMode;
   promptHook: boolean;
   skills: boolean;
   /** Reasons apply() would refuse to run. */
@@ -328,6 +353,7 @@ export function plan(choices: InitChoices, hooks: ProbeHooks = DEFAULT_PROBE_HOO
     clients,
     launch: { pin: choices.pin ? version : null, command: choices.command ?? null },
     feedback,
+    feedbackMode: feedbackModeOf(projectDir, choices.feedbackMode ?? null),
     promptHook,
     skills,
     blockers,
@@ -593,6 +619,18 @@ export async function apply(p: InitPlan): Promise<InitResult> {
       target: configPath,
       detail: scaffolded ? "ue-mcp.yml created" : "tool surface and content roots",
     });
+
+    // 7. The project's feedback approval mode, a per-user setting kept in ~/.ue-mcp/state.json.
+    if (p.feedbackMode.set) {
+      const before = getFeedbackModeScopes(projectDir).project;
+      if (before !== p.feedbackMode.set) setFeedbackMode(p.feedbackMode.set, projectDir);
+      steps.push({
+        id: "feedback-mode",
+        status: before === p.feedbackMode.set ? "unchanged" : "changed",
+        target: projectDir,
+        detail: `feedback mode ${p.feedbackMode.set}`,
+      });
+    }
 
     return done(true);
   } catch (e) {
