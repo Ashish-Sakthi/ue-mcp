@@ -3,7 +3,8 @@
  * install's channel, then apply it whether or not the editor is running.
  *
  * A binary install is fetched and verified against the release manifest and
- * staged beside the plugin. With the editor down it is swapped in at once.
+ * staged in the update work directory, outside Plugins/. With the editor down
+ * it is swapped in at once.
  * With it running on Windows, each existing file is renamed aside (a loaded DLL
  * can be renamed, not overwritten) and the new one moved into place, so the
  * next launch loads it; a pending marker names the renamed files for cleanup.
@@ -33,6 +34,7 @@ import {
   resolveBinarySource,
   stageBinaryPlugin,
   swapIn,
+  sweepUpdateWork,
   type BinaryManifest,
   type BinaryTarget,
 } from "./bridge-binaries.js";
@@ -235,15 +237,23 @@ export function swapInPlace(staging: string, target: string, stamp: string = Str
 
 /**
  * Finish whatever an earlier update left: delete renamed-aside files nothing
- * holds any more, and swap in a staged tree once the editor is down. Returns
- * true when the pending marker is gone afterwards.
+ * holds any more, swap in a staged tree once the editor is down, and clear the
+ * spare trees earlier updates left (sweepUpdateWork). Returns true when the
+ * pending marker is gone afterwards.
  */
 export function settlePendingUpdate(pluginDir: string, editorRunning: boolean): boolean {
   const pending = readPendingUpdate(pluginDir);
-  if (!pending) return true;
+  if (!pending) {
+    sweepUpdateWork(pluginDir);
+    return true;
+  }
   if (pending.state === "staged") {
-    if (editorRunning || !pending.staging || !fs.existsSync(pending.staging)) return false;
+    if (editorRunning || !pending.staging || !fs.existsSync(pending.staging)) {
+      sweepUpdateWork(pluginDir, pending.staging ? [pending.staging] : []);
+      return false;
+    }
     swapIn(pending.staging, pluginDir);
+    sweepUpdateWork(pluginDir);
     return true; // swapIn replaced the whole tree, marker included
   }
   const left = pending.oldFiles.filter((f) => {
@@ -254,6 +264,7 @@ export function settlePendingUpdate(pluginDir: string, editorRunning: boolean): 
       return true; // still loaded
     }
   });
+  sweepUpdateWork(pluginDir);
   if (left.length === 0) {
     fs.rmSync(pendingUpdatePath(pluginDir), { force: true });
     return true;
@@ -364,10 +375,9 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
           writePendingUpdate(pluginDir, { version, state: "swapped", oldFiles, at: new Date().toISOString() });
           result.state = "applied";
         } else {
-          const waiting = `${pluginDir}.pending-update`;
-          fs.rmSync(waiting, { recursive: true, force: true });
-          fs.renameSync(staged.staging, waiting);
-          writePendingUpdate(pluginDir, { version, state: "staged", staging: waiting, oldFiles: [], at: new Date().toISOString() });
+          const earlier = readPendingUpdate(pluginDir);
+          if (earlier?.state === "staged" && earlier.staging) fs.rmSync(earlier.staging, { recursive: true, force: true });
+          writePendingUpdate(pluginDir, { version, state: "staged", staging: staged.staging, oldFiles: [], at: new Date().toISOString() });
           result.state = "staged";
           emit("update.staged", { version, waitingFor: "editor exit" });
         }

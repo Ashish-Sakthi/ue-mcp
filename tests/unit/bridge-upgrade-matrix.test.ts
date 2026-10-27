@@ -217,3 +217,58 @@ for (const to of targets) {
     }, 120_000);
   });
 }
+
+/** Every directory under Plugins/ holding a UE_MCP_Bridge.uplugin: what the editor would discover. */
+function discoverable(uproject: string): string[] {
+  const plugins = path.join(path.dirname(uproject), "Plugins");
+  return treeFiles(plugins).filter((f) => /(^|\/)UE_MCP_Bridge\.uplugin$/i.test(f)).map((f) => path.posix.dirname(f));
+}
+
+function holdDlls(dir: string): Promise<void> {
+  holder = new DllHolder();
+  return holder.hold(treeFiles(dir).filter((f) => f.endsWith(".dll")).map((f) => path.join(dir, f)));
+}
+
+async function releaseHeld(): Promise<void> {
+  await holder?.release();
+  holder = null;
+}
+
+describe("an editor the updater missed (editorRunning false while it maps the old DLLs)", () => {
+  it("installs the new tree and moves the old one out of Plugins/, where the editor cannot find it", async () => {
+    const from = releases[0];
+    const { uproject, pluginDir } = installed(from);
+    if (HOLD) await holdDlls(pluginDir);
+
+    const result = await applyUpdate(uproject, { version: newest.version, editorRunning: false, binaries: binariesFor(newest) });
+
+    expect(result, result.error).toMatchObject({ ok: true, state: "applied" });
+    expect(verifyBridgeTree(pluginDir, { version: newest.version, platform: PLATFORM, files: targetFiles(newest) })).toEqual([]);
+    expectTargetContent(newest, pluginDir);
+    expect(discoverable(uproject)).toEqual(["UE_MCP_Bridge"]);
+
+    await releaseHeld();
+    expect(settlePendingUpdate(pluginDir, false)).toBe(true);
+    expect(fs.existsSync(path.join(path.dirname(uproject), "Intermediate", "UE_MCP_Update"))).toBe(false);
+  }, 120_000);
+});
+
+describe("copies earlier releases left under Plugins/", () => {
+  it.each(["UE_MCP_Bridge.old-4242", "UE_MCP_Bridge.staging-4242", "UE_MCP_Bridge.pending-update"])(
+    "takes %s out of the editor's sight on the next update, even while it is mapped",
+    async (name) => {
+      const from = releases[0];
+      const { uproject, pluginDir } = installed(from);
+      const spare = path.join(path.dirname(pluginDir), name);
+      layOut(from, spare);
+      if (HOLD) await holdDlls(spare);
+      expect(discoverable(uproject).sort()).toEqual(["UE_MCP_Bridge", name].sort());
+
+      const result = await applyUpdate(uproject, { version: newest.version, editorRunning: true, platform: "win32", binaries: binariesFor(newest) });
+
+      expect(result, result.error).toMatchObject({ ok: true, state: "applied" });
+      expect(discoverable(uproject)).toEqual(["UE_MCP_Bridge"]);
+    },
+    120_000,
+  );
+});
