@@ -145,6 +145,62 @@ namespace
 		return FString();
 	}
 
+	/** Whether Value is a field object ({AttributeName: "Mesh"}) for an instanced object property, written into the object it holds. */
+	static bool IsInstancedFieldObject(const FProperty* Prop, const TSharedPtr<FJsonValue>& Value)
+	{
+		return Prop && CastField<FObjectProperty>(Prop) && Prop->HasAnyPropertyFlags(CPF_InstancedReference | CPF_PersistentInstance)
+			&& Value.IsValid() && Value->Type == EJson::Object && !Value->AsObject()->HasField(TEXT("instanceClass"));
+	}
+
+	/**
+	 * Replaces each {Key: {Field: value}} whose Key is an instanced object property (a spawner's MeshSelectorParameters)
+	 * with {Key.Field: value}, so the fields land in the subobject the settings own and each is captured and read back
+	 * on its own. Nested field objects for a further instanced property are expanded the same way.
+	 */
+	static void ExpandInstancedFieldObjects(UObject* Settings, TArray<TPair<FString, TSharedPtr<FJsonValue>>>& Props)
+	{
+		TArray<TPair<FString, TSharedPtr<FJsonValue>>> Out;
+		TArray<TPair<FString, TSharedPtr<FJsonValue>>> Pending = MoveTemp(Props);
+		for (int32 i = 0; i < Pending.Num(); ++i)
+		{
+			FProperty* Leaf = nullptr;
+			void* Addr = nullptr;
+			UObject* Owner = nullptr;
+			FString Err;
+			const bool bResolved = MCPJsonProperty::ResolveDottedPath(Settings, Pending[i].Key, Leaf, Addr, Owner, Err);
+			if (!bResolved || !IsInstancedFieldObject(Leaf, Pending[i].Value))
+			{
+				Out.Add(Pending[i]);
+				continue;
+			}
+			const FString Prefix = Pending[i].Key + TEXT(".");
+			const TSharedPtr<FJsonObject> Fields = Pending[i].Value->AsObject();
+			for (const auto& Field : Fields->Values) Pending.Emplace(Prefix + FString(*Field.Key), Field.Value);
+		}
+		Props = MoveTemp(Out);
+	}
+
+	/**
+	 * For a dotted key that did not resolve through an instanced subobject, the subobject's class and the property
+	 * that selects it (MeshSelectorParameters follows MeshSelectorType), else empty.
+	 */
+	static FString InstancedPathHint(UObject* Settings, const FString& Key)
+	{
+		int32 Dot = INDEX_NONE;
+		if (!Key.FindChar(TEXT('.'), Dot)) return FString();
+		const FString Head = Key.Left(Dot);
+		const FObjectProperty* Prop = CastField<FObjectProperty>(MCPJsonProperty::FindMemberProperty(Settings->GetClass(), Head));
+		if (!Prop || !Prop->HasAnyPropertyFlags(CPF_InstancedReference | CPF_PersistentInstance)) return FString();
+		const UObject* Held = Prop->GetObjectPropertyValue_InContainer(Settings);
+		FString Hint = FString::Printf(TEXT(" '%s' holds %s."), *Prop->GetName(), Held ? *FString::Printf(TEXT("a %s"), *Held->GetClass()->GetName()) : TEXT("nothing"));
+		FString TypeName = Prop->GetName();
+		if (TypeName.RemoveFromEnd(TEXT("Parameters")) && Settings->GetClass()->FindPropertyByName(FName(*(TypeName + TEXT("Type")))))
+		{
+			Hint += FString::Printf(TEXT(" Its class follows %sType: write that in the same call to switch it."), *TypeName);
+		}
+		return Hint;
+	}
+
 	// The refusal for one {Key: Value} setting written to Target, or empty when
 	// it hands no path to an instanced object property. Resolves only; writes nothing.
 	static FString InstancedPathRefusal(UObject* Target, const FString& NodeName, const FString& Key, const TSharedPtr<FJsonValue>& Value)
@@ -154,6 +210,8 @@ namespace
 		UObject* LeafOwner = nullptr;
 		FString ResolveErr;
 		if (!MCPJsonProperty::ResolveDottedPath(Target, Key, LeafProp, LeafAddr, LeafOwner, ResolveErr)) return FString();
+		// A field object is written into the subobject the settings own, not handed a path.
+		if (IsInstancedFieldObject(LeafProp, Value)) return FString();
 		const FString Hit = FindInstancedPathWrite(LeafProp, Value, Key);
 		if (Hit.IsEmpty()) return FString();
 		return FString::Printf(
@@ -341,10 +399,18 @@ namespace
 		void* LeafAddr = nullptr;
 		UObject* LeafOwner = nullptr;
 		FString ResolveErr;
-		if (!MCPJsonProperty::ResolveDottedPath(Settings, Key, Leaf, LeafAddr, LeafOwner, ResolveErr) || !Leaf || !LeafAddr
-			|| !WritesPCGSelector(Leaf, Value))
+		const bool bResolved = MCPJsonProperty::ResolveDottedPath(Settings, Key, Leaf, LeafAddr, LeafOwner, ResolveErr) && Leaf && LeafAddr;
+		// A dotted path may write into a subobject these settings own, never into one another object owns.
+		if (bResolved && LeafOwner && LeafOwner != Settings && !LeafOwner->IsIn(Settings))
 		{
-			return MCPJsonProperty::SetDottedPropertyFromJson(Settings, Key, Value, OutError);
+			OutError = FString::Printf(TEXT("'%s' is inside %s, which these settings do not own, so it is not written"), *Key, *LeafOwner->GetPathName());
+			return false;
+		}
+		if (!bResolved || !WritesPCGSelector(Leaf, Value))
+		{
+			const bool bOk = MCPJsonProperty::SetDottedPropertyFromJson(Settings, Key, Value, OutError);
+			if (!bOk) OutError += InstancedPathHint(Settings, Key);
+			return bOk;
 		}
 		if (const FStructProperty* Selector = AsSelectorProp(Leaf)) return SetPCGSelectorFromJson(Selector, LeafAddr, Value, OutError);
 		if (const FArrayProperty* AP = CastField<FArrayProperty>(Leaf))
@@ -1616,6 +1682,8 @@ TSharedPtr<FJsonValue> FPCGHandlers::SetPCGNodeSettings(const TSharedPtr<FJsonOb
 		// Wrap the string value in a JsonValueString so we run through the same path.
 		PropertiesToSet.Add(TPair<FString, TSharedPtr<FJsonValue>>(PropertyName, MakeShared<FJsonValueString>(PropertyValue)));
 	}
+	// {MeshSelectorParameters: {AttributeName: "Mesh"}} writes into the selector the node owns, one field per key.
+	ExpandInstancedFieldObjects(Settings, PropertiesToSet);
 
 	// JSON object order must not decide which selector receives the dotted fields.
 	PropertiesToSet.StableSort([](const auto& A, const auto& B)
@@ -3068,6 +3136,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ImportGraph(const TSharedPtr<FJsonObject>& 
 			{
 				PropertiesToSet.Emplace(FString(*Pair.Key), Pair.Value);
 			}
+			ExpandInstancedFieldObjects(NodeSettings, PropertiesToSet);
 			PropertiesToSet.StableSort([](const auto& A, const auto& B)
 			{
 				return IsSpawnerInstancedTypeKey(A.Key) && !IsSpawnerInstancedTypeKey(B.Key);

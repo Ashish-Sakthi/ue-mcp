@@ -6,6 +6,7 @@
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "Handlers/PCG/PCGHandlers.h"
+#include "Handlers/PCG/PCGHandlers_Internal.h"
 #include "Tests/MCPScopedTestMount.h"
 #include "Editor.h"
 #include "Elements/PCGAddTag.h"
@@ -15,6 +16,7 @@
 #include "HandlerPackageSave.h"
 #include "Elements/PCGStaticMeshSpawner.h"
 #include "Engine/World.h"
+#include "MeshSelectors/PCGMeshSelectorByAttribute.h"
 #include "MeshSelectors/PCGMeshSelectorWeighted.h"
 #include "Misc/AutomationTest.h"
 #include "Misc/Guid.h"
@@ -337,6 +339,69 @@ bool FMCPPCGImportWarningsTest::RunTest(const FString& Parameters)
 	Edge->SetStringField(TEXT("to"), TEXT("MissingTarget"));
 	Params->SetArrayField(TEXT("connections"), {MakeShared<FJsonValueObject>(Edge)});
 	TestFalse(TEXT("unapplied edge fails"), Succeeded(Call(Registry, TEXT("import_pcg_graph"), Params)));
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGOwnedSelectorFieldsTest,
+	"UE.MCP.PCG.Graph.OwnedSelectorFields",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGOwnedSelectorFieldsTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGHandlerTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGTest") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+
+	auto CreateParams = MakeShared<FJsonObject>();
+	CreateParams->SetStringField(TEXT("name"), TEXT("PCG_Fields_") + FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	CreateParams->SetStringField(TEXT("packagePath"), FString(Root) + TEXT("Fields"));
+	const TSharedPtr<FJsonObject> Created = Call(Registry, TEXT("create_pcg_graph"), CreateParams);
+	if (!TestTrue(TEXT("create_pcg_graph succeeds"), Succeeded(Created))) return false;
+	const FString GraphPath = Created->GetStringField(TEXT("path"));
+	auto AddParams = MakeShared<FJsonObject>();
+	AddParams->SetStringField(TEXT("assetPath"), GraphPath);
+	AddParams->SetStringField(TEXT("nodeType"), TEXT("PCGStaticMeshSpawnerSettings"));
+	const TSharedPtr<FJsonObject> Added = Call(Registry, TEXT("add_pcg_node"), AddParams);
+	if (!TestTrue(TEXT("add_pcg_node adds a spawner"), Succeeded(Added))) return false;
+	const FString NodeName = Added->GetStringField(TEXT("nodeName"));
+	UPCGGraph* Graph = LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	UPCGNode* Node = Graph ? MCPPCG::FindNode(Graph, NodeName) : nullptr;
+	UPCGStaticMeshSpawnerSettings* Spawner = Node ? Cast<UPCGStaticMeshSpawnerSettings>(const_cast<UPCGSettings*>(Node->GetSettings())) : nullptr;
+	if (!TestNotNull(TEXT("the spawner settings are reachable"), Spawner)) return false;
+
+	auto Write = [&](const TSharedPtr<FJsonObject>& Settings)
+	{
+		auto Params = MakeShared<FJsonObject>();
+		Params->SetStringField(TEXT("assetPath"), GraphPath);
+		Params->SetStringField(TEXT("nodeName"), NodeName);
+		Params->SetObjectField(TEXT("settings"), Settings);
+		return Call(Registry, TEXT("set_pcg_node_settings"), Params);
+	};
+
+	// A field object for the selector, with the type that selects its class, in one call.
+	auto Fields = MakeShared<FJsonObject>();
+	Fields->SetStringField(TEXT("AttributeName"), TEXT("Mesh"));
+	auto Batch = MakeShared<FJsonObject>();
+	Batch->SetObjectField(TEXT("MeshSelectorParameters"), Fields);
+	Batch->SetStringField(TEXT("MeshSelectorType"), TEXT("/Script/PCG.PCGMeshSelectorByAttribute"));
+	TestTrue(TEXT("a field object for the owned selector is written"), Succeeded(Write(Batch)));
+	const UPCGMeshSelectorByAttribute* ByAttribute = Cast<UPCGMeshSelectorByAttribute>(Spawner->MeshSelectorParameters);
+	TestTrue(TEXT("the selector is by-attribute, owned, and holds the field"), ByAttribute && ByAttribute->GetOuter() == Spawner
+		&& ByAttribute->AttributeName == FName(TEXT("Mesh")));
+
+	// A dotted key into the same owned selector.
+	auto Dotted = MakeShared<FJsonObject>();
+	Dotted->SetStringField(TEXT("MeshSelectorParameters.AttributeName"), TEXT("Other"));
+	TestTrue(TEXT("a dotted key into the owned selector is written"), Succeeded(Write(Dotted)));
+	TestTrue(TEXT("the dotted write landed"), ByAttribute && ByAttribute->AttributeName == FName(TEXT("Other")));
+
+	// A field the current class lacks names the property that selects the class.
+	Spawner->SetMeshSelectorType(UPCGMeshSelectorWeighted::StaticClass());
+	const TSharedPtr<FJsonObject> Missing = Write(Dotted);
+	TestFalse(TEXT("a field the weighted selector lacks is refused"), Succeeded(Missing));
+	TestTrue(TEXT("the refusal names MeshSelectorType"), Missing->GetStringField(TEXT("error")).Contains(TEXT("MeshSelectorType")));
 	return true;
 }
 

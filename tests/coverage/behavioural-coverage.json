@@ -848,6 +848,11 @@
         {
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
+          "test": "UE.MCP.PCG.Graph.OwnedSelectorFields"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
           "test": "UE.MCP.PCG.Graph.PathFolderAndSpawnerSelector"
         },
         {
@@ -4691,6 +4696,11 @@
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGGraphAuthoringTests.cpp",
           "test": "UE.MCP.PCG.Authoring.SettingsReadBack"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
+          "test": "UE.MCP.PCG.Graph.OwnedSelectorFields"
         },
         {
           "suite": "automation",
@@ -9351,6 +9361,11 @@
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
           "test": "UE.MCP.PCG.Graph.PathFolderAndSpawnerSelector"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "import_pcg_graph accepts the selector's field object"
         },
         {
           "suite": "live",
@@ -15208,6 +15223,26 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "a field the current selector class lacks names the type property that selects it"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "import_pcg_graph accepts the selector's field object"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "set_pcg_node_settings writes a dotted key into the owned selector and rolls it back"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "set_pcg_node_settings writes a field object into the selector the node owns"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/pcg-io-node-settings.test.ts",
           "test": "set_node_settings: Pins as a JSON array in a settings object adds a second pin"
         },
@@ -19651,7 +19686,27 @@
         {
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
+          "test": "UE.MCP.PCG.Graph.OwnedSelectorFields"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
           "test": "UE.MCP.PCG.Graph.PathFolderAndSpawnerSelector"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "a field the current selector class lacks names the type property that selects it"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "set_pcg_node_settings writes a dotted key into the owned selector and rolls it back"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-instanced-settings.test.ts",
+          "test": "set_pcg_node_settings writes a field object into the selector the node owns"
         },
         {
           "suite": "live",
