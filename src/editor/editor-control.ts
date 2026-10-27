@@ -20,6 +20,7 @@ import {
 } from "./engine-observer.js";
 import { findLiveInstanceRecord, isPidAlive, lockfileIsFromThisLaunch, readBridgeInstanceRecords, resolveBridgeTarget } from "../bridge/editor-target.js";
 import { oneLine } from "./dialog-guard.js";
+import { prepareBridgeForLaunch } from "./bridge-update.js";
 import type { ProgressDisplay, ProgressFn } from "../core/types.js";
 import { findUProject } from "../config/uproject-path.js";
 import { readEnv } from "../core/env.js";
@@ -593,6 +594,13 @@ export async function startEditor(
       success: false,
       message: editorExecutableFailure(project),
     };
+  }
+
+  // No editor holds this project now, so a pending bridge update can finish, and a binary
+  // bridge that would not load is reinstalled before the editor can offer a rebuild it cannot do.
+  const bridgeReady = await prepareBridgeForLaunch(project.projectPath);
+  if (!bridgeReady.ok) {
+    return { success: false, message: `Not launching: ${bridgeReady.message}` };
   }
 
   try {
