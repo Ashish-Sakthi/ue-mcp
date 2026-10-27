@@ -9,6 +9,7 @@ import * as path from "node:path";
 import WebSocket from "ws";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { covers } from "../helpers/covers.js";
+import { writeBridgeTree } from "../helpers/bridge-tree-fixture.js";
 import { FakeBridge } from "../fake-bridge.js";
 import { FakeHttp, McpServer, PACKAGE_VERSION, Sandbox, stopSandboxDaemons, waitFor } from "./harness.js";
 import { base, bearer, call, discoveryFile, readSse, startDaemonCli, type Discovery } from "./daemon-fakes.js";
@@ -58,10 +59,7 @@ beforeAll(async () => {
   fs.writeFileSync(path.join(pluginDir, "UE_MCP_Bridge.uplugin"), JSON.stringify({ VersionName: "1.0.0" }));
   fs.writeFileSync(path.join(pluginDir, "Binaries", PLATFORM, "old.bin"), "1.0.0");
   fs.writeFileSync(path.join(pluginDir, ".ue-mcp-install.json"), JSON.stringify({ kind: "binary", engine: "5.6", platform: PLATFORM, version: "1.0.0" }));
-  const build = sb.path("build99", "UE_MCP_Bridge");
-  fs.mkdirSync(path.join(build, "Binaries", PLATFORM), { recursive: true });
-  fs.writeFileSync(path.join(build, "UE_MCP_Bridge.uplugin"), JSON.stringify({ VersionName: "99.0.0" }));
-  fs.writeFileSync(path.join(build, "Binaries", PLATFORM, "new.bin"), "99.0.0");
+  writeBridgeTree(sb.path("build99", "UE_MCP_Bridge"), "99.0.0", PLATFORM, "99.0.0");
 
   d = await startDaemonCli(sb, project, {
     UE_MCP_NPM_REGISTRY: fake.origin,
@@ -230,7 +228,7 @@ describe("bridge updates", () => {
     expect(applied.status, applied.text).toBe(200);
     expect(applied.body).toMatchObject({ ok: true, kind: "binary", version: "99.0.0", state: "applied" });
     const pluginDir = path.join(projectDir, "Plugins", "UE_MCP_Bridge");
-    expect(fs.readFileSync(path.join(pluginDir, "Binaries", PLATFORM, "new.bin"), "utf8")).toBe("99.0.0");
+    expect(fs.readFileSync(path.join(pluginDir, "Binaries", PLATFORM, "UnrealEditor-UE_MCP_Bridge.dll"), "utf8")).toBe("99.0.0");
     expect(fs.existsSync(path.join(pluginDir, "Binaries", PLATFORM, "old.bin"))).toBe(false);
     expect(JSON.parse(fs.readFileSync(path.join(pluginDir, ".ue-mcp-install.json"), "utf8"))).toMatchObject({ kind: "binary", version: "99.0.0" });
     const events = await readSse(`${base(d)}/v1/events`, { ...bearer(d), "last-event-id": String(last) }, (es) => es.some((e) => e.type === "update.applied"));
@@ -239,7 +237,7 @@ describe("bridge updates", () => {
     const bad = await call(d, "POST", "/v1/update/apply", { version: "100.0.0", binaries: sb.path("nothing-here") });
     expect(bad.status).toBe(500);
     expect(bad.body).toMatchObject({ ok: false });
-    expect(fs.readFileSync(path.join(pluginDir, "Binaries", PLATFORM, "new.bin"), "utf8")).toBe("99.0.0");
+    expect(fs.readFileSync(path.join(pluginDir, "Binaries", PLATFORM, "UnrealEditor-UE_MCP_Bridge.dll"), "utf8")).toBe("99.0.0");
   });
 });
 

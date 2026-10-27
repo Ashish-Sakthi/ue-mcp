@@ -3,6 +3,7 @@ import { SIGNATURE_LEGEND } from "../action-signature.js";
 import { unionKnowledge, type SessionSurface } from "../../sessions/session-surface.js";
 import type { ContextStrategy } from "./lean-context.js";
 import type { ToolDef } from "../../core/types.js";
+import { CORE_ISSUES_URL } from "../../extensions/registry-catalog.js";
 
 /**
  * Counts and the category list, derived rather than transcribed (#817, plan
@@ -37,9 +38,11 @@ interface SurfaceFacts {
   ownActionCount: number;
   /** Every category name, wrapped so the block reads the way it always has. */
   categories: string;
+  /** Whether feedback(submit) can run; when not, no section tells the agent to call it. */
+  feedback: boolean;
 }
 
-function surfaceFacts(tools: readonly ToolDef[]): SurfaceFacts {
+function surfaceFacts(tools: readonly ToolDef[], feedback = true): SurfaceFacts {
   const actionCount = tools.reduce((n, t) => n + Object.keys(t.actions).length, 0);
   const epicActionCount = tools.reduce(
     (n, t) => n + Object.keys(t.actions).filter((a) => a.startsWith("epic_")).length,
@@ -51,6 +54,7 @@ function surfaceFacts(tools: readonly ToolDef[]): SurfaceFacts {
     epicActionCount,
     ownActionCount: actionCount - epicActionCount,
     categories: categoryList(tools, epicActionCount),
+    feedback,
   };
 }
 
@@ -81,6 +85,42 @@ For clockwise/counterclockwise use viewRotation with an explicit viewFrom; do no
 Echo the resolved interpretation. Ask only for missing context that changes the result.
 After applying, check readback and matching, lit close views with the pose held fixed.
 A successful transform write is not visual verification. Do not infer 3D contact from one image.`;
+
+const FULL_FEEDBACK = `═══ FEEDBACK ═══
+If you had to use editor(action="execute_python") as a workaround because a native tool
+couldn't handle the task, keep a mental note of what you did and why. When your task is
+complete, tell the user:
+  "I had to use custom Python scripts to [describe what]. Would you like to submit
+   feedback to help improve ue-mcp?"
+If the user agrees, call feedback(action="submit") with:
+  • title - short, generic description of the gap (no project-specific details)
+  • summary - what was attempted and why the native tool fell short
+  • pythonWorkaround - the Python code that was used
+  • idealTool - what tool/action should handle this natively
+This creates a GitHub issue so the maintainers can add proper support.
+
+Not every gap belongs to ue-mcp core. Plugins listed in the plugin registry own
+their own surfaces and their own trackers. submit checks the plugin registry
+and aims the issue at the owning repo on its own, and the approval prompt lets
+the user change it - do NOT set the repo parameter yourself unless the user
+names a repo. feedback(action="route") answers "where would this land?" without
+posting anything.
+`;
+
+const LEAN_FEEDBACK = `═══ FEEDBACK ═══
+If you had to fall back to editor(action="execute_python") because a native tool could not
+do the job, tell the user when done and offer to feedback(action="submit") the gap. submit
+routes the issue to the tracker that owns the surface (core, or the plugin that provides it)
+by checking the plugin registry; feedback(action="route") previews that without posting.
+`;
+
+/** The FEEDBACK section when no editor this server drives can run feedback(submit). */
+const FEEDBACK_DISABLED = `═══ FEEDBACK ═══
+The feedback category is disabled in this project, so do not call it.
+If you had to use editor(action="execute_python") as a workaround because a native tool
+couldn't handle the task, tell the user what you did and why when your task is complete,
+and that a native tool for it can be requested at ${CORE_ISSUES_URL}.
+`;
 
 function fullInstructions(f: SurfaceFacts): string {
   return `UE-MCP: Unreal Engine editor bridge (C++ plugin) - ${f.categoryCount} category tools covering ${f.actionCount} actions: ${f.ownActionCount} of ue-mcp's own, plus ${f.epicActionCount} official Unreal 5.8 tools wrapped in-process as \`epic_*\` actions (UE 5.8+; see the epic category).
@@ -153,26 +193,7 @@ DO suggest a new flow IF AND ONLY IF all three are true:
 In that case say: "This sequence (X -> Y -> Z) might be worth registering
 as a flow in ue-mcp.yml. Want me to draft one?" Then STOP. Wait.
 
-═══ FEEDBACK ═══
-If you had to use editor(action="execute_python") as a workaround because a native tool
-couldn't handle the task, keep a mental note of what you did and why. When your task is
-complete, tell the user:
-  "I had to use custom Python scripts to [describe what]. Would you like to submit
-   feedback to help improve ue-mcp?"
-If the user agrees, call feedback(action="submit") with:
-  • title - short, generic description of the gap (no project-specific details)
-  • summary - what was attempted and why the native tool fell short
-  • pythonWorkaround - the Python code that was used
-  • idealTool - what tool/action should handle this natively
-This creates a GitHub issue so the maintainers can add proper support.
-
-Not every gap belongs to ue-mcp core. Plugins listed in the plugin registry own
-their own surfaces and their own trackers. submit checks the plugin registry
-and aims the issue at the owning repo on its own, and the approval prompt lets
-the user change it - do NOT set the repo parameter yourself unless the user
-names a repo. feedback(action="route") answers "where would this land?" without
-posting anything.
-`;
+${f.feedback ? FULL_FEEDBACK : FEEDBACK_DISABLED}`;
 }
 
 // Compact instructions used when context.strategy = "lean". The per-action
@@ -203,12 +224,7 @@ ${f.categories}.
 Before chaining 3+ tool calls, check the \`flows\` field from project(action="get_status")
 and run a matching flow with flow(action="run", flowName="<name>") instead of rebuilding it.
 
-═══ FEEDBACK ═══
-If you had to fall back to editor(action="execute_python") because a native tool could not
-do the job, tell the user when done and offer to feedback(action="submit") the gap. submit
-routes the issue to the tracker that owns the surface (core, or the plugin that provides it)
-by checking the plugin registry; feedback(action="route") previews that without posting.
-
+${f.feedback ? LEAN_FEEDBACK : FEEDBACK_DISABLED}
 This lean surface is selected by context.strategy: lean in ue-mcp.yml or
 UE_MCP_CONTEXT_STRATEGY=lean. The default is micro; full lists every signature inline.
 `;
@@ -258,8 +274,8 @@ export const SERVER_INSTRUCTIONS_MICRO = microInstructions(DECLARED);
  * exactly what the server sends. With it, the counts and the category list are
  * read off those tools instead, for a surface narrowed to some categories.
  */
-export function strategyInstructions(strategy: ContextStrategy, scope?: readonly ToolDef[]): string {
-  const facts = scope ? surfaceFacts(scope) : DECLARED;
+export function strategyInstructions(strategy: ContextStrategy, scope?: readonly ToolDef[], feedback = true): string {
+  const facts = scope || !feedback ? surfaceFacts(scope ?? ALL_TOOLS, feedback) : DECLARED;
   return strategy === "micro" ? microInstructions(facts) : strategy === "lean" ? leanInstructions(facts) : fullInstructions(facts);
 }
 
@@ -324,6 +340,16 @@ function buildPluginWarningBlock(surfaces: SessionSurface[]): string {
 }
 
 /**
+ * Whether some editor can run feedback(submit): it is in scope and at least one
+ * session has not disabled it. With no sessions nothing says otherwise.
+ */
+export function feedbackAvailable(surfaces: SessionSurface[], scope?: readonly ToolDef[]): boolean {
+  if (scope && !scope.some((t) => t.name === "feedback")) return false;
+  if (surfaces.length === 0) return true;
+  return surfaces.some((s) => !s.disabled.has("feedback") && s.tools.some((t) => t.name === "feedback"));
+}
+
+/**
  * The instructions sent at initialize: the strategy's base text, then plugin
  * knowledge and load warnings across every session (they cannot be
  * renegotiated later), then targeting only when there is more than one editor.
@@ -341,7 +367,7 @@ export function composeServerInstructions(
   const knowledgeBlock = buildKnowledgeBlock(
     inScope ? Object.fromEntries(Object.entries(knowledge).filter(([category]) => inScope.has(category))) : knowledge,
   );
-  const baseInstructions = strategyInstructions(strategy, scope);
+  const baseInstructions = strategyInstructions(strategy, scope, feedbackAvailable(surfaces, scope));
   const withKnowledge = knowledgeBlock
     ? `${baseInstructions}\n\n═══ PLUGIN KNOWLEDGE ═══\n${knowledgeBlock}`
     : baseInstructions;

@@ -5,13 +5,13 @@ import * as path from "node:path";
 
 import { collectDoctor, formatDoctor } from "./doctor.js";
 import { takeEditorTarget, EditorFlagError } from "./editor-flag.js";
-import { editorOwnsProject, listEditorProcesses } from "../editor/engine-observer.js";
+import { editorOwnsProject, probeEditorProcessList } from "../editor/engine-observer.js";
 import { UE_MCP_LAUNCH } from "../integrations/claude-code/mcp-client-config.js";
-import { distTagForVersion, isPrereleaseVersion, resolveUpdateTarget } from "../core/version-check.js";
+import { distTagForVersion, isNewer, isPrereleaseVersion, resolveUpdateTarget } from "../core/version-check.js";
 import { packageModulePath, packageRoot, packageVersion } from "../core/package-root.js";
 import { findUProject, isUProjectPath } from "../config/uproject-path.js";
-import { installKindOf, resolvePluginDir } from "../editor/install-marker.js";
-import { applyUpdate, repinClientConfigs } from "../editor/bridge-update.js";
+import { installKindOf, installedBridge, resolvePluginDir } from "../editor/install-marker.js";
+import { applyUpdate, newerBridgeMessage, repinClientConfigs } from "../editor/bridge-update.js";
 import { RESET, BOLD, RED, DIM, CYAN, YELLOW, ok, fail, info as step } from "./ui/ansi.js";
 import type { CliUsage } from "./cli-main.js";
 
@@ -41,11 +41,17 @@ function targetUProject(arg: string | undefined): string | null {
   return findUProject(isDir ? arg : process.cwd());
 }
 
+/**
+ * Whether an editor holds this project. A process table that cannot be read
+ * counts as yes: the in-place swap is safe with the editor down, and the
+ * whole-tree swap is not with it up.
+ */
 async function editorRunningFor(uproject: string): Promise<boolean> {
   try {
-    return (await listEditorProcesses()).some((p) => editorOwnsProject(p, uproject));
+    const probe = await probeEditorProcessList();
+    return probe.failed || probe.processes.some((p) => editorOwnsProject(p, uproject));
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -131,6 +137,16 @@ async function update(argv: string[]) {
   console.log("");
 
   const installed = packageVersion();
+  // A bare `npx ue-mcp update` runs the stable line. A binary bridge from a newer
+  // release (a beta) is not this package's to replace, and neither are its pins.
+  const bridge = uproject ? installedBridge(path.dirname(uproject)) : null;
+  if (bridge?.kind === "binary" && isNewer(bridge.version, installed)) {
+    console.log(`  Installed: ${BOLD}${installed}${RESET}`);
+    console.log(`  Bridge:    ${BOLD}${bridge.version}${RESET}`);
+    console.log("");
+    fail(newerBridgeMessage(bridge.version, installed));
+    process.exit(1);
+  }
   console.log(`  Installed: ${BOLD}${installed}${RESET}`);
 
   const latest = getLatestVersion();
