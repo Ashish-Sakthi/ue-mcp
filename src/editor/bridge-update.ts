@@ -369,13 +369,28 @@ export function newerBridgeMessage(bridge: string, server: string): string {
     `Run \`npx ue-mcp@${distTagForVersion(bridge)} update\` to update it on its own channel.`;
 }
 
+/** One apply per project at a time: two at once would swap over each other's files. */
+const applying = new Map<string, Promise<ApplyResult>>();
+
 /**
  * Install `options.version` of the bridge into this project. Never throws;
  * failures come back in the result. A binary install is checked after the
  * swap (verifyBridgeTree) and put back as it was when the check fails, so a
  * success means the editor will load the new bridge without a rebuild.
+ * Concurrent calls for one project run one after another.
  */
-export async function applyUpdate(uprojectPath: string, options: ApplyOptions): Promise<ApplyResult> {
+export function applyUpdate(uprojectPath: string, options: ApplyOptions): Promise<ApplyResult> {
+  const key = path.dirname(path.resolve(uprojectPath)).toLowerCase();
+  const before = applying.get(key) ?? Promise.resolve(null);
+  const run = before.then(() => applyUpdateNow(uprojectPath, options), () => applyUpdateNow(uprojectPath, options));
+  applying.set(key, run);
+  void run.finally(() => {
+    if (applying.get(key) === run) applying.delete(key);
+  });
+  return run;
+}
+
+async function applyUpdateNow(uprojectPath: string, options: ApplyOptions): Promise<ApplyResult> {
   const version = options.version ?? packageVersion();
   const projectDir = path.dirname(path.resolve(uprojectPath));
   const located = resolvePluginDir(projectDir);
@@ -405,7 +420,8 @@ export async function applyUpdate(uprojectPath: string, options: ApplyOptions): 
       const marker = readInstallMarker(pluginDir);
       const current = marker?.version ?? readDescriptorVersion(pluginDir);
       const pending = readPendingUpdate(pluginDir);
-      if (current === version && !pending) {
+      const settled = !pending || (pending.state === "swapped" && pending.version === version);
+      if (current === version && settled) {
         result.state = "unchanged";
       } else {
         let engine = marker?.engine ?? null;

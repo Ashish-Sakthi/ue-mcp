@@ -2,7 +2,8 @@
  * applyUpdate checks the installed bridge before it reports success
  * (verifyBridgeTree) and puts the previous files back when the check fails,
  * with the editor down (whole-tree swap) and running (in-place swap). A
- * release that would not load is refused before anything is touched.
+ * release that would not load is refused before anything is touched, and two
+ * applies for one project never swap over each other.
  */
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import * as fs from "node:fs";
@@ -122,5 +123,22 @@ describe("a release that would not load", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/UnrealEditor\.modules lists UE_MCP_Bridge but the descriptor has/);
     expect(readInstallMarker(pluginDir)?.version).toBe("1.4.10");
+  });
+});
+
+describe("applies for one project", () => {
+  it("run one after another, so the second finds the first's result", async () => {
+    const { uproject, pluginDir } = project("1.4.10");
+    const binaries = release("1.4.11");
+
+    const [a, b] = await Promise.all([
+      applyUpdate(uproject, { version: "1.4.11", binaries, editorRunning: true, platform: "win32" }),
+      applyUpdate(uproject, { version: "1.4.11", binaries, editorRunning: true, platform: "win32" }),
+    ]);
+
+    expect(a).toMatchObject({ ok: true, state: "applied" });
+    expect(b).toMatchObject({ ok: true, state: "unchanged" });
+    // Nothing maps the aside files here, so the second apply has already cleared them.
+    expect(verifyBridgeTree(pluginDir, { version: "1.4.11", platform: "Win64", asideFiles: readPendingUpdate(pluginDir)?.oldFiles ?? [] })).toEqual([]);
   });
 });
