@@ -512,6 +512,22 @@ bool FMCPPCGVolumeAndRunTest::RunTest(const FString& Parameters)
 	TestFalse(TEXT("the component is not generating"), Comp->GetBoolField(TEXT("isGenerating")));
 	TestTrue(TEXT("completion fields are present"), Comp->HasField(TEXT("isCleaningUp")) && Comp->HasField(TEXT("generated")) && Comp->HasField(TEXT("partitioned")));
 	TestEqual(TEXT("details carry the same run"), Comp->GetObjectField(TEXT("lastRun"))->GetNumberField(TEXT("id")), RunId);
+	TestTrue(TEXT("a not_started run says whether the component already holds output"),
+		Run->GetObjectField(TEXT("lastRun"))->HasField(TEXT("componentGenerated")));
+
+	// Generate deferred its start: a generation finishing shortly after the run settled is that run.
+	UPCGComponent* DeferredComponent = CastChecked<APCGVolume>(Volume)->PCGComponent;
+	DeferredComponent->OnPCGGraphStartGeneratingDelegate.Broadcast(DeferredComponent);
+	const TSharedPtr<FJsonObject> Started = Call(Registry, TEXT("get_pcg_generation_state"), RunParams);
+	TestEqual(TEXT("a deferred start moves the run back to generating"),
+		Started->GetObjectField(TEXT("lastRun"))->GetStringField(TEXT("state")), FString(TEXT("generating")));
+	DeferredComponent->OnPCGGraphGeneratedDelegate.Broadcast(DeferredComponent);
+	const TSharedPtr<FJsonObject> Finished = Call(Registry, TEXT("get_pcg_generation_state"), RunParams);
+	const TSharedPtr<FJsonObject> FinishedRun = Finished->GetObjectField(TEXT("lastRun"));
+	TestEqual(TEXT("the deferred generation is reported as the run's outcome"), FinishedRun->GetStringField(TEXT("state")), FString(TEXT("generated")));
+	TestEqual(TEXT("it is the same run"), FinishedRun->GetNumberField(TEXT("id")), RunId);
+	bool bDeferred = false;
+	TestTrue(TEXT("the run is marked deferredStart"), FinishedRun->TryGetBoolField(TEXT("deferredStart"), bDeferred) && bDeferred);
 
 	// Schedule work without ticking the world: normal execute refuses a second run,
 	// while force_regenerate remains a recovery path and supplies a fresh run id.

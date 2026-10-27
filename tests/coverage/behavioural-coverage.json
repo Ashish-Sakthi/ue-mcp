@@ -6102,6 +6102,16 @@
           "suite": "automation",
           "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
           "test": "UE.MCP.PCG.Volume.TransformAndRunRecord"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-execute-wait.test.ts",
+          "test": "a regenerate the wait follows ends as generated, matching the run record"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-execute-wait.test.ts",
+          "test": "a second regenerate is either followed to its finish or reported with the output already there"
         }
       ]
     },
@@ -8443,9 +8453,19 @@
       "status": "covered",
       "tests": [
         {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PCGHandlerTests.cpp",
+          "test": "UE.MCP.PCG.Volume.TransformAndRunRecord"
+        },
+        {
           "suite": "live",
           "file": "tests/live/bcov-pcg.test.ts",
           "test": "cleanup_pcg clears what a generation produced"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/pcg-execute-wait.test.ts",
+          "test": "a regenerate the wait follows ends as generated, matching the run record"
         },
         {
           "suite": "live",

@@ -23,7 +23,7 @@ export const pcgTool: ToolDef = categoryTool(
     remove_node:          specBp("mutate", "Remove node. The graph's input and output nodes are refused.", "remove_pcg_node"),
     unwrap_instance_nodes: specBp("mutate", "Give instance nodes (UPCGSettingsInstance wrappers, read-only in the PCG editor's details panel) their own settings object, keeping every value and edge. Settings from a shared asset are copied into the node. Nodes that already own their settings are left alone. Omit nodeName for every node in the graph (#1087).", "unwrap_pcg_instance_nodes"),
     execute: {
-      ...specBp("mutate", "Regenerate PCG. A seed is written to the component before generating, and the old one reported back as previousSeed (#983). Returns at once with runId, or with wait=true only once that run finishes, adding wait {state generated|cancelled|cleaned|not_started|timed_out, durationMs}; a timed-out wait is a warning, not a failure (#1365). Refused with generation_in_progress while a run is active.", "execute_pcg_graph"),
+      ...specBp("mutate", "Regenerate PCG. A seed is written to the component before generating, and the old one reported back as previousSeed (#983). Returns at once with runId, or with wait=true only once that run finishes, adding wait {state generated|cancelled|cleaned|not_started|timed_out, durationMs}; a timed-out wait is a warning, not a failure (#1365). When Generate defers its start to a later tick, the run follows that generation (lastRun.deferredStart) instead of settling as not_started; a run that started nothing reports alreadyGenerated, lastFinishUtc and a note saying the output was already up to date. Refused with generation_in_progress while a run is active.", "execute_pcg_graph"),
       followUp: waitAfterRegenerate,
     },
     force_regenerate: {
@@ -34,7 +34,7 @@ export const pcgTool: ToolDef = categoryTool(
     wait_for_generation: {
       kind: "handler",
       effect: "read",
-      description: "Block until a PCG component's generation finishes, for a run started by anything (execute, the editor, a project function that defers to the next tick), polling get_generation_state with backoff. With runId, waits for that run; without, for the generation in flight, or one that starts within graceSeconds (default 2), else returns state idle. Partitioned components finish when their local components do. Returns state generated|cancelled|cleaned|not_started|idle|timed_out, durationMs, polls and lastRun; timed_out fails the call (#1365). Params: actorLabel?, actorPath?, componentName?, runId?, timeoutSeconds?, graceSeconds?",
+      description: "Block until a PCG component's generation finishes, for a run started by anything (execute, the editor, a project function that defers to the next tick), polling get_generation_state with backoff. With runId, waits for that run; without, for the generation in flight, or one that starts within graceSeconds (default 2), else returns state idle. Partitioned components finish when their local components do. Returns state generated|cancelled|cleaned|not_started|idle|timed_out, durationMs, polls and lastRun; timed_out fails the call (#1365). With runId, a not_started run is final only after graceSeconds, since Generate can defer its start; not_started adds alreadyGenerated and lastFinishUtc. Params: actorLabel?, actorPath?, componentName?, runId?, timeoutSeconds?, graceSeconds?",
       handler: async (ctx, p) => waitForGeneration(ctx, {
         actorLabel: p.actorLabel as string | undefined,
         actorPath: p.actorPath as string | undefined,

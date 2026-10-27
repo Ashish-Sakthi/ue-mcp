@@ -512,6 +512,9 @@ namespace
 		FDateTime StartedUtc;
 		FDateTime FinishedUtc;
 		bool bBound = false;
+		// The run settled as not_started, then the component started or finished a generation shortly after:
+		// Generate deferred its start, so the run is that generation.
+		bool bDeferredStart = false;
 		// Every generation that ended once observed, whoever started it (#1365).
 		int64 FinishCount = 0;
 		FString LastFinishState;
@@ -552,6 +555,25 @@ namespace
 		return Comp->IsGenerating() || Comp->IsCleaningUp() || CountPCGLocalComponents(Comp).Generating > 0;
 	}
 
+	/** How long after settling as not_started a run still claims a generation the component starts or finishes. */
+	constexpr double PCGDeferredStartWindowSeconds = 30.0;
+
+	/** Whether Run settled as not_started recently enough that a generation now is the one its Generate deferred. */
+	static bool PCGRunAwaitsDeferredStart(const FPCGRunRecord& Run)
+	{
+		return Run.State == TEXT("not_started")
+			&& (FDateTime::UtcNow() - Run.FinishedUtc).GetTotalSeconds() <= PCGDeferredStartWindowSeconds;
+	}
+
+	static void StartObservedPCGRun(UPCGComponent* Comp)
+	{
+		FPCGRunRecord* Run = PCGRuns().Find(TWeakObjectPtr<UPCGComponent>(Comp));
+		if (!Comp || !Run || !PCGRunAwaitsDeferredStart(*Run)) return;
+		Run->State = TEXT("generating");
+		Run->FinishedUtc = FDateTime();
+		Run->bDeferredStart = true;
+	}
+
 	static void FinishPCGRun(UPCGComponent* Comp, const FString& State)
 	{
 		FPCGRunRecord* Run = PCGRuns().Find(TWeakObjectPtr<UPCGComponent>(Comp));
@@ -561,6 +583,14 @@ namespace
 			++Run->FinishCount;
 			Run->LastFinishState = State;
 			Run->LastFinishUtc = FDateTime::UtcNow();
+		}
+		// A deferred generation that finished without its start being observed is still this run's.
+		if (State != TEXT("cleaned") && PCGRunAwaitsDeferredStart(*Run))
+		{
+			Run->State = State;
+			Run->FinishedUtc = FDateTime::UtcNow();
+			Run->bDeferredStart = true;
+			return;
 		}
 		if (Run->State != TEXT("generating")) return;
 		// force_regenerate_pcg queues a cleanup ahead of its Generate; that
@@ -582,6 +612,7 @@ namespace
 		{
 			// Bound once per component, weakly on the component itself.
 			// ponytail: never unbound; ends if the bridge module can unload while components live.
+			Comp->OnPCGGraphStartGeneratingDelegate.AddWeakLambda(Comp, [](UPCGComponent* C) { StartObservedPCGRun(C); });
 			Comp->OnPCGGraphGeneratedDelegate.AddWeakLambda(Comp, [](UPCGComponent* C) { FinishPCGRun(C, TEXT("generated")); });
 			Comp->OnPCGGraphCancelledDelegate.AddWeakLambda(Comp, [](UPCGComponent* C) { FinishPCGRun(C, TEXT("cancelled")); });
 			Comp->OnPCGGraphCleanedDelegate.AddWeakLambda(Comp, [](UPCGComponent* C) { FinishPCGRun(C, TEXT("cleaned")); });
@@ -599,6 +630,7 @@ namespace
 		Run.State = TEXT("generating");
 		Run.StartedUtc = FDateTime::UtcNow();
 		Run.FinishedUtc = FDateTime();
+		Run.bDeferredStart = false;
 		return Run.Id;
 	}
 
@@ -622,6 +654,17 @@ namespace
 		Obj->SetStringField(TEXT("startedUtc"), Run->StartedUtc.ToIso8601());
 		if (Run->State == TEXT("generating")) Obj->SetField(TEXT("finishedUtc"), MakeShared<FJsonValueNull>());
 		else Obj->SetStringField(TEXT("finishedUtc"), Run->FinishedUtc.ToIso8601());
+		if (Run->bDeferredStart) Obj->SetBoolField(TEXT("deferredStart"), true);
+		if (Run->State == TEXT("not_started"))
+		{
+			// Generate had nothing to start; say what the component already holds.
+			Obj->SetBoolField(TEXT("componentGenerated"), Comp->bGenerated);
+			if (Run->FinishCount > 0)
+			{
+				Obj->SetStringField(TEXT("lastFinishState"), Run->LastFinishState);
+				Obj->SetStringField(TEXT("lastFinishUtc"), Run->LastFinishUtc.ToIso8601());
+			}
+		}
 		return MakeShared<FJsonValueObject>(Obj);
 	}
 
