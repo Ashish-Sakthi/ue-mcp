@@ -316,6 +316,17 @@ When `ue-mcp` is a dependency in the project's `package.json`, `npx ue-mcp` runs
 
 Then quit and relaunch your MCP client so it spawns the updated server.
 
+## A Beta Install Keeps Coming Back as the Stable Release
+
+A bare `npx ue-mcp` resolves to the `latest` dist-tag, which is the stable line. On the beta channel, run every command against the channel instead:
+
+```bash
+npx ue-mcp@beta update
+npx ue-mcp@beta doctor
+```
+
+`ue-mcp update` run by an older package leaves a newer binary bridge alone and says which command updates it. A stable MCP client entry (`ue-mcp@latest`) still works: its shim starts the daemon at the installed bridge's version. `ue-mcp doctor` shows what a bare `npx ue-mcp` runs as `effective (npx)` and flags a bridge ahead of it.
+
 ## A Fix Shipped but the Editor Behaves the Same (stale compiled plugin)
 
 Different from the case above. Here the version is correct - `ue-mcp doctor` shows latest, the server is up to date - but a fix that changes **editor behavior** (a dialog being auto-cancelled, an actor placed wrong, anything the C++ plugin does) still happens.

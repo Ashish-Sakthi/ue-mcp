@@ -45,6 +45,7 @@ import {
 import { EventLog } from "./events.js";
 import { ExpectedDisconnect, settleAndClassify } from "./disconnect.js";
 import { WebSocketServerTransport } from "./ws-transport.js";
+import { watchDir, type DirWatch, type WatchFn } from "./dir-watch.js";
 import { describeToolCall, resultError, type CallLabel } from "./activity.js";
 import { openUrl } from "../core/open-url.js";
 import { handleFlowRoute, hostIsAllowed } from "../flow/http-server.js";
@@ -52,7 +53,7 @@ import { userDir } from "../core/user-dir.js";
 import { readRegistryAuth } from "../extensions/registry-auth.js";
 import { getDialogModeScopes, getFeedbackModeScopes, setDialogMode, setFeedbackMode, setPlaytestMode } from "../config/user-state.js";
 import { resolvePlaytestMode } from "../editor/playtest-mode.js";
-import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type EditorStatus } from "./extension-api.js";
+import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type EditorStatus, type RefusedExtension } from "./extension-api.js";
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
@@ -64,6 +65,7 @@ import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } f
 import { UiBundleStore, contentType } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
+import { editorOwnsProject, probeEditorProcessList } from "../editor/engine-observer.js";
 import { applyUpdate, checkForUpdate, readPendingUpdate, repinClientConfigs, settlePendingUpdate } from "../editor/bridge-update.js";
 import { subscribeFlowEvents } from "../flow/events.js";
 import { registerModelProvider } from "../flow/model-provider.js";
@@ -115,11 +117,23 @@ export interface DaemonOptions {
   extensionsDir?: string;
   /** Where UI bundles are kept. Defaults to uiStoreDir(). */
   uiDir?: string;
+  /** Replaces fs.watch for the bridge instances folder, for tests. */
+  watch?: WatchFn;
 }
 
 /** How often the daemon checks that it can still answer, and how long a hold is worth a warning. */
 const STALL_BEAT_MS = 1000;
 const STALL_REPORT_MS = 3000;
+
+/** Pipe a file to a response; a file gone mid-read ends the response instead of the daemon. */
+function streamFile(file: string, res: http.ServerResponse): void {
+  fs.createReadStream(file)
+    .on("error", (e) => {
+      warn("daemon", `could not read ${file}`, e);
+      res.destroy();
+    })
+    .pipe(res);
+}
 
 export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   const rt = await createRuntime(opts.projects);
@@ -153,7 +167,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // ── Editor attachment ───────────────────────────────────────────
   const states = new Map<EditorSession, EditorState>();
   const records = new Map<EditorSession, BridgeInstanceRecord | null>();
-  const watchers: fs.FSWatcher[] = [];
+  const watchers: DirWatch[] = [];
 
   const follow = (session: EditorSession): void => {
     if (states.has(session)) return;
@@ -196,25 +210,19 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           openUrl(`http://127.0.0.1:${port}/ui/?token=${token}`);
         }
         // The editor is gone: renamed-aside DLLs can go, and a staged update can swap in.
-        if ((cause === "closed" || cause === "crashed") && dir) settleUpdate(dir);
+        if ((cause === "closed" || cause === "crashed") && dir) settleUpdate(dir, false);
       });
     });
 
     // Reattach as soon as an editor publishes its record, not at the next tick.
     if (dir) {
-      const instances = bridgeInstancesDir(dir);
-      try {
-        fs.mkdirSync(instances, { recursive: true });
-        let timer: NodeJS.Timeout | null = null;
-        const watcher = fs.watch(instances, () => {
-          if (session.bridge.isConnected) return;
-          if (timer) clearTimeout(timer);
-          timer = setTimeout(() => void pokeWithBackoff(session), 250);
-        });
-        watchers.push(watcher);
-      } catch (e) {
-        warn("daemon", `cannot watch ${instances}; reattach falls back to the reconnect interval`, e);
-      }
+      let timer: NodeJS.Timeout | null = null;
+      const watcher = watchDir(bridgeInstancesDir(dir), () => {
+        if (session.bridge.isConnected) return;
+        if (timer) clearTimeout(timer);
+        timer = setTimeout(() => void pokeWithBackoff(session), 250);
+      }, { watch: opts.watch });
+      watchers.push(watcher);
     }
   };
 
@@ -226,21 +234,30 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   };
 
   // ── Updates ─────────────────────────────────────────────────────
-  const settleUpdate = (dir: string): void => {
+  const editorProcessHolds = async (uproject: string): Promise<boolean> => {
+    try {
+      const probe = await probeEditorProcessList();
+      return probe.failed || probe.processes.some((p) => editorOwnsProject(p, uproject));
+    } catch {
+      return true;
+    }
+  };
+  // Without a pending update this still clears the spare plugin copies earlier releases left under Plugins/.
+  const settleUpdate = (dir: string, editorRunning: boolean): void => {
     const pluginDir = resolvePluginDir(dir)?.dir;
     if (!pluginDir) return;
     const pending = readPendingUpdate(pluginDir);
-    if (!pending) return;
     try {
-      if (settlePendingUpdate(pluginDir, false) && pending.state === "staged") {
+      if (settlePendingUpdate(pluginDir, editorRunning) && pending?.state === "staged") {
         const repinned = repinClientConfigs(rt.project.projectPath ?? opts.projects[0], pending.version);
         events.publish("update.applied", { version: pending.version, state: "applied", repinned });
       }
     } catch (e) {
-      events.publish("update.failed", { version: pending.version, error: e instanceof Error ? e.message : String(e) });
+      if (pending) events.publish("update.failed", { version: pending.version, error: e instanceof Error ? e.message : String(e) });
     }
   };
-  settleUpdate(projectDir);
+  // A daemon restarted under a running editor (Studio updating itself) must not swap a staged tree in beneath it.
+  settleUpdate(projectDir, findLiveInstanceRecord(projectDir) !== null);
 
   // Look for a newer release now and then, never in the first minute (tests and short runs finish first).
   let announced: string | null = null;
@@ -363,6 +380,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     inflight: inflight(),
     lastEventId: events.lastId,
     extensions: extensions.map((x) => ({ name: x.name, version: x.version })),
+    refusedExtensions,
     ui: ui.active()?.manifest.version ?? null,
     features: DAEMON_FEATURES,
   });
@@ -421,6 +439,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
 
   // ── UI bundles and extensions ───────────────────────────────────
   const ui = new UiBundleStore(DAEMON_API_VERSION, opts.uiDir);
+  const refusedExtensions: RefusedExtension[] = [];
   const extensions: LoadedExtension[] = await loadExtensions((name, routes, setBusy): DaemonExtensionApi => ({
     apiVersion: EXTENSION_API_VERSION,
     version: packageVersion(),
@@ -521,7 +540,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
       info: (message) => info(`ext:${name}`, message),
       warn: (message, detail) => warn(`ext:${name}`, message, detail),
     },
-  }), opts.extensionsDir);
+  }), opts.extensionsDir, refusedExtensions);
 
   const readBody = (req: http.IncomingMessage): Promise<unknown> => new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
@@ -591,10 +610,15 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     }
     if (req.method === "POST" && url.pathname === "/v1/update/apply") {
       readBody(req)
-        .then((body) => {
+        .then(async (body) => {
           const b = (body ?? {}) as { version?: unknown; binaries?: unknown };
-          const editorRunning = editors().some((e) => e.connected) || findLiveInstanceRecord(projectDir) !== null;
-          return applyUpdate(rt.project.projectPath ?? opts.projects[0], {
+          const uproject = rt.project.projectPath ?? opts.projects[0];
+          // A bridge that has not written its instance record yet (starting, or an older build) still
+          // maps its DLLs, so the process table is asked too. A probe that cannot run counts as running:
+          // the in-place swap is safe with the editor down, the whole-tree one is not with it up.
+          const editorRunning = editors().some((e) => e.connected) || findLiveInstanceRecord(projectDir) !== null
+            || (await editorProcessHolds(uproject));
+          return applyUpdate(uproject, {
             version: typeof b.version === "string" ? b.version : undefined,
             binaries: typeof b.binaries === "string" ? b.binaries : null,
             editorRunning,
@@ -672,7 +696,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         "cache-control": "no-cache",
         "x-content-type-options": "nosniff",
       });
-      fs.createReadStream(file).pipe(res);
+      streamFile(file, res);
       return;
     }
     if (url.pathname.startsWith("/v1/ext/")) {
@@ -711,7 +735,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
           if (!r.file) return json(res, r.status, r.body);
           // A picture is named by the blob id of the version it shows, so it never changes.
           res.writeHead(200, { "content-type": r.file.type, "cache-control": "private, max-age=31536000, immutable", "x-content-type-options": "nosniff" });
-          fs.createReadStream(r.file.path).pipe(res);
+          streamFile(r.file.path, res);
         }, (e) => json(res, 500, { error: e instanceof Error ? e.message : String(e) }));
       return;
     }
@@ -740,6 +764,8 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
     httpServer.once("error", reject);
     httpServer.listen(opts.port ?? 0, "127.0.0.1", () => resolve());
   });
+  // A server error after listening is logged; without a listener it would end the daemon.
+  httpServer.on("error", (e) => warn("daemon", "HTTP server error", e));
   const port = (httpServer.address() as { port: number }).port;
 
   // ── Idle exit and lifecycle ─────────────────────────────────────

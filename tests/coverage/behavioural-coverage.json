@@ -11335,6 +11335,11 @@
         {
           "suite": "live",
           "file": "tests/live/editor-lifecycle.test.ts",
+          "test": "advertises the same epic_* actions after the editor restarts (#1538)"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/editor-lifecycle.test.ts",
           "test": "build_project names a locked output and the process holding it, then builds once it is released"
         },
         {
@@ -13012,14 +13017,14 @@
       "status": "covered",
       "tests": [
         {
-          "suite": "live",
-          "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step"
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptMapTests.cpp",
+          "test": "UE.MCP.PIE.Script.MapOpensBeforeRun"
         },
         {
-          "suite": "live",
-          "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create refuses a script with no auto step unless it is manual_only"
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptSaveWarningsTests.cpp",
+          "test": "UE.MCP.PIE.Script.SaveWithWarnings"
         },
         {
           "suite": "live",
@@ -13052,12 +13057,22 @@
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step"
+          "test": "resolve_in_pie silences the warning for a value that only exists once PIE runs, and is stored on the step"
         },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create refuses a script with no auto step unless it is manual_only"
+          "test": "script_create saves a value the observer cannot read, warning with the step, the value and the closest candidates"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create saves an op or target the value's type cannot meet, with a warning"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create warns about a script with no auto step unless it is manual_only"
         },
         {
           "suite": "live",
@@ -13075,22 +13090,17 @@
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create refuses a script with no auto step unless it is manual_only"
-        },
-        {
-          "suite": "live",
-          "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_create refuses a step whose expectation cannot be evaluated"
         },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create refuses a value the observer cannot read, naming the step, the value and the closest candidates"
+          "test": "script_create saves an op or target the value's type cannot meet, with a warning"
         },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create refuses an op or target the value's type cannot meet"
+          "test": "script_create warns about a script with no auto step unless it is manual_only"
         },
         {
           "suite": "live",
@@ -13121,14 +13131,29 @@
       "status": "covered",
       "tests": [
         {
-          "suite": "live",
-          "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "resolve_in_pie lets a value through that only exists once PIE runs, and is stored on the step"
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptMapTests.cpp",
+          "test": "UE.MCP.PIE.Script.MapOpensBeforeRun"
+        },
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptSaveWarningsTests.cpp",
+          "test": "UE.MCP.PIE.Script.SaveWithWarnings"
         },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create refuses a script with no auto step unless it is manual_only"
+          "test": "resolve_in_pie silences the warning for a value that only exists once PIE runs, and is stored on the step"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create saves a value the observer cannot read, warning with the step, the value and the closest candidates"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/bcov-pie-assets.test.ts",
+          "test": "script_create warns about a script with no auto step unless it is manual_only"
         },
         {
           "suite": "live",
@@ -13219,6 +13244,11 @@
       "registeredIn": "PIEHandlers_Script.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptMapTests.cpp",
+          "test": "UE.MCP.PIE.Script.MapOpensBeforeRun"
+        },
         {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
@@ -13334,6 +13364,11 @@
       "status": "covered",
       "tests": [
         {
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptMapTests.cpp",
+          "test": "UE.MCP.PIE.Script.MapOpensBeforeRun"
+        },
+        {
           "suite": "live",
           "file": "tests/live/bcov-pie-assets.test.ts",
           "test": "script_run mode=manual starts no PIE, takes verdicts in any order and writes results.json"
@@ -13362,9 +13397,9 @@
       "status": "covered",
       "tests": [
         {
-          "suite": "live",
-          "file": "tests/live/bcov-pie-assets.test.ts",
-          "test": "script_create, script_read, script_update, script_list and script_delete round-trip one asset"
+          "suite": "automation",
+          "file": "plugin/ue_mcp_bridge/Source/UE_MCP_Bridge/Private/Tests/PIEScriptSaveWarningsTests.cpp",
+          "test": "UE.MCP.PIE.Script.SaveWithWarnings"
         }
       ]
     },
@@ -17623,6 +17658,11 @@
       "registeredIn": "EditorHandlers.cpp",
       "status": "covered",
       "tests": [
+        {
+          "suite": "live",
+          "file": "tests/live/editor-lifecycle.test.ts",
+          "test": "advertises the same epic_* actions after the editor restarts (#1538)"
+        },
         {
           "suite": "live",
           "file": "tests/live/editor-lifecycle.test.ts",
