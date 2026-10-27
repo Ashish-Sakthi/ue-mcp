@@ -194,11 +194,20 @@ export function mirror(src, dst, filter = () => true, keep = new Set()) {
 }
 
 /**
- * Peak private memory per editor, by kind, in MB: measured on the reference
- * machine under the suite's load (#1436). The runner reads free memory at
+ * Peak resident memory per editor, by kind, in MB, rounded up from the peak
+ * working sets the runner records in tests/.shards/last-run.json (render 4.48 GB,
+ * interactive 4.15 GB, base and scm 3.21 GB). The runner reads free memory at
  * launch and never starts an editor that would not fit beside the headroom.
  */
-export const EDITOR_PEAK_MB = { headless: 3600, base: 3600, scm: 3600, render: 5600, interactive: 5600 };
+export const EDITOR_PEAK_MB = { headless: 3600, base: 3300, scm: 3300, render: 4600, interactive: 4300 };
+
+/**
+ * The order editors take turns at the memory check: the longest shard first,
+ * so the one that ends the run is not the last to find room.
+ */
+export function launchOrder(plan) {
+  return [...plan].sort((a, b) => b.weightMs - a.weightMs || a.name.localeCompare(b.name));
+}
 
 /** Memory left for everything else on the machine: at least 4 GB, or 12% of it. */
 export function headroomMB(totalMB) {
