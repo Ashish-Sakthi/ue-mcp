@@ -957,6 +957,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ReadPCGGraph(const TSharedPtr<FJsonObject>&
 		TSharedPtr<FJsonObject> NodeObj = MakeShared<FJsonObject>();
 		NodeObj->SetStringField(TEXT("name"), Node->GetName());
 		NodeObj->SetStringField(TEXT("title"), Node->GetNodeTitle(EPCGNodeTitleType::ListView).ToString());
+		MCPPCG::SetPinLabelFields(Node, NodeObj);
 		NodeArray.Add(MakeShared<FJsonValueObject>(NodeObj));
 	}
 
@@ -973,17 +974,7 @@ TSharedPtr<FJsonValue> FPCGHandlers::ReadPCGGraph(const TSharedPtr<FJsonObject>&
 		if (!Node) return Obj;
 		Obj->SetStringField(TEXT("name"), Node->GetName());
 		Obj->SetStringField(TEXT("title"), Node->GetNodeTitle(EPCGNodeTitleType::ListView).ToString());
-		TArray<TSharedPtr<FJsonValue>> InPins, OutPins;
-		for (const TObjectPtr<UPCGPin>& P : Node->GetInputPins())
-		{
-			if (P) InPins.Add(MakeShared<FJsonValueString>(P->Properties.Label.ToString()));
-		}
-		for (const TObjectPtr<UPCGPin>& P : Node->GetOutputPins())
-		{
-			if (P) OutPins.Add(MakeShared<FJsonValueString>(P->Properties.Label.ToString()));
-		}
-		Obj->SetArrayField(TEXT("inputPins"), InPins);
-		Obj->SetArrayField(TEXT("outputPins"), OutPins);
+		MCPPCG::SetPinLabelFields(Node, Obj);
 		return Obj;
 	};
 	if (const UPCGNode* InputNode = Graph->GetInputNode())
@@ -1198,11 +1189,20 @@ TSharedPtr<FJsonValue> FPCGHandlers::ConnectPCGNodes(const TSharedPtr<FJsonObjec
 
 	if (ResolvedSourcePinLabel == NAME_None)
 	{
-		return MCPError(TEXT("No suitable output pin found on source node"));
+		return MCPError(FString::Printf(TEXT("Source node '%s' has no output pins."), *SourceNodeName));
 	}
 	if (ResolvedTargetPinLabel == NAME_None)
 	{
-		return MCPError(TEXT("No suitable input pin found on target node"));
+		return MCPError(FString::Printf(TEXT("Target node '%s' has no input pins."), *TargetNodeName));
+	}
+	// A label the node does not have is refused with the labels it does have.
+	if (!MCPPCG::HasPinLabel(SourceNode->GetOutputPins(), ResolvedSourcePinLabel))
+	{
+		return MCPPCG::PinNotFoundError(SourceNode, ResolvedSourcePinLabel, /*bOutput*/ true);
+	}
+	if (!MCPPCG::HasPinLabel(TargetNode->GetInputPins(), ResolvedTargetPinLabel))
+	{
+		return MCPPCG::PinNotFoundError(TargetNode, ResolvedTargetPinLabel, /*bOutput*/ false);
 	}
 
 	// Idempotency, and a correctness guard on the rollback: if this edge is
@@ -1333,6 +1333,15 @@ TSharedPtr<FJsonValue> FPCGHandlers::DisconnectPCGNodes(const TSharedPtr<FJsonOb
 	if (!SourceNode) return MCPPCG::NodeNotFoundError(Graph, SourceNodeName, TEXT("Source node"));
 	UPCGNode* TargetNode = MCPPCG::FindNode(Graph, TargetNodeName);
 	if (!TargetNode) return MCPPCG::NodeNotFoundError(Graph, TargetNodeName, TEXT("Target node"));
+	// A label the node does not have would otherwise read as already disconnected.
+	if (!SourcePinLabel.IsEmpty() && !MCPPCG::HasPinLabel(SourceNode->GetOutputPins(), FName(*SourcePinLabel)))
+	{
+		return MCPPCG::PinNotFoundError(SourceNode, FName(*SourcePinLabel), /*bOutput*/ true);
+	}
+	if (!TargetPinLabel.IsEmpty() && !MCPPCG::HasPinLabel(TargetNode->GetInputPins(), FName(*TargetPinLabel)))
+	{
+		return MCPPCG::PinNotFoundError(TargetNode, FName(*TargetPinLabel), /*bOutput*/ false);
+	}
 
 	if (auto Blocked = MCPAssetWriteBlockedError(Graph, AssetPath, TEXT("disconnect nodes in this PCG graph"))) return Blocked;
 	FScopedTransaction Transaction(NSLOCTEXT("UEMCPBridge", "DisconnectPCGNodes", "Disconnect PCG Nodes"));
@@ -3356,6 +3365,8 @@ TSharedPtr<FJsonValue> FPCGHandlers::ExportGraph(const TSharedPtr<FJsonObject>& 
 		}
 		NodeObj->SetNumberField(TEXT("posX"), PosX);
 		NodeObj->SetNumberField(TEXT("posY"), PosY);
+		// Read only: import_graph ignores them, and wires connections by these labels.
+		MCPPCG::SetPinLabelFields(Node, NodeObj);
 
 		const UPCGSettings* Settings = Node->GetSettings();
 		if (Settings)

@@ -341,6 +341,63 @@ bool FMCPPCGImportWarningsTest::RunTest(const FString& Parameters)
 }
 
 IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPPCGPinLabelsTest,
+	"UE.MCP.PCG.Graph.PinLabelsAndPinErrors",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPPCGPinLabelsTest::RunTest(const FString& Parameters)
+{
+	using namespace PCGHandlerTests;
+	const FMCPScopedTestMount Mount{ FString(Root), TEXT("UEMCPPCGTest") };
+	FMCPHandlerRegistry Registry;
+	FPCGHandlers::RegisterHandlers(Registry);
+
+	auto CreateParams = MakeShared<FJsonObject>();
+	CreateParams->SetStringField(TEXT("name"), TEXT("PCG_Pins_") + FGuid::NewGuid().ToString(EGuidFormats::Digits));
+	CreateParams->SetStringField(TEXT("packagePath"), FString(Root) + TEXT("Pins"));
+	const TSharedPtr<FJsonObject> Created = Call(Registry, TEXT("create_pcg_graph"), CreateParams);
+	if (!TestTrue(TEXT("create_pcg_graph succeeds"), Succeeded(Created))) return false;
+	const FString GraphPath = Created->GetStringField(TEXT("path"));
+
+	auto AddParams = MakeShared<FJsonObject>();
+	AddParams->SetStringField(TEXT("assetPath"), GraphPath);
+	AddParams->SetStringField(TEXT("nodeType"), TEXT("PCGAddTagSettings"));
+	const TSharedPtr<FJsonObject> Added = Call(Registry, TEXT("add_pcg_node"), AddParams);
+	if (!TestTrue(TEXT("add_pcg_node adds a node"), Succeeded(Added))) return false;
+	const FString NodeName = Added->GetStringField(TEXT("nodeName"));
+
+	auto GraphParams = MakeShared<FJsonObject>();
+	GraphParams->SetStringField(TEXT("assetPath"), GraphPath);
+	const TSharedPtr<FJsonObject> Read = Call(Registry, TEXT("read_pcg_graph"), GraphParams);
+	TArray<FString> InputLabels;
+	for (const TSharedPtr<FJsonValue>& NodeValue : Read->GetArrayField(TEXT("nodes")))
+	{
+		const TSharedPtr<FJsonObject> NodeObj = NodeValue->AsObject();
+		if (NodeObj->GetStringField(TEXT("name")) != NodeName) continue;
+		TestTrue(TEXT("read_pcg_graph lists output pins"), NodeObj->GetArrayField(TEXT("outputPins")).Num() > 0);
+		for (const TSharedPtr<FJsonValue>& Label : NodeObj->GetArrayField(TEXT("inputPins"))) InputLabels.Add(Label->AsString());
+	}
+	if (!TestTrue(TEXT("read_pcg_graph lists the node's input pins"), InputLabels.Num() > 0)) return false;
+
+	auto Connect = MakeShared<FJsonObject>();
+	Connect->SetStringField(TEXT("assetPath"), GraphPath);
+	Connect->SetStringField(TEXT("sourceNode"), TEXT("DefaultInputNode"));
+	Connect->SetStringField(TEXT("targetNode"), NodeName);
+	Connect->SetStringField(TEXT("targetPin"), TEXT("NoSuchPin"));
+	const TSharedPtr<FJsonObject> Refused = Call(Registry, TEXT("connect_pcg_nodes"), Connect);
+	TestFalse(TEXT("an unknown target pin is refused"), Succeeded(Refused));
+	TestEqual(TEXT("the refusal names its reason"), Refused->GetStringField(TEXT("reason")), FString(TEXT("pin_not_found")));
+	TArray<FString> Valid;
+	for (const TSharedPtr<FJsonValue>& Label : Refused->GetArrayField(TEXT("validPins"))) Valid.Add(Label->AsString());
+	TestEqual(TEXT("validPins are the node's input labels"), Valid, InputLabels);
+
+	UPCGGraph* Graph = LoadObject<UPCGGraph>(nullptr, *GraphPath);
+	TestTrue(TEXT("nothing was wired"), Graph && Graph->GetInputNode() && Graph->GetInputNode()->GetOutputPins().Num() > 0
+		&& Graph->GetInputNode()->GetOutputPins()[0]->Edges.Num() == 0);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
 	FMCPPCGVolumeAndRunTest,
 	"UE.MCP.PCG.Volume.TransformAndRunRecord",
 	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
