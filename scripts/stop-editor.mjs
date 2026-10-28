@@ -9,9 +9,10 @@
  * which project it has open first, and only tests/ue_mcp is asked to close. Unsaved test
  * changes are discarded (requireClean: false).
  *
- * An editor that stops answering on its way out is ended (#1592): one held its port for an
- * hour after its exit began, and the next run's lanes attached to it. Only the lockfile's
- * process, and only when its command line opens this checkout's tests/ue_mcp.
+ * An editor that stops answering, or is still exiting 30 s after agreeing to close, is ended
+ * (#1592): one held its port for an hour after its exit began, and the next run's lanes
+ * attached to it. Only the lockfile's process, and only when its command line opens this
+ * checkout's tests/ue_mcp.
  */
 import { execFileSync } from "node:child_process";
 import { askOnce, extractReportedProjectDir, isProcessAlive, isTestProjectDir, normalizeProjectRoot, PROJECT_IDENTITY_PYTHON, readPortLockfile, TEST_PROJECT_UPROJECT } from "./bridge-target.mjs";
@@ -68,9 +69,10 @@ try {
 } catch (err) {
   end(`does not answer (${err instanceof Error ? err.message : err})`);
 }
-// An editor that has asked to exit can still spend a minute finishing the shared DDC's maintenance
-// pass (63 s in #1592), so the wait outlasts that.
-if (asked && !(await waitForExit(180))) end("did not exit within 180 s of agreeing to close");
+// An editor on its way out can spend minutes on the shared DDC's maintenance pass (63 s, and past
+// 180 s, in #1592). It has agreed to close with its changes discarded, so nothing is lost by ending
+// it, and the run does not wait on it.
+if (asked && !(await waitForExit(30))) end("did not exit within 30 s of agreeing to close");
 const closed = await waitForExit(30);
 console.log(closed ? `editor ${lock.pid} closed` : `editor ${lock.pid} is still running`);
 process.exit(closed ? 0 : 1);
