@@ -138,6 +138,7 @@ const PER_SESSION: Record<string, string> = {
 /** No editor concept, or one deliberate answer for the whole process. */
 const SESSION_INDEPENDENT: Record<string, string> = {
   "daemon/extension-install.ts": "Installs an extension into the user's extensions directory. No editor is involved.",
+  "daemon/extension-versions.ts": "Lays out installed extension versions and picks the one a project records. No editor is involved.",
   "daemon/plugin-routes.ts": "Lists and changes the plugins of the one project the daemon serves, through the CLI. No editor is involved.",
   "daemon/ui-bundles.ts": "Verifies, stores and resolves signed UI bundles kept per user. No editor is involved.",
   "daemon/extensions.ts": "Loads extensions from the user's extensions directory and matches their routes. No editor is involved.",
