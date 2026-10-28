@@ -13,7 +13,8 @@
  * 4. In parallel (#1592):
  *      ci        creates the draft release, pushes the branch, opens the pull request
  *                and waits for its checks
- *      binaries  incremental per-engine compile, uploaded to the draft once it exists
+ *      binaries  once tests/ue_mcp is built: its engine packaged from that build, every other
+ *                engine compiled incrementally; uploaded to the draft once it exists
  *      editor    tests/ue_mcp built and staged for the shards, then one editor on it for
  *                smoke over the actions no behavioural test dispatches and the selected
  *                UE.MCP.* automation tests (when plugin/ changed), the base live files,
@@ -208,16 +209,6 @@ function replayPluginChanges() {
   console.log(`${stamp()} rehearsal: ${touched} host project file(s) marked changed for the binaries compile`);
 }
 
-const binariesOut = rehearsal ? ["--", "--out", path.join(logDir, "rehearsal-binaries")] : [];
-if (rehearsal && pluginChanged) replayPluginChanges();
-const binariesBuilt = run("binaries", npm, ["run", "binaries:build", ...binariesOut]);
-const binaries = (async () => {
-  if (!(await binariesBuilt)) return false;
-  if (rehearsal) return true;
-  if (!(await published)) return false;
-  return run("binaries-upload", npm, ["run", "binaries:upload"]);
-})();
-
 const selected = selection.full ? [] : ["--files-from", selectionFile];
 const needsBuild = pluginChanged || runLive || runLifecycle;
 // The shards copy their build output from a snapshot taken here, because the lifecycle cases
@@ -229,6 +220,19 @@ const built = needsBuild
     ...(runLive ? [["stage-build", node, ["scripts/live-tests.mjs", "--stage-build"]]] : []),
   ])
   : Promise.resolve(true);
+
+// The engine tests/ue_mcp builds against is packaged from that build rather than compiled again:
+// the duplicate compile held that engine's build tool, and every editor of that engine waits for
+// it at launch (UBT -Mode=ValidatePlatforms), which stalled the tests/ue_mcp editor 236 s.
+const binariesOut = ["--", "--from-test-build", ...(rehearsal ? ["--out", path.join(logDir, "rehearsal-binaries")] : [])];
+if (rehearsal && pluginChanged) replayPluginChanges();
+const binariesBuilt = (async () => (await built) && run("binaries", npm, ["run", "binaries:build", ...binariesOut]))();
+const binaries = (async () => {
+  if (!(await binariesBuilt)) return false;
+  if (rehearsal) return true;
+  if (!(await published)) return false;
+  return run("binaries-upload", npm, ["run", "binaries:upload"]);
+})();
 
 // One editor on tests/ue_mcp, beside the binaries compile: smoke and automation when the plugin
 // changed, then the base live files and the lifecycle cases on the same editor, then closed, so the
