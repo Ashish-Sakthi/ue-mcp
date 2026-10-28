@@ -27,7 +27,9 @@ if (reply?.success === false) {
   console.error(`the editor declined to close: ${reply.error ?? "no reason given"}`);
   process.exit(1);
 }
-for (let i = 0; i < 120 && isProcessAlive(lock.pid); i++) await new Promise((r) => setTimeout(r, 500));
+// An editor that has asked to exit can still spend a minute finishing the shared DDC's maintenance
+// pass (63 s in #1592), so the wait outlasts that.
+for (let i = 0; i < 360 && isProcessAlive(lock.pid); i++) await new Promise((r) => setTimeout(r, 500));
 const alive = isProcessAlive(lock.pid);
-console.log(alive ? `editor ${lock.pid} did not exit within 60 s` : `editor ${lock.pid} closed`);
+console.log(alive ? `editor ${lock.pid} did not exit within 180 s` : `editor ${lock.pid} closed`);
 process.exit(alive ? 1 : 0);
