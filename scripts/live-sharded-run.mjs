@@ -20,7 +20,7 @@ import { askOnce, extractReportedProjectDir, normalizeProjectRoot, PROJECT_IDENT
 import { resolveTestEngine } from "./build-utils.js";
 import { TEST_EDITOR_ARGS } from "./test-editor-args.mjs";
 import {
-  KIND_FLAGS, EDITOR_PEAK_MB, KEEP_IN_SHARD, liveFiles, planFixedShards, poolQueue, poolWantsEditor, nextBatch, POOL_EDITOR_WORK_MS, mirror, buildOutputFilter,
+  KIND_FLAGS, EDITOR_PEAK_MB, KEEP_IN_SHARD, liveFiles, planFixedShards, poolQueue, poolWantsEditor, nextBatch, POOL_EDITOR_WORK_MS, POOL_MIN_SHARE_MS, mirror, buildOutputFilter,
   timingFromReports, overBudget, slowest, headroomMB, editorFits, launchOrder, splitAtDeath, undeployedSources,
 } from "./live-shards.mjs";
 
@@ -457,8 +457,10 @@ export async function runSharded(opts) {
   const runPoolEditor = async (job) => {
     if (await bringUp(job)) {
       let batch = 0;
-      while (pool.files.length > 0 && job.weightMs < POOL_EDITOR_WORK_MS) {
-        const next = nextBatch(pool.files, pool.weights, poolEditors.size, Math.min(120_000, POOL_EDITOR_WORK_MS - job.weightMs));
+      // Past its share it still takes what is left when that is not worth a fresh editor's launch.
+      while (pool.files.length > 0 && (job.weightMs < POOL_EDITOR_WORK_MS || queuedMs() < POOL_MIN_SHARE_MS)) {
+        const share = job.weightMs < POOL_EDITOR_WORK_MS ? POOL_EDITOR_WORK_MS - job.weightMs : POOL_MIN_SHARE_MS;
+        const next = nextBatch(pool.files, pool.weights, poolEditors.size, Math.min(120_000, share));
         job.files.push(...next.files);
         job.weightMs += next.weightMs;
         const unrun = await runFiles(job, next.files, ++batch);
