@@ -62,7 +62,7 @@ export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt",
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
 export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection", "actions.effects", "install.pendingBuild", "editor.rebuild"];
 import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
-import { UiBundleStore, contentType } from "./ui-bundles.js";
+import { UiBundleStore, contentType, type UiBundleOwner } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
 import { editorOwnsProject, probeEditorProcessList } from "../editor/engine-observer.js";
@@ -441,107 +441,115 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
   // ── UI bundles and extensions ───────────────────────────────────
   const ui = new UiBundleStore(DAEMON_API_VERSION, opts.uiDir);
   const refusedExtensions: RefusedExtension[] = [];
-  const extensions: LoadedExtension[] = await loadExtensions((name, routes, setBusy): DaemonExtensionApi => ({
-    apiVersion: EXTENSION_API_VERSION,
-    version: packageVersion(),
-    projectDir,
-    dataDir: (() => {
-      const dir = path.join(userDir(), "data", projectKey(projectDir), name);
-      fs.mkdirSync(dir, { recursive: true });
-      return dir;
-    })(),
-    events: {
-      publish: (type, data) => events.publish(`${name}.${type}`, data),
-      subscribe: (listener) => events.subscribe(listener),
-      since: (lastId) => events.since(lastId),
-    },
-    route: (method, routePath, handler) => {
-      routes.push({ method, path: routePath, handler });
-    },
-    callAction: async (category, action, args, callOpts) => {
-      const r = await rt.callAction(category, action, args, {
-        ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
-        ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
-        ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
-      });
-      return { isError: !!r.isError, content: r.content };
-    },
-    features: EXTENSION_FEATURES,
-    models: {
-      register: (provider) => registerModelProvider(provider),
-    },
-    skills: {
-      list: () => listDaemonSkills(projectDir),
-    },
-    actions: {
-      effects: (categories) => actionEffects(categories),
-    },
-    context: {
-      project: (o) => projector.project(o),
-      call: async (tool, input, callOpts) => {
-        const r = await projector.call(
-          { strategy: callOpts?.strategy ?? rt.contextStrategy, ...(callOpts?.categories ? { categories: callOpts.categories } : {}) },
-          tool,
-          input ?? {},
-          {
-            ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
-            ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
-            ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
-          },
-        );
+  // An extension's bundles are held to its version from activation, when it installs its own UI.
+  const uiOwners: UiBundleOwner[] = [];
+  const extensions: LoadedExtension[] = await loadExtensions((name, routes, setBusy, pkg): DaemonExtensionApi => {
+    uiOwners.push({ name, ...pkg });
+    ui.setOwners(uiOwners);
+    return {
+      apiVersion: EXTENSION_API_VERSION,
+      version: packageVersion(),
+      projectDir,
+      dataDir: (() => {
+        const dir = path.join(userDir(), "data", projectKey(projectDir), name);
+        fs.mkdirSync(dir, { recursive: true });
+        return dir;
+      })(),
+      events: {
+        publish: (type, data) => events.publish(`${name}.${type}`, data),
+        subscribe: (listener) => events.subscribe(listener),
+        since: (lastId) => events.since(lastId),
+      },
+      route: (method, routePath, handler) => {
+        routes.push({ method, path: routePath, handler });
+      },
+      callAction: async (category, action, args, callOpts) => {
+        const r = await rt.callAction(category, action, args, {
+          ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
+          ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
+          ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
+        });
         return { isError: !!r.isError, content: r.content };
       },
-    },
-    editors: () => editors(),
-    editorOperation: (op) => editorOp(op),
-    setBusy,
-    ui: {
-      trustKey: (pem) => ui.trustKey(pem),
-      install: (dir) => ui.install(dir),
-      active: () => ui.active()?.manifest ?? null,
-    },
-    modes: {
-      get: () => {
-        const feedback = getFeedbackModeScopes(projectDir);
-        const dialog = getDialogModeScopes(projectDir);
-        return {
-          // Unset everywhere, feedback asks, as the tool does; a dialog mode left unset follows the client.
-          feedback: { mode: feedback.project ?? feedback.user ?? "interactive", project: feedback.project !== undefined },
-          dialog: { mode: dialog.project ?? dialog.user ?? null, project: dialog.project !== undefined },
-          playtest: resolvePlaytestMode(projectDir),
-        };
+      features: EXTENSION_FEATURES,
+      models: {
+        register: (provider) => registerModelProvider(provider),
       },
-      setFeedback: (mode) => setFeedbackMode(mode, projectDir),
-      setDialog: (mode) => setDialogMode(mode, projectDir),
-      setPlaytest: (mode) => setPlaytestMode(mode, projectDir),
-    },
-    checkpoints: (() => {
-      const of = (editor?: string) => {
-        const session = editor ? rt.sessions.find(editor) : rt.sessions.active;
-        if (!session) throw new Error(`No editor session '${editor}'`);
-        return checkpointsFor(session);
-      };
-      return {
-        state: (o) => of(o?.editor).state(o?.limit),
-        setEnabled: (enabled, o) => of(o?.editor).setEnabled(enabled),
-        create: (label, o) => of(o?.editor).create(label),
-        changes: (from, to, o) => of(o?.editor).changes(from, to ?? null, { assetDiffs: o?.assetDiffs }),
-        assetDiff: (from, to, file, o) => of(o?.editor).assetDiff(from, to ?? null, file),
-        thumbnail: (id, o) => of(o?.editor).thumbnail(id),
-        openNativeDiff: (file, from, to, o) => of(o?.editor).openNativeDiff(file, from, to ?? null),
-        restore: (checkpoint, o) => of(o?.editor).restore(checkpoint, { paths: o?.paths, force: o?.force }),
-        clear: (o) => of(o?.editor).clear(),
-      };
-    })(),
-    registryAccount: async () => {
-      const auth = await readRegistryAuth();
-      return auth ? { login: auth.login, token: auth.token, registry: auth.registry } : null;
-    },
-    log: {
-      info: (message) => info(`ext:${name}`, message),
-      warn: (message, detail) => warn(`ext:${name}`, message, detail),
-    },
-  }), opts.extensionsDir, refusedExtensions);
+      skills: {
+        list: () => listDaemonSkills(projectDir),
+      },
+      actions: {
+        effects: (categories) => actionEffects(categories),
+      },
+      context: {
+        project: (o) => projector.project(o),
+        call: async (tool, input, callOpts) => {
+          const r = await projector.call(
+            { strategy: callOpts?.strategy ?? rt.contextStrategy, ...(callOpts?.categories ? { categories: callOpts.categories } : {}) },
+            tool,
+            input ?? {},
+            {
+              ...(callOpts?.dialogPrompt ? { dialogPrompt: callOpts.dialogPrompt } : {}),
+              ...(callOpts?.dialogWaitMs !== undefined ? { dialogWaitMs: callOpts.dialogWaitMs } : {}),
+              ...(callOpts?.elicit ? { elicit: callOpts.elicit } : {}),
+            },
+          );
+          return { isError: !!r.isError, content: r.content };
+        },
+      },
+      editors: () => editors(),
+      editorOperation: (op) => editorOp(op),
+      setBusy,
+      ui: {
+        trustKey: (pem) => ui.trustKey(pem),
+        install: (dir) => ui.install(dir),
+        active: () => ui.active()?.manifest ?? null,
+      },
+      modes: {
+        get: () => {
+          const feedback = getFeedbackModeScopes(projectDir);
+          const dialog = getDialogModeScopes(projectDir);
+          return {
+            // Unset everywhere, feedback asks, as the tool does; a dialog mode left unset follows the client.
+            feedback: { mode: feedback.project ?? feedback.user ?? "interactive", project: feedback.project !== undefined },
+            dialog: { mode: dialog.project ?? dialog.user ?? null, project: dialog.project !== undefined },
+            playtest: resolvePlaytestMode(projectDir),
+          };
+        },
+        setFeedback: (mode) => setFeedbackMode(mode, projectDir),
+        setDialog: (mode) => setDialogMode(mode, projectDir),
+        setPlaytest: (mode) => setPlaytestMode(mode, projectDir),
+      },
+      checkpoints: (() => {
+        const of = (editor?: string) => {
+          const session = editor ? rt.sessions.find(editor) : rt.sessions.active;
+          if (!session) throw new Error(`No editor session '${editor}'`);
+          return checkpointsFor(session);
+        };
+        return {
+          state: (o) => of(o?.editor).state(o?.limit),
+          setEnabled: (enabled, o) => of(o?.editor).setEnabled(enabled),
+          create: (label, o) => of(o?.editor).create(label),
+          changes: (from, to, o) => of(o?.editor).changes(from, to ?? null, { assetDiffs: o?.assetDiffs }),
+          assetDiff: (from, to, file, o) => of(o?.editor).assetDiff(from, to ?? null, file),
+          thumbnail: (id, o) => of(o?.editor).thumbnail(id),
+          openNativeDiff: (file, from, to, o) => of(o?.editor).openNativeDiff(file, from, to ?? null),
+          restore: (checkpoint, o) => of(o?.editor).restore(checkpoint, { paths: o?.paths, force: o?.force }),
+          clear: (o) => of(o?.editor).clear(),
+        };
+      })(),
+      registryAccount: async () => {
+        const auth = await readRegistryAuth();
+        return auth ? { login: auth.login, token: auth.token, registry: auth.registry } : null;
+      },
+      log: {
+        info: (message) => info(`ext:${name}`, message),
+        warn: (message, detail) => warn(`ext:${name}`, message, detail),
+      },
+    };
+  }, opts.extensionsDir, refusedExtensions);
+  // One that failed to activate no longer holds its bundles back.
+  ui.setOwners(extensions.map((x) => ({ name: x.name, version: x.version, ...(x.uiMin ? { uiMin: x.uiMin } : {}) })));
 
   const readBody = (req: http.IncomingMessage): Promise<unknown> => new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
