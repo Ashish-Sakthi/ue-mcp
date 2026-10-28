@@ -1380,6 +1380,11 @@
         {
           "suite": "integration",
           "file": "tests/integration/playtest-flow.test.ts",
+          "test": "fails before drafting when the target path resolves to nothing, and saves no script"
+        },
+        {
+          "suite": "integration",
+          "file": "tests/integration/playtest-flow.test.ts",
           "test": "falls back to ANTHROPIC_API_KEY, and fails with the errors once every draft is refused"
         },
         {

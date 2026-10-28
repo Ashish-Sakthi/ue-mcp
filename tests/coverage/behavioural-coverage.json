@@ -13397,6 +13397,11 @@
           "suite": "live",
           "file": "tests/live/playtest-flow.test.ts",
           "test": "drafts, has the editor check the draft, and saves a script that reads back"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/playtest-flow.test.ts",
+          "test": "fails before drafting when the target path resolves to nothing, and saves no script (#1610)"
         }
       ]
     },
