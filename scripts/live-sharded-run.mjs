@@ -469,13 +469,17 @@ export async function runSharded(opts) {
   };
 
   // One launch at a time takes the memory check, and holds its peak as pending until it is ready.
-  // The other kinds go first, longest first: the pool can use an editor at any point and they cannot.
+  // After the queue's first editor, the other kinds go first, longest first: more headless editors
+  // can join at any point and a fixed shard cannot be split.
   const tasks = [];
   let told = false;
   for (;;) {
     // Two headless editors that never came up mean the next would not either.
     const wantPool = poolLaunchFailures < 2 && poolWantsEditor({ remainingMs: queuedMs(), queued: pool.files.length, editors: poolEditors.size, max: maxHeadless });
-    const kind = fixedQueue[0]?.kind ?? (wantPool ? "headless" : null);
+    // The queue's first editor before the fixed shards, since it holds most of the work; on a machine
+    // with room for two editors, fixed shards first left it waiting until they were done.
+    const poolFirst = wantPool && poolEditors.size === 0;
+    const kind = poolFirst ? "headless" : fixedQueue[0]?.kind ?? (wantPool ? "headless" : null);
     if (!kind) {
       if (running.size === 0 && pool.files.length === 0 && fixedQueue.length === 0) break;
       await nap();
@@ -488,7 +492,7 @@ export async function runSharded(opts) {
       continue;
     }
     told = false;
-    const job = fixedQueue.length > 0
+    const job = !poolFirst && fixedQueue.length > 0
       ? fixedQueue.shift()
       : { name: `h${++poolSeq}`, kind: "headless", files: [], weightMs: 0, dir: path.join(LIVE_SHARD_ROOT, `h${poolSeq}`, "ue_mcp") };
     job.memoryAtReady = null;
