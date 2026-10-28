@@ -16,9 +16,9 @@
  *      binaries  once tests/ue_mcp is built: its engine packaged from that build, every other
  *                engine compiled incrementally; uploaded to the draft once it exists
  *      editor    tests/ue_mcp built and staged for the shards, then one editor on it for
- *                smoke over the actions no behavioural test dispatches and the selected
- *                UE.MCP.* automation tests (when plugin/ changed), the base live files,
- *                and the lifecycle cases; closed at the end
+ *                the lifecycle cases, smoke over the actions no behavioural test dispatches
+ *                and the selected UE.MCP.* automation tests (when plugin/ changed), and the
+ *                base live files; closed at the end
  *      live      every other selected live file, sharded, once the binaries compile is done
  * 5. Merges the pull request once CI and every lane above are green. The merge to
  *    main publishes.
@@ -234,14 +234,16 @@ const binaries = (async () => {
   return run("binaries-upload", npm, ["run", "binaries:upload"]);
 })();
 
-// One editor on tests/ue_mcp, beside the binaries compile: smoke and automation when the plugin
-// changed, then the base live files and the lifecycle cases on the same editor, then closed, so the
-// run never leaves an editor behind.
+// One editor on tests/ue_mcp, beside the binaries compile, closed at the end so the run never leaves
+// an editor behind.
+// Lifecycle first: it builds and restarts the editor four times, which beside the live shards took
+// 375 s and lost its rebuild case to the contention; before them it shares the machine only with the
+// binaries compile. The editor it leaves running serves the rest.
 const editorSteps = [
+  ...(runLifecycle ? [["lifecycle", node, ["scripts/live-tests.mjs", "--lifecycle"]]] : []),
   ...(pluginChanged ? [["smoke", node, ["scripts/smoke-test.js", "--uncovered"]]] : []),
   ...(pluginChanged && runAutomation ? [["automation", node, ["scripts/automation-tests.mjs", ...(selection.full ? [] : ["--filters-from", selectionFile])]]] : []),
   ...(runLive ? [["live-base", node, ["scripts/live-tests.mjs", "--kinds", "base", "--staged-build", ...selected]]] : []),
-  ...(runLifecycle ? [["lifecycle", node, ["scripts/live-tests.mjs", "--lifecycle"]]] : []),
 ];
 const editor = (async () => {
   if (!(await built)) return false;
