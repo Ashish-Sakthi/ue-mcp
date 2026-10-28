@@ -3240,6 +3240,11 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/blueprint-component-default-propagation.test.ts",
+          "test": "moves instances on the old default, keeps overrides, and a level save keeps both"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/crash-class-inputs.test.ts",
           "test": "compiles an open Blueprint and reports it compiled"
         }
@@ -7100,6 +7105,11 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/blueprint-component-default-propagation.test.ts",
+          "test": "moves instances on the old default, keeps overrides, and a level save keeps both"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/blueprint-component-property-pie.test.ts",
           "test": "reinstances the possessed pawn without binding any delegate twice, and the value reads back"
         }
@@ -7373,6 +7383,11 @@
           "suite": "live",
           "file": "tests/live/bcov-level-environment.test.ts",
           "test": "spawn_light places a point light at the requested location"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/blueprint-component-default-propagation.test.ts",
+          "test": "moves instances on the old default, keeps overrides, and a level save keeps both"
         }
       ]
     },
@@ -11529,6 +11544,11 @@
           "suite": "live",
           "file": "tests/live/bcov-level-multilevel.test.ts",
           "test": "streaming sub-levels and the current edit level"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/blueprint-component-default-propagation.test.ts",
+          "test": "moves instances on the old default, keeps overrides, and a level save keeps both"
         },
         {
           "suite": "live",
@@ -17996,6 +18016,11 @@
         },
         {
           "suite": "live",
+          "file": "tests/live/blueprint-component-default-propagation.test.ts",
+          "test": "moves instances on the old default, keeps overrides, and a level save keeps both"
+        },
+        {
+          "suite": "live",
           "file": "tests/live/checkpoints.test.ts",
           "test": "a turn through the server"
         }
@@ -18592,6 +18617,11 @@
           "suite": "live",
           "file": "tests/live/bcov-blueprint-components.test.ts",
           "test": "set_blueprint_component_property writes a mesh that the component readers return"
+        },
+        {
+          "suite": "live",
+          "file": "tests/live/blueprint-component-default-propagation.test.ts",
+          "test": "moves instances on the old default, keeps overrides, and a level save keeps both"
         },
         {
           "suite": "live",
