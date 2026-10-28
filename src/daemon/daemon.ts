@@ -57,11 +57,12 @@ import { EXTENSION_API_VERSION, type DaemonExtensionApi, type DaemonHealth, type
 import { existingGuard, onDialogEvent } from "../editor/dialog-guard.js";
 
 /** What this daemon's extension API offers beyond its version number. */
-export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "modes.playtest", "skills", "context.projection", "actions.effects"];
+export const EXTENSION_FEATURES: readonly string[] = ["callAction.dialogPrompt", "callAction.elicit", "checkpoints", "checkpoints.assetDiff", "events.dialog", "events.script", "models.provider", "modes", "modes.playtest", "skills", "context.projection", "actions.effects", "extension.versions"];
 
 /** What this daemon's HTTP API offers beyond DAEMON_API_VERSION, reported by /v1/health. */
 export const DAEMON_FEATURES: readonly string[] = ["checkpoints", "checkpoints.assetDiff", "skills", "context.projection", "actions.effects", "install.pendingBuild", "editor.rebuild"];
-import { loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
+import { extensionsDir, loadExtensions, matchRoute, normalizeResponse, type LoadedExtension } from "./extensions.js";
+import { installedCopies, recordedVersion, versionsOf } from "./extension-versions.js";
 import { UiBundleStore, contentType, type UiBundleOwner } from "./ui-bundles.js";
 import { collectStatus } from "../cli/status.js";
 import { resolvePluginDir } from "../editor/install-marker.js";
@@ -472,6 +473,11 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         return { isError: !!r.isError, content: r.content };
       },
       features: EXTENSION_FEATURES,
+      versions: () => ({
+        loaded: pkg.version,
+        recorded: recordedVersion(projectDir, name),
+        installed: versionsOf(installedCopies(opts.extensionsDir ?? extensionsDir()).get(name) ?? []),
+      }),
       models: {
         register: (provider) => registerModelProvider(provider),
       },
@@ -547,7 +553,7 @@ export async function startDaemon(opts: DaemonOptions): Promise<Daemon> {
         warn: (message, detail) => warn(`ext:${name}`, message, detail),
       },
     };
-  }, opts.extensionsDir, refusedExtensions);
+  }, opts.extensionsDir, refusedExtensions, packageVersion(), projectDir);
   // One that failed to activate no longer holds its bundles back.
   ui.setOwners(extensions.map((x) => ({ name: x.name, version: x.version, ...(x.uiMin ? { uiMin: x.uiMin } : {}) })));
 

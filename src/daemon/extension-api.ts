@@ -224,6 +224,7 @@ export interface DaemonExtensionApi {
    *                              category scope would advertise, and `context.call` runs one call
    *                              against that surface
    *   "actions.effects"          `actions.effects` lists each action's effect and whether it is destructive
+   *   "extension.versions"       `versions` names this extension's loaded, recorded and installed versions
    * Absent on a daemon older than the field.
    */
   features?: readonly string[];
@@ -297,6 +298,15 @@ export interface DaemonExtensionApi {
   actions?: {
     effects(categories?: string[]): ActionEffectInfo[];
   };
+
+  /**
+   * This extension's versions (feature "extension.versions", #1619): the one
+   * loaded, the one this project records, and every one installed on the
+   * machine, oldest first. Versions install side by side and each project
+   * loads its recorded one, so another project can install a newer one at any
+   * time; `ue-mcp extension use <name> <version> <project>` moves a project.
+   */
+  versions?(): { loaded: string; recorded: string | null; installed: string[] };
 
   editors(): EditorStatus[];
   /** Start, stop, restart or rebuild the editor, with the cause announced first. */
