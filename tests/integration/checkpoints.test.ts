@@ -255,9 +255,14 @@ describe("checkpoints through the daemon", () => {
     expect(native.status, JSON.stringify(native.body)).toBe(200);
     expect(native.body).toMatchObject({ opened: "window", windowTitle: "Diff of BP_Door.uasset", path: "Content/BP_Door.uasset" });
     expect(opened.at(-1)).toMatchObject({ fromContent: "door v1", fromLabel: `Checkpoint ${start.slice(0, 7)}: turn start`, toLabel: `Checkpoint ${end.slice(0, 7)}: turn end` });
+    // The diff window dates each side with its checkpoint's time, not an unset date (#1606).
+    const taken = new Map(((await call(d, "GET", "/v1/checkpoints")).body.checkpoints as Json[]).map((c) => [c.id, c.createdAt]));
+    expect(opened.at(-1)).toMatchObject({ fromTime: taken.get(start), toTime: taken.get(end) });
+    expect(Number.isNaN(Date.parse(String(opened.at(-1)!.fromTime)))).toBe(false);
     const current = await call(d, "POST", "/v1/checkpoints/native-diff", { path: "Content/BP_Door.uasset", from: start });
     expect(current.status).toBe(200);
-    expect(opened.at(-1)).toMatchObject({ current: true, toLabel: "Current" });
+    expect(opened.at(-1)).toMatchObject({ current: true, toLabel: "Current", fromTime: taken.get(start) });
+    expect(opened.at(-1)!.toTime).toBeUndefined();
     expect(opened.at(-1)!.toFile).toBeUndefined();
   });
 

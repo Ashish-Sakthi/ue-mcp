@@ -2,6 +2,7 @@
 // package loaded with DiffUtils::LoadPackageForDiff, serialized as JSON, plus a
 // deterministic thumbnail of each version and the engine's diff window on request.
 #include "DiffHandlers.h"
+#include "DiffHandlers_Revision.h"
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "HandlerLogCapture.h"
@@ -1510,6 +1511,8 @@ TSharedPtr<FJsonValue> FDiffHandlers::OpenCheckpointNativeDiff(const TSharedPtr<
 	const bool bCurrent = OptionalBool(Params, TEXT("current"), false);
 	const FString FromLabel = OptionalString(Params, TEXT("fromLabel"), TEXT("Before"));
 	const FString ToLabel = OptionalString(Params, TEXT("toLabel"), bCurrent ? TEXT("Current") : TEXT("After"));
+	const FString FromTime = OptionalString(Params, TEXT("fromTime"), FString());
+	const FString ToTime = OptionalString(Params, TEXT("toTime"), FString());
 
 	FString PackageName;
 	if (!FPackageName::TryConvertFilenameToLongPackageName(OriginalFile, PackageName))
@@ -1563,10 +1566,15 @@ TSharedPtr<FJsonValue> FDiffHandlers::OpenCheckpointNativeDiff(const TSharedPtr<
 	else
 	{
 		const FCkDiffEngine Engine = CkDiffEngineFor(New, false);
-		FRevisionInfo OldRev;
-		OldRev.Revision = FromLabel;
-		FRevisionInfo NewRev;
-		NewRev.Revision = ToLabel;
+		// Without a checkpoint time, a version's file time; the current asset is as of now.
+		const FDateTime FromFileTime = IFileManager::Get().GetTimeStamp(*FromFile);
+		const FDateTime ToFileTime = bCurrent ? FDateTime::UtcNow() : IFileManager::Get().GetTimeStamp(*ToFile);
+		const FRevisionInfo OldRev = MCPCheckpointRevision(FromLabel, FromTime, FromFileTime == FDateTime::MinValue() ? FDateTime::UtcNow() : FromFileTime);
+		const FRevisionInfo NewRev = MCPCheckpointRevision(ToLabel, bCurrent ? FString() : ToTime, ToFileTime == FDateTime::MinValue() ? FDateTime::UtcNow() : ToFileTime);
+		TSharedPtr<FJsonObject> Revisions = MakeShared<FJsonObject>();
+		Revisions->SetObjectField(TEXT("before"), MCPCheckpointRevisionJson(OldRev));
+		Revisions->SetObjectField(TEXT("after"), MCPCheckpointRevisionJson(NewRev));
+		Result->SetObjectField(TEXT("revisions"), Revisions);
 		if (Engine.Native == TEXT("window"))
 		{
 			IAssetTools::Get().DiffAssets(Old, New, OldRev, NewRev);

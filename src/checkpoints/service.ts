@@ -91,6 +91,8 @@ export interface NativeDiffResult {
   opened: "window" | "editor" | "external";
   windowTitle?: string;
   tool?: string;
+  /** The label and ISO 8601 date each side of the diff window shows. */
+  revisions?: { before: { label: string; date: string }; after: { label: string; date: string } };
 }
 
 export interface RestoreResult {
@@ -374,6 +376,8 @@ export class SessionCheckpoints {
         ...(current ? { current: true } : {}),
         fromLabel: labels.from,
         toLabel: labels.to,
+        ...(labels.fromTime ? { fromTime: labels.fromTime } : {}),
+        ...(labels.toTime ? { toTime: labels.toTime } : {}),
       });
       if (!answer) throw new CheckpointError(409, "The editor's bridge plugin predates checkpoint_open_native_diff; update it.");
       return {
@@ -382,17 +386,22 @@ export class SessionCheckpoints {
         opened: String(answer.opened) as NativeDiffResult["opened"],
         ...(typeof answer.windowTitle === "string" ? { windowTitle: answer.windowTitle } : {}),
         ...(typeof answer.tool === "string" ? { tool: answer.tool } : {}),
+        ...(answer.revisions && typeof answer.revisions === "object" ? { revisions: answer.revisions as NativeDiffResult["revisions"] } : {}),
       };
     });
   }
 
-  private async labels(from: string, to: string | null): Promise<{ from: string; to: string }> {
+  /** Each side's name and, for the diff window's revision date, when its checkpoint was taken (#1606). */
+  private async labels(from: string, to: string | null): Promise<{ from: string; to: string; fromTime?: string; toTime?: string }> {
     const list = await this.repo().list(Number.MAX_SAFE_INTEGER);
+    const find = (id: string) => list.find((x) => x.id.startsWith(id.toLowerCase()));
     const name = (id: string) => {
-      const c = list.find((x) => x.id.startsWith(id.toLowerCase()));
+      const c = find(id);
       return c ? `Checkpoint ${c.id.slice(0, 7)}${c.label ? `: ${c.label}` : ""}` : `Checkpoint ${id.slice(0, 7)}`;
     };
-    return { from: name(from), to: to ? name(to) : "Current" };
+    const fromTime = find(from)?.createdAt;
+    const toTime = to ? find(to)?.createdAt : undefined;
+    return { from: name(from), to: to ? name(to) : "Current", ...(fromTime ? { fromTime } : {}), ...(toTime ? { toTime } : {}) };
   }
 
   /** Saved/Diff maps to /Temp, which is where the editor loads a package for diffing. */
