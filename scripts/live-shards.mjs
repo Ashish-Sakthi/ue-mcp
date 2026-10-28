@@ -110,6 +110,61 @@ export function planShards(entries, timing, counts) {
   return plan;
 }
 
+/**
+ * The headless and `none` files, longest first: the queue the headless editors
+ * pull from. A fixed split by measured time left one editor 120 s behind the
+ * others when its files ran slower than recorded (1.4.11-beta.9), and could
+ * not use an editor started late, once memory freed (#1592).
+ */
+export function poolQueue(entries, timing) {
+  const files = entries.filter((e) => e.kind === "headless" || e.kind === "none").map((e) => e.file);
+  const weights = fileWeights(files, timing);
+  return { files: [...files].sort((a, b) => weights.get(b) - weights.get(a) || a.localeCompare(b)), weights };
+}
+
+/** The other kinds keep their own editors, split by measured time as before. */
+export function planFixedShards(entries, timing, counts) {
+  return planShards(entries.filter((e) => e.kind !== "headless" && e.kind !== "none"), timing, counts);
+}
+
+/**
+ * Measured work one headless editor runs before the pool replaces it with a fresh one. A delete
+ * scans every loaded object for referencers, and an editor that has run many files has many: one
+ * that ran all 125 headless files took 1534 s for 614 s measured, its deletes grown from 8 ms to
+ * 6 s each, most of its time (#1592). A launch costs about 30 s.
+ */
+export const POOL_EDITOR_WORK_MS = 150_000;
+
+/** Work an editor launch has to be worth, in measured ms: a launch and a stop cost about 30 s. */
+export const POOL_MIN_SHARE_MS = 60_000;
+
+/**
+ * Whether the pool should start another headless editor: files are queued, the
+ * cap allows it, and each editor would still get a share worth its launch.
+ */
+export function poolWantsEditor({ remainingMs, queued, editors, max }) {
+  if (queued === 0 || editors >= max) return false;
+  return editors === 0 || remainingMs / (editors + 1) >= POOL_MIN_SHARE_MS;
+}
+
+/**
+ * The next files for one headless editor, off the front of the queue. Batches
+ * shrink as the queue drains, so the editors finish together: a share of what
+ * is left, between 20 s and 120 s of measured time, and at least one file.
+ */
+export function nextBatch(queue, weights, editors, capMs = 120_000) {
+  const remaining = queue.reduce((sum, f) => sum + (weights.get(f) ?? 0), 0);
+  const target = Math.min(capMs, Math.max(20_000, remaining / (2 * Math.max(1, editors))));
+  const batch = [];
+  let ms = 0;
+  while (queue.length > 0 && (batch.length === 0 || ms < target)) {
+    const f = queue.shift();
+    batch.push(f);
+    ms += weights.get(f) ?? 0;
+  }
+  return { files: batch, weightMs: ms };
+}
+
 /** One test's identity in timing records and budgets. */
 export function testKey(file, fullName) {
   return `${file} > ${fullName}`;
@@ -212,19 +267,6 @@ export function launchOrder(plan) {
 /** Memory left for everything else on the machine: at least 4 GB, or 12% of it. */
 export function headroomMB(totalMB) {
   return Math.max(4096, Math.round(totalMB * 0.12));
-}
-
-/**
- * How many headless shards fit in the memory free now. The headless editors
- * run for most of the suite. The base, render, interactive and scm editors are
- * short and wait for memory at launch like any other, so no room is held back
- * for them: holding it on a 32 GB machine with 16 GB free left one headless
- * editor to run 116 files alone (1.4.11-beta.4, 752 s). At least one, at most `max`.
- */
-/** @param {{ freeMB: number, totalMB: number, max?: number }} opts */
-export function headlessShardCount({ freeMB, totalMB, max = 8 }) {
-  const fits = Math.floor((freeMB - headroomMB(totalMB)) / EDITOR_PEAK_MB.headless);
-  return Math.max(1, Math.min(max, fits));
 }
 
 /** Whether one more editor of this kind fits in the memory free now. */
