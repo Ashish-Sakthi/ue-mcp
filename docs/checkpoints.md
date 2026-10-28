@@ -71,7 +71,7 @@ An added asset has `before: null` and a description of what it is: its propertie
 
 The first 25 packages are diffed up front. The rest are listed in `assetDiffs.deferred`, carry `state: "deferred"`, and are diffed one at a time with `diff_checkpoint_asset` or `GET /v1/checkpoints/asset-diff`. Diffs are cached per path and pair of versions.
 
-`open_checkpoint_diff` opens Unreal's own view: `IAssetTools::DiffAssets` for a Blueprint, a material, a material instance or a data asset, `SDetailsDiff` for other assets, and, for a level or a DataTable, whose engine diff is a text diff, the external tool that Editor Preferences > Loading & Saving > Text Diff Tool names (refused with that reason when none is set). On an added or deleted asset it opens the asset editor on the one version there is. `nativeDiff` on each asset diff says whether it can open, and why not.
+`open_checkpoint_diff` opens Unreal's own view: `IAssetTools::DiffAssets` for a Blueprint, a material, a material instance or a data asset, `SDetailsDiff` for other assets, and, for a level or a DataTable, whose engine diff is a text diff, the external tool that Editor Preferences > Loading & Saving > Text Diff Tool names (refused with that reason when none is set). Each side's revision line in the window shows its checkpoint's label and the time the checkpoint was taken; "Current" shows the time the diff opened. On an added or deleted asset it opens the asset editor on the one version there is. `nativeDiff` on each asset diff says whether it can open, and why not.
 
 A restore:
 
