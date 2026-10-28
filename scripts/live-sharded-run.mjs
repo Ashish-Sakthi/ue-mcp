@@ -20,7 +20,7 @@ import { askOnce, extractReportedProjectDir, normalizeProjectRoot, PROJECT_IDENT
 import { resolveTestEngine } from "./build-utils.js";
 import { TEST_EDITOR_ARGS } from "./test-editor-args.mjs";
 import {
-  KIND_FLAGS, EDITOR_PEAK_MB, KEEP_IN_SHARD, liveFiles, planFixedShards, poolQueue, poolWantsEditor, nextBatch, mirror, buildOutputFilter,
+  KIND_FLAGS, EDITOR_PEAK_MB, KEEP_IN_SHARD, liveFiles, planFixedShards, poolQueue, poolWantsEditor, nextBatch, POOL_EDITOR_WORK_MS, mirror, buildOutputFilter,
   timingFromReports, overBudget, slowest, headroomMB, editorFits, launchOrder, splitAtDeath, undeployedSources,
 } from "./live-shards.mjs";
 
@@ -391,6 +391,14 @@ export async function runSharded(opts) {
   const running = new Set();
   const poolEditors = new Set();
   let poolSeq = 0;
+  // A replacement editor reuses a free slot's copy of the project, which then copies only what changed.
+  const poolJob = () => {
+    const used = new Set([...poolEditors].map((j) => j.slot));
+    let slot = 1;
+    while (used.has(slot)) slot++;
+    poolSeq++;
+    return { name: `h${poolSeq}`, slot, kind: "headless", files: [], weightMs: 0, dir: path.join(LIVE_SHARD_ROOT, `h${slot}`, "ue_mcp") };
+  };
   let poolLaunchFailures = 0;
   // Wakes the launcher when an editor is ready or gone, or a dead editor hands files back.
   let wake = () => {};
@@ -443,13 +451,14 @@ export async function runSharded(opts) {
     nudge();
   };
 
-  // A headless editor takes batches off the shared queue until it is empty, so the editors finish together
-  // however far their files stray from the recorded times, and one started late still takes a share.
+  // A headless editor takes batches off the shared queue, so the editors finish together however far
+  // their files stray from the recorded times, and one started late still takes a share. After
+  // POOL_EDITOR_WORK_MS it closes and a fresh editor takes over, before its deletes grow slow.
   const runPoolEditor = async (job) => {
     if (await bringUp(job)) {
       let batch = 0;
-      while (pool.files.length > 0) {
-        const next = nextBatch(pool.files, pool.weights, poolEditors.size);
+      while (pool.files.length > 0 && job.weightMs < POOL_EDITOR_WORK_MS) {
+        const next = nextBatch(pool.files, pool.weights, poolEditors.size, Math.min(120_000, POOL_EDITOR_WORK_MS - job.weightMs));
         job.files.push(...next.files);
         job.weightMs += next.weightMs;
         const unrun = await runFiles(job, next.files, ++batch);
@@ -494,7 +503,7 @@ export async function runSharded(opts) {
     told = false;
     const job = !poolFirst && fixedQueue.length > 0
       ? fixedQueue.shift()
-      : { name: `h${++poolSeq}`, kind: "headless", files: [], weightMs: 0, dir: path.join(LIVE_SHARD_ROOT, `h${poolSeq}`, "ue_mcp") };
+      : poolJob();
     job.memoryAtReady = null;
     job.queuedS = (Date.now() - started) / 1000;
     running.add(job);

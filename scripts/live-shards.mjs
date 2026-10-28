@@ -127,6 +127,14 @@ export function planFixedShards(entries, timing, counts) {
   return planShards(entries.filter((e) => e.kind !== "headless" && e.kind !== "none"), timing, counts);
 }
 
+/**
+ * Measured work one headless editor runs before the pool replaces it with a fresh one. A delete
+ * scans every loaded object for referencers, and an editor that has run many files has many: one
+ * that ran all 125 headless files took 1534 s for 614 s measured, its deletes grown from 8 ms to
+ * 6 s each, most of its time (#1592). A launch costs about 30 s.
+ */
+export const POOL_EDITOR_WORK_MS = 150_000;
+
 /** Work an editor launch has to be worth, in measured ms: a launch and a stop cost about 30 s. */
 export const POOL_MIN_SHARE_MS = 60_000;
 
@@ -144,9 +152,9 @@ export function poolWantsEditor({ remainingMs, queued, editors, max }) {
  * shrink as the queue drains, so the editors finish together: a share of what
  * is left, between 20 s and 120 s of measured time, and at least one file.
  */
-export function nextBatch(queue, weights, editors) {
+export function nextBatch(queue, weights, editors, capMs = 120_000) {
   const remaining = queue.reduce((sum, f) => sum + (weights.get(f) ?? 0), 0);
-  const target = Math.min(120_000, Math.max(20_000, remaining / (2 * Math.max(1, editors))));
+  const target = Math.min(capMs, Math.max(20_000, remaining / (2 * Math.max(1, editors))));
   const batch = [];
   let ms = 0;
   while (queue.length > 0 && (batch.length === 0 || ms < target)) {

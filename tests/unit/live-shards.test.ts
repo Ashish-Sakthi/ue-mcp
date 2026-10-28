@@ -77,6 +77,11 @@ describe("the headless pool", () => {
     const weights = new Map(Array.from({ length: 100 }, (_, i) => [`f${i}`, 10_000]));
     expect(nextBatch([...weights.keys()], weights, 1).weightMs).toBe(120_000);
   });
+
+  it("caps a batch at what is left of the editor's share before it is replaced", () => {
+    const weights = new Map(Array.from({ length: 100 }, (_, i) => [`f${i}`, 10_000]));
+    expect(nextBatch([...weights.keys()], weights, 1, 30_000).weightMs).toBe(30_000);
+  });
 });
 
 describe("timing and budgets", () => {
