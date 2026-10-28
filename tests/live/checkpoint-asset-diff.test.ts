@@ -41,6 +41,8 @@ let localYml: string;
 let localYmlBefore: string | null = null;
 let start = "";
 let end = "";
+let startAt = "";
+let endAt = "";
 let changes: Json[] = [];
 let result: Json = {};
 
@@ -148,7 +150,9 @@ afterAll(async () => {
 
 describe.sequential("a turn's asset diffs", () => {
   it("list_changes gives every package of the turn an asset diff from Unreal's diff code", async () => {
-    start = (await tool("editor", "checkpoint", { label: "asset diff turn start" })).id;
+    const startTaken = await tool("editor", "checkpoint", { label: "asset diff turn start" });
+    start = String(startTaken.id);
+    startAt = String(startTaken.createdAt);
 
     await tool("material", "set_expression_value", { materialPath: MAT, expressionIndex: 0, value: 0.7 });
     await tool("material", "add_expression", { materialPath: MAT, expressionType: "Constant", name: "CkAdded", value: 0.5 });
@@ -172,7 +176,9 @@ describe.sequential("a turn's asset diffs", () => {
     await tool("asset", "save", { assetPath: NEW_MAT });
     await tool("asset", "delete", { assetPath: DOOMED, force: true });
 
-    end = (await tool("editor", "checkpoint", { label: "asset diff turn end" })).id;
+    const endTaken = await tool("editor", "checkpoint", { label: "asset diff turn end" });
+    end = String(endTaken.id);
+    endAt = String(endTaken.createdAt);
     result = await tool("editor", "list_changes", { from: start, to: end });
     changes = result.changes as Json[];
     expect(result.assetDiffs).toMatchObject({ limit: 25, deferred: [] });
@@ -280,6 +286,10 @@ describe.sequential("a turn's asset diffs", () => {
     const opened = await tool("editor", "open_checkpoint_diff", { from: start, to: end, changedPath: rel(MAT) });
     expect(opened.opened).toBe("window");
     expect(opened.windowTitle).toBeTruthy();
+    // Each side is dated with its checkpoint's time, not the unset date shown as "Dec 31, 1" (#1606).
+    const revisions = opened.revisions as { before: Json; after: Json };
+    expect(Date.parse(String(revisions.before.date))).toBe(Date.parse(startAt));
+    expect(Date.parse(String(revisions.after.date))).toBe(Date.parse(endAt));
     const listed = body(await callBridge(bridge, "list_windows", { maxTexts: 1, maxButtons: 1 }));
     const win = (listed.windows as Json[]).find((w) => w.title === opened.windowTitle);
     expect(win, JSON.stringify(listed.windows?.map((w: Json) => w.title))).toBeTruthy();

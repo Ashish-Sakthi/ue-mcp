@@ -6,6 +6,7 @@
 #include "HandlerRegistry.h"
 #include "HandlerUtils.h"
 #include "Handlers/Diff/DiffHandlers.h"
+#include "Handlers/Diff/DiffHandlers_Revision.h"
 #include "MCPScopedTestMount.h"
 #include "Materials/Material.h"
 #include "Materials/MaterialExpressionConstant.h"
@@ -268,9 +269,22 @@ bool FMCPCheckpointNativeDiffWindowTest::RunTest(const FString& Parameters)
 	Params->SetStringField(TEXT("toFile"), After);
 	Params->SetStringField(TEXT("fromLabel"), TEXT("Checkpoint A"));
 	Params->SetStringField(TEXT("toLabel"), TEXT("Checkpoint B"));
+	Params->SetStringField(TEXT("fromTime"), TEXT("2026-10-27T09:15:00.000Z"));
+	Params->SetStringField(TEXT("toTime"), TEXT("2026-10-28T14:30:00.000Z"));
 	const TSharedPtr<FJsonObject> Opened = CkDiffTestCall(*this, Registry, TEXT("checkpoint_open_native_diff"), Params);
 	if (!Opened.IsValid() || !TestTrue(TEXT("native diff opens"), Opened->GetBoolField(TEXT("success")))) return false;
 	TestEqual(TEXT("it is a window"), Opened->GetStringField(TEXT("opened")), FString(TEXT("window")));
+
+	// Each side's revision carries its checkpoint's time, not the unset date the window shows as "Dec 31, 1" (#1606).
+	const TSharedPtr<FJsonObject>* Revisions = nullptr;
+	if (TestTrue(TEXT("the revisions are reported"), Opened->TryGetObjectField(TEXT("revisions"), Revisions)))
+	{
+		const TSharedPtr<FJsonObject> RevBefore = (*Revisions)->GetObjectField(TEXT("before"));
+		const TSharedPtr<FJsonObject> RevAfter = (*Revisions)->GetObjectField(TEXT("after"));
+		TestEqual(TEXT("before is labelled"), RevBefore->GetStringField(TEXT("label")), FString(TEXT("Checkpoint A")));
+		TestEqual(TEXT("before is dated with its checkpoint"), RevBefore->GetStringField(TEXT("date")), FDateTime(2026, 10, 27, 9, 15, 0).ToIso8601());
+		TestEqual(TEXT("after is dated with its checkpoint"), RevAfter->GetStringField(TEXT("date")), FDateTime(2026, 10, 28, 14, 30, 0).ToIso8601());
+	}
 	const FString Title = Opened->GetStringField(TEXT("windowTitle"));
 	TestFalse(TEXT("the window has a title"), Title.IsEmpty());
 
@@ -287,6 +301,24 @@ bool FMCPCheckpointNativeDiffWindowTest::RunTest(const FString& Parameters)
 		Found->RequestDestroyWindow();
 	}
 	IFileManager::Get().DeleteDirectory(*DiffDir, false, true);
+	return true;
+}
+
+IMPLEMENT_SIMPLE_AUTOMATION_TEST(
+	FMCPCheckpointRevisionDateTest,
+	"UE.MCP.Diff.CheckpointAsset.RevisionDateIsSet",
+	EAutomationTestFlags::EditorContext | EAutomationTestFlags::EngineFilter)
+
+bool FMCPCheckpointRevisionDateTest::RunTest(const FString& Parameters)
+{
+	const FDateTime Fallback(2026, 1, 2, 3, 4, 5);
+	const FRevisionInfo Timed = MCPCheckpointRevision(TEXT("Checkpoint 1234567: turn start"), TEXT("2026-10-28T14:30:00.000Z"), Fallback);
+	TestEqual(TEXT("the label is the revision"), Timed.Revision, FString(TEXT("Checkpoint 1234567: turn start")));
+	TestEqual(TEXT("the checkpoint time is the date"), Timed.Date, FDateTime(2026, 10, 28, 14, 30, 0));
+
+	TestEqual(TEXT("no time: the fallback"), MCPCheckpointRevision(TEXT("Current"), FString(), Fallback).Date, Fallback);
+	TestEqual(TEXT("an unreadable time: the fallback"), MCPCheckpointRevision(TEXT("B"), TEXT("yesterday"), Fallback).Date, Fallback);
+	TestNotEqual(TEXT("never the unset date"), MCPCheckpointRevision(TEXT("B"), FString(), Fallback).Date, FDateTime());
 	return true;
 }
 
