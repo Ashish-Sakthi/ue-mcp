@@ -1820,6 +1820,11 @@
           "suite": "integration",
           "file": "tests/integration/extensions.test.ts",
           "test": "serves only the bundle signed by a trusted key and intact, behind the token"
+        },
+        {
+          "suite": "integration",
+          "file": "tests/integration/extensions.test.ts",
+          "test": "serves the bundle at the loaded extension's version, never the newer one (#1618)"
         }
       ]
     },

@@ -32,6 +32,8 @@ interface Route {
 export interface LoadedExtension {
   name: string;
   version: string;
+  /** The oldest UI bundle version it works with. */
+  uiMin?: string;
   routes: Route[];
   busy: () => boolean;
   dispose?: () => void | Promise<void>;
@@ -42,6 +44,7 @@ interface ExtensionPackage {
   name: string;
   version: string;
   main: string;
+  uiMin?: string;
 }
 
 function readPackages(root: string, installed: string, refused: RefusedExtension[]): ExtensionPackage[] {
@@ -74,7 +77,8 @@ function readPackages(root: string, installed: string, refused: RefusedExtension
           continue;
         }
       }
-      out.push({ dir, name: ext.name, version: pkg.version ?? "0.0.0", main: path.join(dir, pkg.main) });
+      const uiMin = typeof ext.ui?.min === "string" ? ext.ui.min : undefined;
+      out.push({ dir, name: ext.name, version: pkg.version ?? "0.0.0", main: path.join(dir, pkg.main), ...(uiMin ? { uiMin } : {}) });
     } catch (e) {
       warn("extension", `cannot read ${dir}/package.json`, e);
     }
@@ -84,7 +88,7 @@ function readPackages(root: string, installed: string, refused: RefusedExtension
 
 /** Load every extension, handing each an API built by `apiFor`. A failing one is named and skipped. */
 export async function loadExtensions(
-  apiFor: (name: string, routes: Route[], setBusy: (fn: () => boolean) => void) => DaemonExtensionApi,
+  apiFor: (name: string, routes: Route[], setBusy: (fn: () => boolean) => void, pkg: { version: string; uiMin?: string }) => DaemonExtensionApi,
   root: string = extensionsDir(),
   refused: RefusedExtension[] = [],
   installed: string = packageVersion(),
@@ -97,8 +101,8 @@ export async function loadExtensions(
       const mod = (await import(pathToFileURL(pkg.main).href)) as Partial<DaemonExtension> & { default?: Partial<DaemonExtension> };
       const activate = mod.activate ?? mod.default?.activate;
       if (typeof activate !== "function") throw new Error("exports no activate(api)");
-      const handle = await activate(apiFor(pkg.name, routes, (fn) => (busy = fn)));
-      loaded.push({ name: pkg.name, version: pkg.version, routes, busy: () => busy(), dispose: handle?.dispose });
+      const handle = await activate(apiFor(pkg.name, routes, (fn) => (busy = fn), { version: pkg.version, ...(pkg.uiMin ? { uiMin: pkg.uiMin } : {}) }));
+      loaded.push({ name: pkg.name, version: pkg.version, ...(pkg.uiMin ? { uiMin: pkg.uiMin } : {}), routes, busy: () => busy(), dispose: handle?.dispose });
       info("extension", `loaded ${pkg.name} ${pkg.version}`);
     } catch (e) {
       warn("extension", `${pkg.name} failed to load`, e);

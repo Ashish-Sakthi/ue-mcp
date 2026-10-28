@@ -237,3 +237,31 @@ describe("a daemon no extension trusts a key for", () => {
     }
   });
 });
+
+describe("a daemon with an older extension than its newest UI bundle", () => {
+  it("serves the bundle at the loaded extension's version, never the newer one (#1618)", async () => {
+    covers("daemon.ui-bundles");
+    const older = new Sandbox();
+    try {
+      const project = older.makeProject("Older");
+      // A newer Studio once installed its UI; this one is the older extension that ships 1.0.0.
+      signedBundle(path.join(older.home, ".ue-mcp", "ui", "integ-ui-2.0.0"), "2.0.0", "newer-ui");
+      writeExtension(path.join(older.home, ".ue-mcp", "extensions"), {
+        name: "integ-ui", version: "1.0.0", bundle: { version: "1.0.0", marker: "matching-ui" },
+        activate: `api.route("GET", "/active", () => ({ body: api.ui.active() }));`,
+      });
+      const d = await startDaemonCli(older, project);
+      expect(fs.existsSync(path.join(older.home, ".ue-mcp", "ui", "integ-ui-2.0.0"))).toBe(true);
+      const page = await fetch(`${base(d)}/ui/`, { headers: bearer(d) });
+      expect(page.status).toBe(200);
+      const html = await page.text();
+      expect(html).toContain("matching-ui");
+      expect(html).not.toContain("newer-ui");
+      expect((await call(d, "GET", "/v1/health")).body).toMatchObject({ ui: "1.0.0", extensions: [{ name: "integ-ui", version: "1.0.0" }] });
+      expect((await call(d, "GET", "/v1/ext/integ-ui/active")).body).toMatchObject({ name: "integ-ui", version: "1.0.0" });
+    } finally {
+      await stopSandboxDaemons(older);
+      older.cleanup();
+    }
+  });
+});

@@ -61,6 +61,12 @@ export interface ExtensionManifest {
   api?: { min?: number; max?: number };
   /** The oldest ue-mcp the extension runs on. */
   ueMcp?: string;
+  /**
+   * The UI bundles it works with. The daemon serves the bundle named for the
+   * extension at its own version, or else the newest from `min` up to that
+   * version; never one newer. Without `min`, any older bundle qualifies.
+   */
+  ui?: { min?: string };
 }
 
 /** An extension the daemon did not load, and what it needs. */
@@ -304,7 +310,10 @@ export interface DaemonExtensionApi {
     trustKey(pem: string): void;
     /** Verify a bundle directory and install it. Throws when it does not verify. */
     install(dir: string): UiManifest;
-    /** The bundle being served, or null. */
+    /**
+     * The bundle being served, or null. A bundle named for this extension is
+     * served only at its version or older (`ueMcpExtension.ui`).
+     */
     active(): UiManifest | null;
   };
 
